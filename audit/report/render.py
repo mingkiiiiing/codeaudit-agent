@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,30 @@ _MD_ENV = Environment(
     autoescape=False,
 )
 _MD_ENV.filters["cell"] = lambda v: str(v).replace("|", "\\|").replace("\n", " ")
+
+# 行首 Markdown 结构符（R1-27）：LLM 文案若以 #/-/*/数字. 等开头，会被渲染成
+# 标题/列表破坏报告结构；渲染前统一转义为字面量。
+_MD_LEADING_MARK_RE = re.compile(r"^(\s{0,3})(#{1,6} |>|\- |\* |\+ |\d+[.)] )", re.MULTILINE)
+_ORDERED_LIST_RE = re.compile(r"^(\d+)([.)])")
+
+
+def _md_escape(value: Any) -> str:
+    """转义每行行首的 Markdown 结构符（R1-27）。
+
+    有序列表（"1. "）只转义标点（CommonMark 反斜杠转义仅对标点生效），
+    其余结构符在行首加反斜杠。
+    """
+
+    def _sub(m: re.Match[str]) -> str:
+        lead, mark = m.group(1), m.group(2)
+        if _ORDERED_LIST_RE.match(mark):
+            return lead + _ORDERED_LIST_RE.sub(r"\1\\\2", mark)
+        return f"{lead}\\{mark}"
+
+    return _MD_LEADING_MARK_RE.sub(_sub, str(value))
+
+
+_MD_ENV.filters["md"] = _md_escape
 
 _HTML_ENV = Environment(
     loader=FileSystemLoader(str(_TEMPLATES_DIR)),

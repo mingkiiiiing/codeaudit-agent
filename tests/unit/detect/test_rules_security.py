@@ -97,6 +97,11 @@ class TestHardcodedSecret:
         ctx = make_ctx('DB_PASSWORD = "SuperSecretPass!42"\n')
         assert _lines(self.rule, ctx) == [1]
 
+    def test_positive_camelcase_token(self, make_ctx):
+        """R1-9：驼峰分词后精确匹配敏感词（dbPassword → db/password）。"""
+        ctx = make_ctx('dbPassword = "T3st-P4ssw0rd-XYZ-9911"\n')
+        assert _lines(self.rule, ctx) == [1]
+
     def test_positive_sk_prefix_even_without_name(self, make_ctx):
         ctx = make_ctx('third_party = "sk-proj-9f8a7b6c5d4e3f2a1b0c9d8e"\n')
         assert _lines(self.rule, ctx) == [1]
@@ -111,6 +116,26 @@ class TestHardcodedSecret:
 
     def test_negative_unrelated_name(self, make_ctx):
         ctx = make_ctx('greeting = "hello cruel world example"\n')
+        assert self.rule.check(ctx) == []
+
+    def test_negative_substring_name_not_exact_token(self, make_ctx):
+        """R1-9：敏感词只做分词后精确匹配——KEYWORD 不含独立 key token（子串误报类）。"""
+        ctx = make_ctx('KEYWORD = "search-keyword-phrase-01"\n')
+        assert self.rule.check(ctx) == []
+
+    def test_negative_low_entropy_numeric_constant(self, make_ctx):
+        """R1-9：名称含敏感词但值是低熵数字串（无随机性）不报。"""
+        ctx = make_ctx('SECRET_THRESHOLD_BYTES = "00000000000000000"\n')
+        assert self.rule.check(ctx) == []
+
+    def test_negative_low_entropy_placeholder(self, make_ctx):
+        """R1-9：低熵占位串（sk- 前缀但无随机性）不报。"""
+        ctx = make_ctx('secret = "sk-aaaaaaaaaaaaaaaaaaaaaaaa"\n')
+        assert self.rule.check(ctx) == []
+
+    def test_negative_natural_language_text(self, make_ctx):
+        """R1-9：字段名含敏感词但值是自然语言文案（非 ASCII）不报。"""
+        ctx = make_ctx('password_error_text = "用户密码不能为空，请重新输入后再试"\n')
         assert self.rule.check(ctx) == []
 
 

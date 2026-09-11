@@ -14,6 +14,7 @@ DEFAULT_IGNORE_DIRS = {
     ".git",
     ".hg",
     ".svn",
+    ".codeaudit",  # 本工具自身的默认工作区（复跑时防止副本嵌套副本，R3-1 根因修复）
     "__pycache__",
     "node_modules",
     "venv",

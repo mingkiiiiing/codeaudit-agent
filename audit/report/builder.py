@@ -11,9 +11,17 @@ from audit.utils import guess_language, now_iso
 # ctx.stats 与 llm.usage_totals() 的重叠键：两者取较大值，避免阶段内已累计时被重复相加
 _LLM_STAT_KEYS = ("llm_calls", "prompt_tokens", "completion_tokens", "cache_hits", "cache_misses")
 
+# 生成单测目录（testgen 落盘位置，R1-10）：语言/LOC 统计排除，避免自产代码污染占比
+GENERATED_TEST_DIR = "tests/generated"
+
+
+def _is_generated_test(rel: str) -> bool:
+    posix = rel.replace("\\", "/")
+    return posix == GENERATED_TEST_DIR or posix.startswith(GENERATED_TEST_DIR + "/")
+
 
 def _collect_language_stats(ctx: PipelineContext) -> tuple[dict[str, float], int, int]:
-    """统计语言占比与总行数。
+    """统计语言占比与总行数（R1-10：排除 tests/generated/ 下的生成测试）。
 
     返回 (languages, loc, files_total)：
       - languages: 语言 -> 文件数占比（百分比，保留 1 位小数，未知语言不计入）
@@ -24,6 +32,8 @@ def _collect_language_stats(ctx: PipelineContext) -> tuple[dict[str, float], int
     files_total = 0
     loc = 0
     for path in ctx.workspace.source_files():
+        if _is_generated_test(ctx.workspace.rel(path)):
+            continue
         files_total += 1
         lang = guess_language(path)
         if lang:

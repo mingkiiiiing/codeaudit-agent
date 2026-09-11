@@ -38,6 +38,13 @@ AUDITS: dict[str, dict[str, Any]] = {}
 
 _TERMINAL_STATUSES = ("done", "failed")
 
+# 任务表上限（R1-6）：超过时在新建任务后淘汰最旧的 done/failed 项（简单 LRU）
+_AUDITS_MAX = 50
+
+# 后台任务引用（R1-7）：create_task 只返回弱引用，必须由本集合持有，
+# 任务结束的 done callback 中 discard，防止被 GC 中途回收。
+_TASKS: set[asyncio.Task] = set()
+
 # 合法过滤值（与 audit.models 枚举保持一致）
 _SEVERITY_VALUES = {s.value for s in Severity}
 _CATEGORY_VALUES = {c.value for c in Category}
@@ -93,6 +100,24 @@ async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
         entry["status"] = "failed"
 
 
+def _prune_audits() -> None:
+    """任务表终态清理（R1-6）：超过上限时按插入序淘汰最旧的 done/failed 项。
+
+    只淘汰终态条目；running/queued 任务不受影响。淘汰后 SSE 轮询端
+    （event_stream 中 entry is None → return）自然收流。
+    """
+    if len(AUDITS) <= _AUDITS_MAX:
+        return
+    overflow = len(AUDITS) - _AUDITS_MAX
+    evicted = 0
+    for audit_id, entry in list(AUDITS.items()):
+        if evicted >= overflow:
+            break
+        if entry.get("status") in _TERMINAL_STATUSES:
+            AUDITS.pop(audit_id, None)
+            evicted += 1
+
+
 def create_app() -> FastAPI:
     """构建 FastAPI 应用（每个测试可独立创建实例，任务表为模块级共享）。"""
     app = FastAPI(title="CodeAudit Agent", version="0.1.0")
@@ -105,16 +130,23 @@ def create_app() -> FastAPI:
         if not source.exists():
             raise HTTPException(status_code=400, detail=f"源路径不存在：{req.source_path}")
         audit_id = new_audit_id()
+        config = AuditConfig.from_env(
+            source_path=str(source), do_fix=req.do_fix, do_tests=req.do_tests
+        )
+        if not config.out_dir:
+            # R1-30：报告目录按任务隔离，避免多任务相互覆盖 report.json
+            config.out_dir = str(Path(config.work_root) / audit_id / "reports")
         AUDITS[audit_id] = {
             "status": "queued",
             "report": None,
             "events": [],
             "error": None,
-            "config": AuditConfig.from_env(
-                source_path=str(source), do_fix=req.do_fix, do_tests=req.do_tests
-            ),
+            "config": config,
         }
-        asyncio.create_task(_run_audit_task(audit_id, AUDITS[audit_id]["config"]))
+        _prune_audits()
+        task = asyncio.create_task(_run_audit_task(audit_id, config))
+        _TASKS.add(task)
+        task.add_done_callback(_TASKS.discard)
         return {"audit_id": audit_id}
 
     @app.get("/api/audits/{audit_id}")

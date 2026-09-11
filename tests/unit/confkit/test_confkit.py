@@ -155,6 +155,13 @@ class TestChangedFiles:
         make_git_repo(root)
         assert changed_files(root, "") is None
 
+    def test_option_like_ref_returns_none(self, tmp_path: Path):
+        """R1-22：前导 '-' 的 ref（git 选项注入，如 --upload-pack）直接拒绝。"""
+        root = tmp_path / "repo"
+        make_git_repo(root)
+        assert changed_files(root, "--upload-pack=evil") is None
+        assert changed_files(root, "-q") is None
+
 
 # ---------------------------------------------------------------- apply_diff_filter
 

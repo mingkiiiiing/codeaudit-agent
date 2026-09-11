@@ -477,3 +477,49 @@ async def test_all_handlers_never_raise(sample_workspace, tools):
             await spec.handler(**{k: None for k in spec.parameters.get("properties", {})})
         except Exception as exc:  # pragma: no cover
             pytest.fail(f"工具 {name} 抛出了异常: {exc!r}")
+
+
+# ---------------------------------------------------------------- R1-13 / R1-12 回归
+
+
+async def test_run_tests_rejects_option_injection(sample_workspace):
+    """R1-13：'-' 开头的 target（pytest 选项注入）被拒绝，不传给沙箱。"""
+    stub = StubSandbox(SandboxResult())
+    specs = {s.name: s for s in build_default_tools(sample_workspace, sandbox=stub)}
+    res = await specs["run_tests"].handler(framework="pytest", target="-p no:cacheprovider")
+    assert "error" in res and "禁止" in res["error"]
+    res2 = await specs["run_tests"].handler(framework="pytest", target="--import-mode=importlib")
+    assert "error" in res2
+    assert stub.calls == []  # 沙箱从未被调用
+
+
+async def test_run_tests_rejects_escape_and_outside_paths(sample_workspace):
+    """R1-13：.. 越级 / 越出工作副本的绝对路径同样拒绝。"""
+    stub = StubSandbox(SandboxResult())
+    specs = {s.name: s for s in build_default_tools(sample_workspace, sandbox=stub)}
+    assert "error" in await specs["run_tests"].handler(framework="pytest", target="../outside.py")
+    assert "error" in await specs["run_tests"].handler(
+        framework="pytest", target="C:/Windows/system32/cmd.exe"
+    )
+    assert stub.calls == []
+
+
+async def test_run_tests_normalizes_absolute_path_inside_root(sample_workspace):
+    """R1-13：src_root 内的绝对路径归一为相对路径后执行。"""
+    stub = StubSandbox(SandboxResult(exit_code=0))
+    specs = {s.name: s for s in build_default_tools(sample_workspace, sandbox=stub)}
+    res = await specs["run_tests"].handler(
+        framework="pytest", target=str(sample_workspace.src_root / "tests" / "test_x.py")
+    )
+    assert res["exit_code"] == 0
+    assert res["target"] == "tests/test_x.py"
+    assert stub.calls[-1][2] == "tests/test_x.py"
+
+
+async def test_search_code_rejects_overlong_regex(sample_workspace):
+    """R1-12：超过长度上限的正则 query 直接拒绝（防灾难性回溯）。"""
+    specs = {s.name: s for s in build_default_tools(sample_workspace)}
+    from audit.agent.tools import SEARCH_MAX_PATTERN_LEN
+
+    res = await specs["search_code"].handler(query="a" * (SEARCH_MAX_PATTERN_LEN + 1))
+    assert "error" in res and "过长" in res["error"]

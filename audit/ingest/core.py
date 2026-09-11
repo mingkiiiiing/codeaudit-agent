@@ -2,27 +2,36 @@
 
 职责：
   - 在 work_root/{audit_id}/src 物化工作副本（zip 安全解压 + 单层顶层目录提升）
-  - 应用过滤规则（内置忽略 + .gitignore 简易规则），被忽略文件不进入工作副本
+  - 物化阶段即应用内置忽略目录（R1-11：copytree ignore，避免把 node_modules/
+    .git 等大目录复制进副本），被忽略文件不进入工作副本
   - 产出 FileManifest（path/language/loc/sha256），识别主语言
   - 规模保护：超过文件数 / 行数阈值抛 IngestError（阈值可参数化）
+  - 失败清理（R1-16）：接入失败时删除半成品 task_root，不留垃圾目录
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import zipfile
 from pathlib import Path, PurePosixPath
 
 from audit.errors import IngestError
-from audit.ingest.decode import read_text_smart
-from audit.ingest.filters import GitignoreSet, should_ignore
+from audit.ingest.decode import decode_source_bytes
+from audit.ingest.filters import EXTRA_IGNORE_DIRS, GitignoreSet, should_ignore
 from audit.models import FileManifest
-from audit.utils import count_lines, guess_language, new_audit_id, sha256_file
-from audit.workspace import WorkspaceContext
+from audit.utils import count_lines, guess_language, new_audit_id
+from audit.workspace import DEFAULT_IGNORE_DIRS, WorkspaceContext
 
 # 单个源文件行数上限（docs/02 Stage1：超长文件跳过并记录）
 DEFAULT_MAX_FILE_LINES = 10_000
+
+# zip 解压累计上限（解压炸弹防御，R1-14）：超限抛 IngestError
+DEFAULT_MAX_ZIP_BYTES = 1_000_000_000  # 1 GB 未压缩总量
+
+# 物化阶段整体跳过的目录（内置忽略 + zip 垃圾目录）
+_MATERIALIZE_IGNORE_DIRS = DEFAULT_IGNORE_DIRS | EXTRA_IGNORE_DIRS
 
 
 def ingest(
@@ -33,12 +42,15 @@ def ingest(
     max_files: int = 2000,
     max_loc: int = 500_000,
     max_file_lines: int = DEFAULT_MAX_FILE_LINES,
+    max_zip_bytes: int = DEFAULT_MAX_ZIP_BYTES,
 ) -> WorkspaceContext:
     """把 source（目录或 .zip）接入为独立工作副本，返回 WorkspaceContext。
 
-    - 目录入口：整树复制后按过滤规则剪枝
-    - zip 入口：安全解压（拒绝路径逃逸成员），若所有条目共用单个顶层目录则提升
+    - 目录入口：整树复制（跳过内置忽略目录）后按过滤规则剪枝
+    - zip 入口：安全解压（拒绝路径逃逸成员；累计解压大小前置校验），若所有条目
+      共用单个顶层目录则提升
     - 产出 ctx.manifests 与 ctx.language；规模超限抛 audit.errors.IngestError
+    - 任何失败都会清理半成品 task_root（R1-16）后原样抛出
     """
     src = _resolve_source(source)
     if audit_id is None:
@@ -51,25 +63,29 @@ def ingest(
         shutil.rmtree(src_root)
     src_root.mkdir(parents=True, exist_ok=True)
 
-    if src.is_dir():
-        _materialize_dir(src, src_root)
-    else:
-        _materialize_zip(src, src_root)
-        # 仅 zip 入口提升单层顶层目录（目录入口的 src/ 子目录是正常结构）
-        _hoist_single_top_dir(src_root)
+    try:
+        if src.is_dir():
+            _materialize_dir(src, src_root)
+        else:
+            _materialize_zip(src, src_root, max_zip_bytes=max_zip_bytes)
+            # 仅 zip 入口提升单层顶层目录（目录入口的 src/ 子目录是正常结构）
+            _hoist_single_top_dir(src_root)
 
-    gitignore = GitignoreSet.collect(src_root)
+        gitignore = GitignoreSet.collect(src_root)
 
-    manifests = _build_manifests(src_root, gitignore, max_file_lines=max_file_lines)
-    _prune_empty_dirs(src_root)
-    if not manifests:
-        raise IngestError(f"接入后没有可用源文件：{src}")
+        manifests = _build_manifests(src_root, gitignore, max_file_lines=max_file_lines)
+        _prune_empty_dirs(src_root)
+        if not manifests:
+            raise IngestError(f"接入后没有可用源文件：{src}")
 
-    total_loc = sum(m.loc for m in manifests)
-    if len(manifests) > max_files:
-        raise IngestError(f"文件数 {len(manifests)} 超过上限 {max_files}")
-    if total_loc > max_loc:
-        raise IngestError(f"总行数 {total_loc} 超过上限 {max_loc}")
+        total_loc = sum(m.loc for m in manifests)
+        if len(manifests) > max_files:
+            raise IngestError(f"文件数 {len(manifests)} 超过上限 {max_files}")
+        if total_loc > max_loc:
+            raise IngestError(f"总行数 {total_loc} 超过上限 {max_loc}")
+    except BaseException:
+        shutil.rmtree(task_root, ignore_errors=True)  # R1-16：失败不留半成品
+        raise
 
     return WorkspaceContext(
         audit_id=audit_id,
@@ -99,25 +115,42 @@ def _resolve_source(source: str | Path) -> Path:
 
 
 def _materialize_dir(src: Path, src_root: Path) -> None:
-    shutil.copytree(src, src_root, dirs_exist_ok=True)
+    """整树复制；物化阶段即跳过内置忽略目录（R1-11：不把 .git/node_modules 等搬进副本）。"""
+    shutil.copytree(
+        src,
+        src_root,
+        dirs_exist_ok=True,
+        ignore=lambda _dir, names: [n for n in names if n in _MATERIALIZE_IGNORE_DIRS],
+    )
 
 
-def _materialize_zip(src: Path, src_root: Path) -> None:
+def _materialize_zip(src: Path, src_root: Path, *, max_zip_bytes: int) -> None:
     try:
         zf = zipfile.ZipFile(src)
     except (zipfile.BadZipFile, OSError) as exc:
         raise IngestError(f"zip 打开失败：{src}（{exc}）") from exc
     with zf:
-        for info in zf.infolist():
-            if info.is_dir():
-                continue
+        infos = [info for info in zf.infolist() if not info.is_dir()]
+        # R1-14：解压前按中央目录声明大小做累计校验（解压炸弹防御）
+        declared_total = 0
+        for info in infos:
+            name = info.filename
+            pure = PurePosixPath(name)
+            if pure.is_absolute() or ".." in pure.parts or (pure.parts and pure.parts[0].endswith(":")):
+                continue  # 路径逃逸成员不计入
+            declared_total += int(info.file_size)
+        if declared_total > max_zip_bytes:
+            raise IngestError(
+                f"zip 解压总量 {declared_total} 字节超过上限 {max_zip_bytes}（解压炸弹防御）"
+            )
+        for info in infos:
             name = info.filename
             pure = PurePosixPath(name)
             # 路径逃逸防护：绝对路径 / .. 段 / 盘符一律跳过
             if pure.is_absolute() or ".." in pure.parts or (pure.parts and pure.parts[0].endswith(":")):
                 continue
-            if pure.parts and pure.parts[0] in {"__MACOSX"}:
-                continue
+            if any(part in _MATERIALIZE_IGNORE_DIRS for part in pure.parts):
+                continue  # R1-11：与目录入口同口径，忽略目录成员不进副本
             try:
                 zf.extract(info, src_root)
             except (OSError, ValueError) as exc:
@@ -151,7 +184,11 @@ def _prune_empty_dirs(src_root: Path) -> None:
 
 
 def _build_manifests(src_root: Path, gitignore: GitignoreSet, *, max_file_lines: int) -> list[FileManifest]:
-    """遍历工作副本：应用过滤规则剪枝，产出 FileManifest 列表。"""
+    """遍历工作副本：应用过滤规则剪枝，产出 FileManifest 列表。
+
+    R1-15：每个文件只读盘一次（read_bytes），字节流同时用于 sha256 与解码/行数，
+    避免逐文件两次 IO。
+    """
     manifests: list[FileManifest] = []
     for path in sorted(src_root.rglob("*")):
         if not path.is_file():
@@ -160,13 +197,17 @@ def _build_manifests(src_root: Path, gitignore: GitignoreSet, *, max_file_lines:
         if should_ignore(rel, gitignore):
             path.unlink(missing_ok=True)  # 工作副本保持"过滤后"视图
             continue
-        text = read_text_smart(path)
+        try:
+            data = path.read_bytes()
+        except OSError:
+            continue  # 读取失败（如被外部删除）不阻断接入
+        text = decode_source_bytes(data)
         loc = count_lines(text)
         manifest = FileManifest(
             path=rel.as_posix(),
             language=guess_language(rel) or "",
             loc=loc,
-            sha256=sha256_file(path),
+            sha256=hashlib.sha256(data).hexdigest(),
         )
         if loc > max_file_lines:
             # 超长文件：保留在磁盘但记录跳过原因，索引阶段不再解析

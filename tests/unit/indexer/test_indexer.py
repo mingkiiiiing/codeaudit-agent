@@ -265,3 +265,30 @@ def test_stats_shape(store: SqliteIndexStore):
     assert st["call_edges"] > 0
     assert 0.0 < st["resolved_ratio"] < 1.0
     assert st["parsed_failed"] == 0
+
+
+# ---------------------------------------------------------------- R1-23 回归
+
+
+def test_like_wildcards_in_symbol_names_are_escaped(tmp_path: Path):
+    """R1-23：符号名中的 _ 不再被当作 LIKE 通配符（旧实现 foo_bar 会误配 fooXbar）。"""
+    src = tmp_path / "src"
+    (src / "mod_a").mkdir(parents=True)
+    (src / "mod_a" / "impl1.py").write_text(
+        "def foo_bar():\n    return 1\n", encoding="utf-8", newline="\n"
+    )
+    (src / "mod_a" / "impl2.py").write_text(
+        "def fooXbar():\n    return 2\n", encoding="utf-8", newline="\n"
+    )
+    ws = WorkspaceContext(
+        audit_id="liketest", src_root=src, work_root=tmp_path, db_path=tmp_path / "i.db"
+    )
+    s = create_index(ws)
+    try:
+        s.build()
+        chain = s.call_chain("foo_bar")
+        assert all("fooXbar" not in line for line in chain)
+        refs = s.references("foo_bar")
+        assert all("fooXbar" not in r.file for r in refs)
+    finally:
+        s.close()

@@ -15,7 +15,7 @@ import difflib
 import fnmatch
 import json
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 
 from audit.agent.base import ToolSpec
@@ -26,9 +26,11 @@ from audit.workspace import WorkspaceContext
 __all__ = [
     "build_default_tools",
     "format_numbered_lines",
+    "normalize_test_target",
     "validate_issue_payload",
     "READ_WINDOW_LINES",
     "SEARCH_MAX_RESULTS",
+    "SEARCH_MAX_PATTERN_LEN",
     "LIST_MAX_RESULTS",
     "VALID_CATEGORIES",
     "VALID_SEVERITIES",
@@ -37,6 +39,7 @@ __all__ = [
 
 READ_WINDOW_LINES = 200  # 单次返回最大行数
 SEARCH_MAX_RESULTS = 50  # 搜索最多返回条数
+SEARCH_MAX_PATTERN_LEN = 500  # 正则长度上限（R1-12：防灾难性回溯的超大模式）
 LIST_MAX_RESULTS = 500  # 列目录最多返回条数
 MAX_SEARCH_FILE_BYTES = 1_000_000  # 搜索时跳过超 1MB 的文件
 
@@ -348,6 +351,8 @@ def _search_code_tool(workspace: WorkspaceContext) -> ToolSpec:
     async def handler(query: str | None = None, file_glob: str = "", is_regex: bool = True) -> dict[str, Any]:
         if not str(query or "").strip():
             return {"error": "query 不能为空"}
+        if len(str(query)) > SEARCH_MAX_PATTERN_LEN:
+            return {"error": f"query 过长（>{SEARCH_MAX_PATTERN_LEN} 字符），请缩短后重试"}
         try:
             pattern = re.compile(str(query) if is_regex else re.escape(str(query)))
         except re.error as exc:
@@ -570,6 +575,35 @@ def _submit_patch_tool() -> ToolSpec:
     )
 
 
+def normalize_test_target(workspace: WorkspaceContext, target: str) -> str | None:
+    """把 run_tests 的 target 归一为 src_root 内的相对 posix 路径（R1-13）。
+
+    返回：
+    - ""：空 target（跑全部测试，合法）；
+    - 非空字符串：src_root 内相对路径（绝对路径先归一；越出 src_root 判非法）；
+    - None：非法（'-' 前缀的 pytest 选项注入、.. 越级、越出工作副本）。
+    """
+    text = str(target or "").replace("\\", "/").strip()
+    if not text:
+        return ""
+    if text.startswith("-"):
+        return None  # 拒绝 pytest/jest 选项注入（如 -p no:cacheprovider / --import-mode）
+    path = Path(text)
+    if path.is_absolute():
+        try:
+            rel = path.resolve().relative_to(Path(workspace.src_root).resolve())
+        except ValueError:
+            return None
+    else:
+        rel = Path(text.strip("/"))
+        if ".." in rel.parts:
+            return None
+    posix = rel.as_posix()
+    if not posix or posix == ".":
+        return ""
+    return posix
+
+
 def _run_tests_tool(workspace: WorkspaceContext, sandbox: Any) -> ToolSpec:
     async def handler(framework: str | None = None, target: str = "") -> dict[str, Any]:
         fw = str(framework or "").lower()
@@ -577,13 +611,16 @@ def _run_tests_tool(workspace: WorkspaceContext, sandbox: Any) -> ToolSpec:
             return {"error": f"不支持的测试框架: {framework!r}（白名单: pytest / jest）"}
         if sandbox is None:
             return {"error": "sandbox not available"}
+        rel_target = normalize_test_target(workspace, str(target or ""))
+        if rel_target is None:
+            return {"error": f"target 非法：{target!r}（必须是工作副本内的相对测试路径，禁止 '-' 开头的选项）"}
         try:
-            res = await sandbox.run_tests(fw, workspace.src_root, str(target or ""))
+            res = await sandbox.run_tests(fw, workspace.src_root, rel_target)
         except Exception as exc:
             return {"error": f"沙箱执行失败: {type(exc).__name__}: {exc}"}
         return {
             "framework": fw,
-            "target": str(target or ""),
+            "target": rel_target,
             "exit_code": res.exit_code,
             "stdout_tail": res.stdout_tail,
             "stderr_tail": res.stderr_tail,

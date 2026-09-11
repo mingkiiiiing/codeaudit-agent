@@ -317,3 +317,90 @@ async def test_stage_emits_summary_event_even_without_issues(fake_emitter, tmp_p
 
     assert any(e.get("stage") == "fix" and "无可修复" in e.get("message", "") for e in fake_emitter.events)
     assert ctx.extra["fix_stats"]["attempted"] == 0
+
+
+# ---------------------------------------------------------------- R1-5/R1-18 回归
+
+
+async def test_rollback_restores_all_diff_target_files(tmp_path: Path, fake_emitter):
+    """R1-5：多文件 diff 回滚时按 diff 全部目标文件还原，无部分文件残留。
+
+    场景：语法校验失败触发回滚；diff 同时修改 app.py 与 helper.py。
+    修复前只按 issue.file 还原 app.py，helper.py 残留半成品内容。
+    """
+    helper_diff = (
+        "diff --git a/helper.py b/helper.py\n"
+        "--- a/helper.py\n"
+        "+++ b/helper.py\n"
+        "@@ -1,1 +1,2 @@\n"
+        " VALUE = 1\n"
+        "+VALUE_EXTRA = 2\n"
+    )
+    multi_diff = H.SYNTAX_BREAK_DIFF + helper_diff
+    ws = H.make_workspace(
+        tmp_path, {"app.py": H.APP_PY, "helper.py": "VALUE = 1\n", "tests/test_app.py": H.TEST_APP_PY}
+    )
+    fake = FakeLLMClient([H.llm_json(multi_diff, "同时改 app.py 与 helper.py")])
+    issue = _issue("ISS-0001", "helper.py", Severity.CRITICAL, 0.9)
+    ctx = H.make_ctx(ws, fake, fake_emitter)
+    ctx.issues = [issue]
+
+    await run_fix_stage(ctx)
+
+    assert ctx.patches[0].apply_status == "needs-review"
+    # 两个目标文件都被完整还原（helper.py 虽非 issue.file 也无残留）
+    assert ws.abs_path("app.py").read_bytes() == H.APP_PY.encode("utf-8")
+    assert ws.abs_path("helper.py").read_bytes() == b"VALUE = 1\n"
+
+
+async def test_rollback_restores_all_targets_on_apply_check_failure(tmp_path: Path, fake_emitter):
+    """R1-5：apply --check 失败路径同样按全部目标文件还原（内容不变）。"""
+    multi_diff = H.BAD_CONTEXT_DIFF + (
+        "diff --git a/notes.py b/notes.py\n"
+        "--- a/notes.py\n"
+        "+++ b/notes.py\n"
+        "@@ -1,1 +1,1 @@\n"
+        "-old\n"
+        "+new\n"
+    )
+    ws = H.make_workspace(tmp_path, {"app.py": H.APP_PY, "notes.py": "old\n"})
+    fake = FakeLLMClient([H.llm_json(multi_diff, "上下文错误")])
+    ctx = H.make_ctx(ws, fake, fake_emitter)
+    ctx.issues = [_issue("ISS-0001", "app.py", Severity.HIGH, 0.8)]
+
+    await run_fix_stage(ctx)
+
+    assert ctx.patches[0].apply_status == "needs-review"
+    assert ws.abs_path("app.py").read_bytes() == H.APP_PY.encode("utf-8")
+    assert ws.abs_path("notes.py").read_bytes() == b"old\n"
+
+
+async def test_rollback_removes_newly_created_file_on_failure(tmp_path: Path, fake_emitter):
+    """R1-5：diff 新建文件后回滚时，新建文件被删除（备份 None → unlink）。"""
+    new_file_diff = (
+        "diff --git a/created.py b/created.py\n"
+        "--- /dev/null\n"
+        "+++ b/created.py\n"
+        "@@ -0,0 +1,1 @@\n"
+        "+VALUE = 1\n"
+        "diff --git a/app.py b/app.py\n"
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -6,5 +6,5 @@\n"
+        " def divide(a, b):\n"
+        "     try:\n"
+        "         return a / b\n"
+        "-    except:\n"
+        "+    except [\n"
+        "         return None\n"
+    )
+    ws = H.make_workspace(tmp_path, {"app.py": H.APP_PY, "tests/test_app.py": H.TEST_APP_PY})
+    fake = FakeLLMClient([H.llm_json(new_file_diff, "新建文件 + 语法破坏")])
+    ctx = H.make_ctx(ws, fake, fake_emitter)
+    ctx.issues = [_issue("ISS-0001", "app.py", Severity.CRITICAL, 0.9)]
+
+    await run_fix_stage(ctx)
+
+    assert ctx.patches[0].apply_status == "needs-review"
+    assert not (ws.abs_path("created.py")).exists()
+    assert ws.abs_path("app.py").read_bytes() == H.APP_PY.encode("utf-8")

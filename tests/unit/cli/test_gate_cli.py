@@ -83,25 +83,25 @@ def test_gate_fails_on_high_with_exit_3(fake_run, tmp_path: Path, capsys: pytest
     """--check --fail-on high：存在 1 个 high → 退出码 3，输出含「门禁」与阈值。"""
     rc = cli.main(["run", str(tmp_path), "--check", "--fail-on", "high"])
     assert rc == 3
-    out = capsys.readouterr().out
-    assert "门禁" in out
-    assert "阈值 high" in out
-    assert "退出码 3" in out
+    err = capsys.readouterr().err  # R3-12：门禁消息走 stderr
+    assert "门禁" in err
+    assert "阈值 high" in err
+    assert "退出码 3" in err
 
 
 def test_gate_passes_when_no_critical(fake_run, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """--fail-on critical：仅有 high/low → 门禁通过，退出码 0。"""
     rc = cli.main(["run", str(tmp_path), "--check", "--fail-on", "critical"])
     assert rc == 0
-    out = capsys.readouterr().out
-    assert "门禁" in out and "通过" in out
+    err = capsys.readouterr().err
+    assert "门禁" in err and "通过" in err
 
 
 def test_gate_bare_check_defaults_to_high(fake_run, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """仅 --check（未给阈值）：默认 high（与 SARIF error 档对齐），1 个 high → 退出码 3。"""
     rc = cli.main(["run", str(tmp_path), "--check"])
     assert rc == 3
-    assert "阈值 high" in capsys.readouterr().out
+    assert "阈值 high" in capsys.readouterr().err
 
 
 def test_gate_disabled_by_default(fake_run, tmp_path: Path) -> None:
@@ -121,9 +121,9 @@ def test_gate_fail_message_reports_counts_and_suppressed(
     monkeypatch.setattr(cli, "run_audit_simple", fake)
     rc = cli.main(["run", str(tmp_path), "--check", "--fail-on", "high"])
     assert rc == 3
-    out = capsys.readouterr().out
+    err = capsys.readouterr().err
     for token in ("阈值 high", "critical 0", "high 1", "low 2", "问题总数 3", "基线抑制 4"):
-        assert token in out, token
+        assert token in err, token
 
 
 def test_gate_threshold_from_config_file(fake_run, tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -132,7 +132,7 @@ def test_gate_threshold_from_config_file(fake_run, tmp_path: Path, capsys: pytes
     config_file.write_text('fail_on_severity = "low"\n', encoding="utf-8")
     rc = cli.main(["run", str(tmp_path), "--check", "--config", str(config_file)])
     assert rc == 3
-    assert "阈值 low" in capsys.readouterr().out
+    assert "阈值 low" in capsys.readouterr().err
     assert fake_run[0].fail_on_severity == "low"  # 配置文件值写入 config 字段
 
 
@@ -234,3 +234,44 @@ def test_run_help_documents_new_flags(capsys: pytest.CaptureFixture[str]) -> Non
     out = capsys.readouterr().out
     for flag in ("--format", "--check", "--fail-on", "--baseline", "--report-baseline", "--diff", "--config"):
         assert flag in out, flag
+
+
+# ---------------------------------------------------------------- R3-12 / R3-7 回归
+
+
+def test_gate_json_stdout_stays_pure_for_json_loads(
+    fake_run, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """R3-12：--json --check（门禁失败）时 stdout 可整体 json.loads，门禁消息在 stderr。"""
+    rc = cli.main(["run", str(tmp_path), "--json", "--check", "--fail-on", "high"])
+    assert rc == 3
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)  # stdout 保持纯净
+    assert data["project_name"] == "demo_proj"
+    assert "门禁" in captured.err and "退出码 3" in captured.err
+
+
+def test_prog_name_follows_sys_argv0(monkeypatch: pytest.MonkeyPatch) -> None:
+    """R3-7：usage 中的 prog 按 sys.argv[0] basename 推导（安装态显示 codeaudit）。"""
+    import sys
+
+    for argv0, expected in (
+        ("/usr/local/bin/codeaudit", "codeaudit"),
+        (r"C:\Apps\codeaudit.exe", "codeaudit"),
+        ("D:/repo/cli.py", "cli.py"),
+    ):
+        monkeypatch.setattr(sys, "argv", [argv0])
+        assert cli.build_parser().prog == expected
+    monkeypatch.setattr(sys, "argv", [])
+    assert cli.build_parser().prog == "cli.py"  # 空回退
+
+
+def test_index_cmd_closes_store(demo_proj_path: Path, tmp_path: Path, capsys) -> None:
+    """R1-4：index 子命令结束后释放 SQLite 连接（Windows 下未关闭无法删除 db）。"""
+    work_root = tmp_path / "work"
+    rc = cli.main(["index", str(demo_proj_path), "--work-root", str(work_root)])
+    assert rc == 0
+    dbs = list(work_root.glob("*/index.db"))
+    assert dbs
+    for db in dbs:
+        db.unlink()  # 连接未关闭时 Windows 抛 PermissionError

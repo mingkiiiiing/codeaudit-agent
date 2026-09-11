@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -366,15 +367,41 @@ def _read_snapshot(path: Path) -> bytes | None:
         return None
 
 
+def _is_valid_git_repo(cwd: Path) -> bool:
+    """判断 cwd 是否为有效 git 仓库（``git rev-parse --git-dir`` 成功）。"""
+    try:
+        proc = subprocess.run(  # noqa: S603 —— 固定命令列表，无 shell
+            ["git", "-C", str(cwd), "rev-parse", "--git-dir"],
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
 def _ensure_standalone_repo(cwd: Path) -> None:
     """把工作副本幂等初始化为独立 git 仓库。
 
     背景：`git apply` 在仓库子目录内运行时按**外层仓库根**解析补丁路径，
     cwd 之外的目标被静默跳过（"Skipped patch"，exit 0）——工作副本常位于
     用户仓库内（如 <项目>/.codeaudit/<id>/src），必须让副本自身成为仓库根。
+
+    R1-11：``.git`` 存在但并非有效仓库（zip 里带出的指针文件 / 空骨架目录，
+    指向的实体未随副本复制）时，先删除残骸再强制 init，否则 git apply 会
+    因仓库不可用而失败。
     """
-    if (cwd / ".git").exists():
-        return
+    git_path = cwd / ".git"
+    if git_path.exists():
+        if _is_valid_git_repo(cwd):
+            return
+        try:  # 残缺 .git 骨架：删除后重建
+            if git_path.is_dir():
+                shutil.rmtree(git_path, ignore_errors=True)
+            else:
+                git_path.unlink(missing_ok=True)
+        except OSError:
+            return  # 清不掉就保持原样，由 apply 生效性校验兜底
     try:
         subprocess.run(  # noqa: S603 —— 固定命令列表，无 shell
             ["git", "init", "-q"],

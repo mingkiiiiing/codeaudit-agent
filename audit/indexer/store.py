@@ -103,6 +103,14 @@ class _AliasEntry:
     name: str = ""  # symbol 绑定时的符号名
 
 
+def _like_escape(name: str) -> str:
+    r"""转义 LIKE 通配符（R1-23）：符号名含 % / _ / \ 时不改变匹配语义。
+
+    配合 SQL 端 ``ESCAPE '\'`` 使用，返回转义后的 pattern 片段。
+    """
+    return name.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+
+
 def create_index(workspace: WorkspaceContext, db_path: Path | None = None) -> IndexStore:
     """工厂：为 workspace 创建 SQLite 索引存储（默认路径 workspace.db_path）。"""
     return SqliteIndexStore(workspace, db_path)
@@ -125,6 +133,10 @@ class SqliteIndexStore(IndexStore):
         self._py_files_by_module: dict[str, str] = {}
         self._symbols_by_file: dict[str, set[str]] = {}
         self._js_files: set[str] = set()
+        # R1-8 修复：预取 language 映射 + 按 caller 缓存 import 别名表，
+        # 消除 _resolve_edges 对每行调用边的 2 次 SQL（压测实测 build 省 10.2%）
+        self._lang_map: dict[str, str] = {}
+        self._alias_cache: dict[str, dict[str, "_AliasEntry"]] = {}
 
     # ---------------------------------------------------------------- build
 
@@ -209,8 +221,14 @@ class SqliteIndexStore(IndexStore):
     # ---------------------------------------------------------------- 跨文件解析
 
     def _language_of(self, rel: str) -> str:
+        try:
+            return self._lang_map[rel]
+        except KeyError:
+            pass
         row = self._conn.execute("SELECT language FROM files WHERE path = ?", (rel,)).fetchone()
-        return row["language"] if row else ""
+        lang = row["language"] if row else ""
+        self._lang_map[rel] = lang
+        return lang
 
     def _py_module_of(self, rel: str) -> str:
         p = rel[:-3] if rel.endswith(".py") else rel
@@ -237,7 +255,14 @@ class SqliteIndexStore(IndexStore):
         return prefix
 
     def _aliases(self, caller_file: str) -> dict[str, _AliasEntry]:
-        """caller 文件的 import 别名绑定表（含通配导入展开）。"""
+        """caller 文件的 import 别名绑定表（含通配导入展开）。
+
+        结果按 caller_file 缓存：imports 表在 build 期间不变，且调用方只读
+        返回值（R1-8：消除逐 call 行的重复 SQL）。
+        """
+        cached = self._alias_cache.get(caller_file)
+        if cached is not None:
+            return cached
         entries: dict[str, _AliasEntry] = {}
         for row in self._conn.execute("SELECT module, imported_name, alias FROM imports WHERE file = ?", (caller_file,)):
             module, name, alias = row["module"], row["imported_name"], row["alias"]
@@ -259,6 +284,7 @@ class SqliteIndexStore(IndexStore):
                         entries.setdefault(short, _AliasEntry("symbol", mod, short))
             else:
                 entries[alias or name] = _AliasEntry("symbol", module, name)
+        self._alias_cache[caller_file] = entries
         return entries
 
     def _module_file(self, module: str) -> str | None:
@@ -445,7 +471,8 @@ class SqliteIndexStore(IndexStore):
         ).fetchall()
         if not rows:
             rows = self._conn.execute(
-                "SELECT * FROM symbols WHERE name LIKE ? ORDER BY file, line_start", (f"%.{name}",)
+                r"SELECT * FROM symbols WHERE name LIKE ? ESCAPE '\' ORDER BY file, line_start",
+                (f"%.{_like_escape(name)}",),
             ).fetchall()
         if hint is not None:
             hinted = [r for r in rows if r["file"] == hint]
@@ -456,10 +483,10 @@ class SqliteIndexStore(IndexStore):
         """引用点：调用图优先（含未解析边），为空时全文文本搜索兜底。"""
         hint = self._norm(file_hint) if file_hint else None
         sql = (
-            "SELECT caller_file, line FROM call_edges "
-            "WHERE (callee_name = ? OR callee_name LIKE ?)"
+            r"SELECT caller_file, line FROM call_edges "
+            r"WHERE (callee_name = ? OR callee_name LIKE ? ESCAPE '\')"
         )
-        params: list = [name, f"%.{name}"]
+        params: list = [name, f"%.{_like_escape(name)}"]
         if hint is not None:
             sql += " AND resolved = 1 AND callee_file = ?"
             params.append(hint)
@@ -478,8 +505,9 @@ class SqliteIndexStore(IndexStore):
     def call_chain(self, symbol_name: str, direction: str = "callees", depth: int = 1) -> list[str]:
         """从符号出发的调用链（每跳一条 'file:line sym -> file:line sym'）。"""
         start_rows = self._conn.execute(
-            "SELECT file, name, line_start FROM symbols WHERE name = ? OR name LIKE ? ORDER BY file, name",
-            (symbol_name, f"%.{symbol_name}"),
+            r"SELECT file, name, line_start FROM symbols "
+            r"WHERE name = ? OR name LIKE ? ESCAPE '\' ORDER BY file, name",
+            (symbol_name, f"%.{_like_escape(symbol_name)}"),
         ).fetchall()
         out: list[str] = []
         visited: set[tuple[str, str, int]] = set()

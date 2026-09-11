@@ -21,7 +21,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from audit.fix.patcher import apply_diff, generate_patch, validate_diff
+from audit.fix.patcher import _diff_targets, apply_diff, generate_patch, validate_diff
 from audit.fix.verifier import find_existing_tests, run_existing_tests, syntax_ok
 from audit.models import FixStatus, Issue, Patch, Severity
 from audit.pipeline import PipelineContext
@@ -76,17 +76,22 @@ def _read_backup(workspace: Any, rel_path: str) -> bytes | None:
         return None
 
 
-def _restore_backup(workspace: Any, rel_path: str, backup: bytes | None) -> None:
-    """回滚 = 还原备份内容；尽力而为（回滚失败不抛，Patch 终态已反映问题）。"""
-    target = workspace.abs_path(rel_path)
-    try:
-        if backup is None:
-            target.unlink(missing_ok=True)
-        else:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_bytes(backup)
-    except OSError:
-        pass
+def _restore_backups(workspace: Any, backups: dict[str, bytes | None]) -> None:
+    """回滚 = 还原全部 diff 目标文件的备份内容（R1-5：消除部分文件残留）。
+
+    尽力而为（单个文件回滚失败不抛，Patch 终态已反映问题）；
+    备份为 None 表示补丁新建的文件，回滚即删除。
+    """
+    for rel_path, backup in backups.items():
+        target = workspace.abs_path(rel_path)
+        try:
+            if backup is None:
+                target.unlink(missing_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(backup)
+        except OSError:
+            continue
 
 
 @dataclass
@@ -95,7 +100,7 @@ class _IssueRun:
 
     issue: Issue
     terminal: bool = False  # 是否已落入终态桶（防统计重复计数）
-    backup: bytes | None = None
+    backups: dict[str, bytes | None] = field(default_factory=dict)  # diff 全部目标文件 → 原字节
     diff: str | None = None
     rationale: str = ""
     patch: Patch | None = None
@@ -166,7 +171,7 @@ async def run_fix_stage(ctx: PipelineContext) -> None:
         if keep:
             stats["applied"] += 1
         else:
-            _restore_backup(ctx.workspace, state.issue.file, state.backup)
+            _restore_backups(ctx.workspace, state.backups)
         patch = _new_patch(state, status, tests[0], tests[1])
         state.issue.fix_status = fix_status
         await ctx.emit(
@@ -193,15 +198,19 @@ async def run_fix_stage(ctx: PipelineContext) -> None:
                 stats["failed"] += 1
                 state.terminal = True
             if state.applied_ok:  # 已落盘的补丁必须回滚，保证工作副本不被半成品污染
-                _restore_backup(ctx.workspace, issue.file, state.backup)
+                _restore_backups(ctx.workspace, state.backups)
             if state.patch is None and state.diff is not None:
                 _new_patch(state, "failed")
             if state.patch is not None:
                 issue.fix_status = FixStatus.NEEDS_REVIEW
                 issue.patch_id = state.patch.id
+                if state.applied_ok:
+                    # R1-18：回滚事实同步到 Patch 状态与事件文案
+                    state.patch.apply_status = "needs-review"
+            rolled = "（已回滚）" if state.applied_ok else ""
             await ctx.emit(
                 "fix",
-                f"{issue.id} 修复流程异常：{type(exc).__name__}: {exc}",
+                f"{issue.id} 修复流程异常{rolled}：{type(exc).__name__}: {exc}",
                 issue_id=issue.id,
                 error=True,
             )
@@ -250,7 +259,9 @@ async def _fix_one(ctx: PipelineContext, state: _IssueRun, sandbox: SandboxExecu
         return
 
     # 3) 备份 + git apply --check + git apply
-    state.backup = _read_backup(ctx.workspace, issue.file)
+    # R1-5：按 diff 全部目标文件备份（复用 patcher._diff_targets），
+    # 回滚时才能完整还原多文件补丁，消除"部分文件残留"。
+    state.backups = {t: _read_backup(ctx.workspace, t) for t in _diff_targets(state.diff)}
     ok, reason = apply_diff(ctx.workspace, state.diff, check_only=True)
     if not ok:
         await finalize(

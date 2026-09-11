@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from audit.config import AuditConfig
+from audit.llm.base import FakeLLMClient
 from audit.models import Category, Issue, Severity
 from audit.orchestrator.pipeline import run_audit, run_audit_simple
 from audit.workspace import WorkspaceContext
@@ -55,7 +56,7 @@ def _skip_messages(events: list[dict]) -> list[str]:
 
 
 async def test_all_modules_missing_produces_empty_report(fake_emitter, tmp_path: Path, monkeypatch):
-    """T2/T4 未集成：run_audit 不崩，产出空报告并发出 skip 事件。"""
+    """T2/T4 未集成：run_audit 不崩，产出空报告；index/detect/fix 被 ingest 门控跳过。"""
     _block_modules(
         monkeypatch,
         "audit.ingest",
@@ -80,14 +81,47 @@ async def test_all_modules_missing_produces_empty_report(fake_emitter, tmp_path:
 
     events = fake_emitter.events
     skips = _skip_messages(events)
-    # ingest / index / understand / detect 四个跨包阶段均被跳过
-    assert len(skips) >= 4
+    # ingest / understand 因模块未集成被跳过
+    assert len(skips) >= 2
     assert all("module not integrated" in m for m in skips)
+    # R1-2 门控：index / detect 因 ingest 未成功被明确跳过（事件含「跳过」与原因）
+    gated = [e for e in events if "ingest 未成功" in str(e.get("message", ""))]
+    assert {e["stage"] for e in gated} >= {"index", "detect"}
     # 报告阶段真实产出
     assert any(e["stage"] == "report" and "报告已生成" in e["message"] for e in events)
     assert (tmp_path / "out" / "report.json").exists()
     assert (tmp_path / "out" / "report.md").exists()
     assert (tmp_path / "out" / "report.html").exists()
+
+
+async def test_ingest_failure_gates_index_detect_fix(fake_emitter, tmp_path: Path, monkeypatch):
+    """R1-2：ingest 失败（非 ImportError）时 index/detect/fix 全部门控跳过且不扫描原始目录。"""
+    _block_modules(monkeypatch, "audit.indexer")
+
+    def broken_ingest(source, work_root, audit_id=None):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setitem(
+        sys.modules, "audit.ingest", _fake_module("audit.ingest", ingest=broken_ingest)
+    )
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "secret_impl.py").write_text("KEY = 'x'\n", encoding="utf-8")
+    config = AuditConfig(
+        source_path=str(src),
+        work_root=str(tmp_path / "work"),
+        out_dir=str(tmp_path / "out"),
+        do_fix=True,
+    )
+    report = await run_audit(config, fake_emitter)
+
+    assert report.issues == []
+    gated = [e for e in fake_emitter.events if "ingest 未成功" in str(e.get("message", ""))]
+    assert {e["stage"] for e in gated} == {"index", "detect", "fix"}
+    # ingest 失败被记入 stage_errors 而非中断流水线
+    assert any(e.get("stage") == "ingest" and e.get("error") for e in fake_emitter.events)
+    # 原始目录未被触碰
+    assert (src / "secret_impl.py").read_text(encoding="utf-8") == "KEY = 'x'\n"
 
 
 async def test_llm_not_configured_emits_warning(fake_emitter, tmp_path: Path):
@@ -122,9 +156,9 @@ async def test_stage_error_does_not_crash_pipeline(fake_emitter, tmp_path: Path,
 
     captured: dict = {}
 
-    def fake_ingest(source, work_root):
+    def fake_ingest(source, work_root, audit_id="fake0001"):
         ws = WorkspaceContext(
-            audit_id="cap0001",
+            audit_id=audit_id,
             src_root=Path(source),
             work_root=Path(work_root),
             db_path=Path(work_root) / "i.db",
@@ -193,14 +227,15 @@ def wired_fake_modules(tmp_path: Path, monkeypatch):
         def stats(self):
             return {"files": 2, "symbols": 4}
 
-    def fake_ingest(source, work_root):
+    def fake_ingest(source, work_root, audit_id="fake0001"):
         ws = WorkspaceContext(
-            audit_id="fake0001",
+            audit_id=audit_id,
             src_root=Path(source),
-            work_root=Path(work_root) / "fake0001",
-            db_path=Path(work_root) / "fake0001" / "index.db",
+            work_root=Path(work_root) / audit_id,
+            db_path=Path(work_root) / audit_id / "index.db",
         )
         captured["workspace"] = ws
+        captured["ingest_audit_id"] = audit_id
         return ws
 
     def fake_create_index(workspace, db_path=None):
@@ -260,8 +295,9 @@ async def test_wired_pipeline_order_events_and_report(
     # 1b) 报告项目名取原始路径名（而非工作副本目录名 src）
     assert report.project_name == "my-proj"
 
-    # 2) ingest 产物替换了临时工作区
-    assert captured["workspace"].audit_id == "fake0001"
+    # 2) ingest 产物替换了临时工作区；编排层把自身 audit_id 贯通传入（R1-17）
+    assert captured["workspace"].audit_id == captured["ingest_audit_id"]
+    assert captured["ingest_audit_id"] == report.audit_id
 
     # 3) index：build 被调用，store 注入 workspace 与 ctx
     assert captured["built"] is True
@@ -283,7 +319,7 @@ async def test_wired_pipeline_order_events_and_report(
     assert any(e["stage"] == "testgen" and "skipped: wave2" in e["message"] for e in events)
 
     # 7) 报告聚合了假检测产物
-    assert report.audit_id == "fake0001"
+    assert report.audit_id == captured["ingest_audit_id"]
     assert len(report.issues) == 2
     assert report.summary["critical"] == 1 and report.summary["low"] == 1
     assert report.architecture is not None and report.architecture.text == "假架构"
@@ -303,6 +339,133 @@ async def test_run_audit_simple_returns_report(tmp_path: Path, wired_fake_module
     assert report is not None
     assert len(report.issues) == 2
     assert report.stats.duration_sec > 0
+
+
+# ---------------------------------------------------------------- R1-1/R1-3/R1-4 回归
+
+
+class _RecordingLLM(FakeLLMClient):
+    """带 aclose 记录的 FakeLLM（R1-3：审计结束必须释放客户端）。"""
+
+    def __init__(self, script=None):
+        super().__init__(script)
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_simple_review_fn_end_to_end_produces_llm_issues(
+    tmp_path: Path, monkeypatch, fake_emitter
+):
+    """R1-1 贯通测试：simple 模式全流程，review_fn 参数正确转接、LLM Issue 进入报告。
+
+    修复前：file_path 被绑到 workspace 位，review_file 内部抛 TypeError 被
+    引擎吞进 review_errors，LLM 审查静默失效。
+    """
+    import json
+
+    import audit.detect.engine as engine_mod
+    from audit.llm.base import FakeLLMClient
+    from audit.orchestrator import pipeline as orch
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "app.py").write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+    payload = {
+        "issues": [
+            {
+                "category": "bug",
+                "severity": "high",
+                "title": "add 减法实现疑似缺陷",
+                "file": "app.py",
+                "line_start": 2,
+                "line_end": 2,
+                "description": "函数名与实现语义不符",
+                "confidence": 0.9,
+            }
+        ]
+    }
+    llm = FakeLLMClient([{"content": json.dumps(payload, ensure_ascii=False)}])
+    monkeypatch.setattr(orch, "_make_llm", lambda config: (llm, None))
+    _block_modules(monkeypatch, "audit.understand.architecture")  # 隔离 understand 的 LLM 调用
+
+    captured: dict = {}
+    real_run_detection = engine_mod.run_detection
+
+    async def spy_run_detection(ctx, **kwargs):
+        captured["ctx"] = ctx
+        return await real_run_detection(ctx, **kwargs)
+
+    monkeypatch.setattr(engine_mod, "run_detection", spy_run_detection)
+
+    config = AuditConfig(
+        source_path=str(src),
+        work_root=str(tmp_path / "work"),
+        out_dir=str(tmp_path / "out"),
+        api_key="test-key",  # 让 detect 装配 review_fn（不会触网：LLM 已替换为 FakeLLM）
+        review_mode="simple",
+        enable_verify=False,
+    )
+    report = await run_audit(config, fake_emitter)
+
+    # review 真正被调用（LLM 收到审查请求）
+    assert len(llm.calls) == 1
+    # LLM Issue 进入最终报告（而非静默 review_errors）
+    titles = [i.title for i in report.issues]
+    assert any("add 减法实现疑似缺陷" in t for t in titles)
+    assert any(i.source.value == "llm" for i in report.issues)
+    assert "review_errors" not in captured["ctx"].extra
+    assert not any(e.get("error") and e.get("stage") == "detect" for e in fake_emitter.events)
+
+
+async def test_run_audit_closes_llm_in_finally(tmp_path: Path, monkeypatch, fake_emitter):
+    """R1-3：正常结束路径 run_audit 在 finally 中调用 llm.aclose()。"""
+    from audit.orchestrator import pipeline as orch
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "m.py").write_text("x = 1\n", encoding="utf-8")
+    llm = _RecordingLLM()
+    monkeypatch.setattr(orch, "_make_llm", lambda config: (llm, None))
+    config = AuditConfig(source_path=str(src), work_root=str(tmp_path / "w"))
+    await run_audit(config, fake_emitter)
+    assert llm.closed is True
+
+
+async def test_run_audit_closes_llm_when_done_emit_raises(tmp_path: Path, monkeypatch):
+    """R1-3：收尾事件抛异常时 aclose 仍被执行（finally 兜底）。"""
+    from audit.orchestrator import pipeline as orch
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "m.py").write_text("x = 1\n", encoding="utf-8")
+    llm = _RecordingLLM()
+
+    async def exploding_emitter(event: dict) -> None:
+        if event.get("stage") == "done":  # done 事件在阶段兜底之外，异常向外传播
+            raise RuntimeError("emitter down")
+
+    monkeypatch.setattr(orch, "_make_llm", lambda config: (llm, None))
+    config = AuditConfig(source_path=str(src), work_root=str(tmp_path / "w"))
+    with pytest.raises(RuntimeError, match="emitter down"):
+        await run_audit(config, exploding_emitter)
+    assert llm.closed is True
+
+
+async def test_run_audit_closes_sqlite_store(demo_proj_path: Path, tmp_path: Path, fake_emitter):
+    """R1-4：审计结束后索引连接已关闭（Windows 下未关闭的 db 文件无法删除）。"""
+    config = AuditConfig(
+        source_path=str(demo_proj_path),
+        work_root=str(tmp_path / "work"),
+        out_dir=str(tmp_path / "out"),
+    )
+    await run_audit(config, fake_emitter)
+    dbs = list((tmp_path / "work").glob("*/index.db"))
+    assert dbs, "索引库未落盘"
+    for db in dbs:
+        db.unlink()  # 连接未关闭时 Windows 抛 PermissionError
+    assert not any(db.exists() for db in dbs)
 
 
 async def test_no_llm_review_passes_none_review_fn(tmp_path: Path, wired_fake_modules, monkeypatch):

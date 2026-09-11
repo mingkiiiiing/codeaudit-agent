@@ -200,3 +200,67 @@ def test_ingest_empty_project(tmp_path: Path):
     (tmp_path / "empty").mkdir()
     with pytest.raises(IngestError, match="没有可用源文件"):
         ingest(tmp_path / "empty", tmp_path, "m3")
+
+
+# ---------------------------------------------------------------- R1-11 / R1-14 / R1-16 回归
+
+
+def test_ingest_dir_skips_default_ignore_dirs_at_copy(tmp_path: Path):
+    """R1-11：目录入口在 copytree 阶段即跳过内置忽略目录（.git 不进工作副本）。"""
+    proj = tmp_path / "proj"
+    _write_project(
+        proj,
+        {
+            "main.py": "x = 1\n",
+            "node_modules/pkg/index.js": "export default 0;\n",
+        },
+    )
+    (proj / ".git").mkdir()
+    (proj / ".git" / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+    ctx = ingest(proj, tmp_path, "r1_11")
+    paths = {m.path for m in ctx.manifests}
+    assert paths == {"main.py"}
+    assert not (ctx.src_root / ".git").exists()
+    assert not (ctx.src_root / "node_modules").exists()
+
+
+def test_ingest_zip_skips_ignore_dir_members(tmp_path: Path):
+    """R1-11：zip 入口与目录入口同口径——忽略目录成员（含 .git 骨架）不进副本。"""
+    proj = tmp_path / "proj"
+    _write_project(proj, {"main.py": "x = 1\n"})
+    zip_path = tmp_path / "with_git.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        zf.writestr("proj/main.py", "x = 1\n")
+        zf.writestr("proj/.git/HEAD", "ref: refs/heads/main\n")
+        zf.writestr("proj/.git/config", "[core]\n")
+        zf.writestr("proj/node_modules/pkg/index.js", "export default 0;\n")
+    ctx = ingest(zip_path, tmp_path, "r1_11z")
+    paths = {m.path for m in ctx.manifests}
+    assert paths == {"main.py"}
+    assert not (ctx.src_root / ".git").exists()
+
+
+def test_ingest_zip_bomb_guard(tmp_path: Path):
+    """R1-14：zip 解压累计大小前置校验——按中央目录声明大小超限即拒（不解压）。"""
+    zip_path = tmp_path / "payload.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("proj/main.py", "x = 1\n")
+        zf.writestr("proj/data.bin", b"\x00" * 5000)
+    with pytest.raises(IngestError, match="上限"):
+        ingest(zip_path, tmp_path, "bomb", max_zip_bytes=1000)
+    assert not (tmp_path / "bomb").exists()  # R1-16：失败清理 task_root
+
+
+def test_ingest_failure_cleans_task_root(tmp_path: Path):
+    """R1-16：接入失败（无可用源文件）时删除半成品 task_root。"""
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(IngestError):
+        ingest(tmp_path / "empty", tmp_path, "gone")
+    assert not (tmp_path / "gone").exists()
+
+
+def test_ingest_max_files_guard_cleans_task_root(demo_proj_path: Path, tmp_path: Path):
+    """R1-16：规模超限失败同样清理 task_root（原来会残留整个副本）。"""
+    with pytest.raises(IngestError, match="文件数"):
+        ingest(demo_proj_path, tmp_path, "guardx", max_files=3)
+    assert not (tmp_path / "guardx").exists()

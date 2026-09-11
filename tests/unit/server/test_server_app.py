@@ -192,3 +192,47 @@ def test_index_page_served(tmp_path):
     assert resp.status_code == 200
     assert "text/html" in resp.headers["content-type"]
     assert "EventSource" in resp.text  # 演示页使用 SSE 订阅进度
+
+
+# ---------------------------------------------------------------- R1-6 / R1-7 / R1-30 回归
+
+
+def test_audits_prune_evicts_oldest_terminal_entries(fake_pipeline, tmp_path):
+    """R1-6：任务表超过上限时淘汰最旧的 done/failed 项（running 不动）。"""
+    for i in range(server_app._AUDITS_MAX):
+        server_app.AUDITS[f"old{i:02d}"] = {"status": "done", "report": None, "events": [], "error": None}
+    client = TestClient(server_app.create_app())
+    audit_id = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
+
+    assert len(server_app.AUDITS) == server_app._AUDITS_MAX
+    assert "old00" not in server_app.AUDITS  # 最旧 done 项被淘汰
+    assert "old01" in server_app.AUDITS
+    assert audit_id in server_app.AUDITS
+
+    # running/queued 不被淘汰
+    for i in range(server_app._AUDITS_MAX):
+        server_app.AUDITS[f"run{i:02d}"] = {"status": "running", "report": None, "events": [], "error": None}
+    server_app._prune_audits()
+    assert all(f"run{i:02d}" in server_app.AUDITS for i in range(server_app._AUDITS_MAX))
+
+
+def test_background_task_refs_discarded_on_done(fake_pipeline, tmp_path):
+    """R1-7：create_task 引用被 _TASKS 持有，任务结束后 discard（无泄漏）。"""
+    client = TestClient(server_app.create_app())
+    audit_id = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
+    _wait_status(client, audit_id, "done")
+    deadline = time.time() + 5
+    while server_app._TASKS and time.time() < deadline:
+        time.sleep(0.02)  # 等 done callback 执行
+    assert server_app._TASKS == set()
+
+
+def test_report_out_dir_isolated_per_audit(fake_pipeline, tmp_path):
+    """R1-30：未显式配置 out_dir 时，报告目录按 audit_id 隔离，不互相覆盖。"""
+    client = TestClient(server_app.create_app())
+    id1 = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
+    id2 = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
+    out1 = fake_pipeline[0].out_dir
+    out2 = fake_pipeline[1].out_dir
+    assert id1 in out1 and id2 in out2
+    assert out1 != out2

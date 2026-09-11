@@ -68,6 +68,13 @@ class LLMClient(ABC):
     def usage_totals(self) -> dict[str, int]:
         return {"llm_calls": 0, "prompt_tokens": 0, "completion_tokens": 0}
 
+    async def aclose(self) -> None:  # noqa: B027 —— 契约 v1.5：默认空实现是有意设计
+        """释放底层资源（HTTP 连接池等）；契约 v1.5 微增：默认空实现。
+
+        持有真实连接的客户端（如 GlmClient）覆写本方法；编排层在审计结束
+        （含异常）的 finally 中统一调用，无资源的实现（FakeLLM）无需关心。
+        """
+
 
 class FakeLLMClient(LLMClient):
     """脚本化假客户端：按顺序回放脚本项，用于全部离线测试。

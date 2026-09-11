@@ -160,3 +160,36 @@ def test_write_report_creates_three_files(pipeline_ctx: PipelineContext, tmp_pat
     assert data["health_score"] == report.health_score
     assert len(data["issues"]) == 3
     assert data["issues"][0]["severity"] == "critical"
+
+
+# ---------------------------------------------------------------- R1-27 回归
+
+
+def test_markdown_escapes_leading_markdown_structs():
+    """R1-27：以 #/-/1. 开头的 LLM 文案被转义为字面量，不再渲染成标题/列表。"""
+    from audit.models import AuditReport, AuditStats
+    from audit.report.render import _md_escape, render_markdown
+
+    assert _md_escape("# 大标题") == "\# 大标题"
+    assert _md_escape("- 列表项") == "\- 列表项"
+    assert _md_escape("1. 有序项") == "1\. 有序项"
+    assert _md_escape("正文\n## 注入标题") == "正文\n\## 注入标题"
+
+    issue = make_issue(
+        title="普通问题",
+        description="# 危险标题\n- 伪列表",
+        suggestion="1. 第一步",
+    )
+    report = AuditReport(
+        audit_id="r1_27test",
+        project_name="demo_proj",
+        health_score=80.0,
+        summary={"critical": 0, "high": 1, "medium": 0, "low": 0},
+        issues=[issue],
+        stats=AuditStats(),
+    )
+    md = render_markdown(report)
+    assert "### 危险标题" not in md
+    assert "\# 危险标题" in md
+    assert "\- 伪列表" in md
+    assert "1\. 第一步" in md

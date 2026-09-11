@@ -138,6 +138,8 @@ class TestToolsReviewFn:
 
         async def fake_run(self, system_prompt, messages, limits=None, on_event=None):
             captured["limits"] = limits
+            # 模拟正常收口（R1-26：不调用 record_issues 的 runtime 结束会被判非正常）
+            await self.get_tool("record_issues").handler(issues=[])
             from audit.agent.base import AgentResult
 
             return AgentResult()
@@ -378,3 +380,22 @@ class TestReviewFilesParallel:
         await review_files_parallel(ctx, [(rel, []) for rel in files], review_fn=review_fn)
         assert len(llm.calls) == 0  # 未绕过注入的 review_fn 去走批量 json 路径
         assert sorted(calls) == sorted(files)
+
+
+# ---------------------------------------------------------------- R1-26 回归
+
+
+async def test_runtime_abnormal_end_raises_and_lands_in_review_errors(tmp_path: Path, fake_emitter):
+    """R1-26：runtime 从未调用 record_issues 即结束 → 显式失败并记 review_errors。"""
+    llm = FakeLLMClient([{"content": "我自己看完了，没问题。"}])  # 无任何工具调用
+    ws = _write_files(tmp_path / "src", {"e9.py": "x = 1\n"})
+    ctx = PipelineContext(
+        config=AuditConfig(source_path=str(ws.src_root)),
+        workspace=ws,
+        llm=llm,
+        emitter=fake_emitter,
+    )
+    results = await review_files_parallel(ctx, [("e9.py", [])], review_fn=make_tools_review_fn(ctx))
+    assert results == {}  # 该文件无产出
+    assert "e9.py" in ctx.extra["review_errors"]
+    assert "record_issues" in ctx.extra["review_errors"]["e9.py"]

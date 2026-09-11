@@ -39,6 +39,7 @@ def test_is_ignored():
 
     assert is_ignored(Path("node_modules/x/index.js"))
     assert is_ignored(Path("assets/logo.png"))
+    assert is_ignored(Path(".codeaudit/abc123/src/main.py"))  # R3-1：工具自身工作区默认忽略
     assert not is_ignored(Path("app/main.py"))
 
 

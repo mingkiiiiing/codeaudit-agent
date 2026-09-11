@@ -107,7 +107,11 @@ def _gate_threshold(args: argparse.Namespace, config: AuditConfig) -> str:
 
 
 def _enforce_gate(report: AuditReport, threshold: str) -> int:
-    """CI 门禁（对标 semgrep --error）：summary 中 >= 阈值各级计数之和 > 0 → 退出码 3。"""
+    """CI 门禁（对标 semgrep --error）：summary 中 >= 阈值各级计数之和 > 0 → 退出码 3。
+
+    门禁消息一律走 stderr（R3-12）：--json 组合下 stdout 只含报告 JSON，
+    可被 CI 脚本整体 json.loads。
+    """
     summary = report.summary or {}
     counts = {sev: int(summary.get(sev, 0)) for sev in _GATE_ORDER}
     cutoff = _GATE_ORDER.index(threshold)
@@ -120,9 +124,9 @@ def _enforce_gate(report: AuditReport, threshold: str) -> int:
         f"问题总数 {total}；基线抑制 {suppressed}"
     )
     if hit > 0:
-        print(f"\n[门禁] 未通过：发现 {hit} 个 >= 阈值的问题——{detail}（退出码 3）")
+        print(f"\n[门禁] 未通过：发现 {hit} 个 >= 阈值的问题——{detail}（退出码 3）", file=sys.stderr)
         return 3
-    print(f"\n[门禁] 通过：未发现 >= 阈值的问题——{detail}")
+    print(f"\n[门禁] 通过：未发现 >= 阈值的问题——{detail}", file=sys.stderr)
     return 0
 
 
@@ -164,8 +168,11 @@ def cmd_index(args: argparse.Namespace) -> int:
     work_root = _Path(args.work_root) if args.work_root else _Path(".codeaudit")
     workspace = ingest(args.source_path, work_root)
     store = create_index(workspace)
-    store.build()
-    stats = store.stats()
+    try:
+        store.build()
+        stats = store.stats()
+    finally:
+        store.close()  # R1-4：索引连接用完即释放
     print("\n========== 索引构建完成 ==========")
     print(f"工作副本：{workspace.src_root}")
     for key, value in stats.items():
@@ -216,12 +223,24 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def _prog_name() -> str:
+    """按 sys.argv[0] 推导 help/usage 中的程序名（R3-7）。
+
+    - 源码直跑 ``python cli.py`` → "cli.py"；
+    - console script 安装态（``codeaudit ...``）→ "codeaudit"（Windows 的 .exe 去后缀）。
+    """
+    raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else ""
+    if raw.endswith(".exe"):
+        raw = raw[: -len(".exe")]
+    return raw or "cli.py"
+
+
 def build_parser() -> argparse.ArgumentParser:
     import audit
 
     version_help = f"打印版本号并退出（codeaudit-agent {audit.__version__}）"
     parser = argparse.ArgumentParser(
-        prog="cli.py", description="代码库级智能审计与重构 Agent（GLM-5.3 Flash）"
+        prog=_prog_name(), description="代码库级智能审计与重构 Agent（GLM-5.3 Flash）"
     )
     parser.add_argument("--version", action="store_true", help=version_help)
     sub = parser.add_subparsers(dest="command", required=True)

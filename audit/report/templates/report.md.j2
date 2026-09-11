@@ -38,12 +38,12 @@
 
 {% if detail_issues %}
 {% for i in detail_issues %}
-### {{ i.id }}　{{ i.title }}
+### {{ i.id }}　{{ i.title | md }}
 
 - **位置**：{{ i.location }}{% if i.line_end > i.line_start %} ~ {{ i.line_end }}{% endif %}
 - **类别 / 严重度**：{{ i.category }} / {{ i.severity_label }}　**置信度**：{{ i.confidence }}　**来源**：{{ i.source }}　**修复状态**：{{ i.fix_status }}
 
-**描述**：{{ i.description or "-" }}
+**描述**：{{ i.description | md or "-" }}
 
 {% if i.evidence %}
 **证据**：
@@ -52,7 +52,7 @@
 {% endfor %}
 {% endif %}
 
-**修复建议**：{{ i.suggestion or "-" }}
+**修复建议**：{{ i.suggestion | md or "-" }}
 
 {% if i.code %}
 **代码片段**（{{ i.location }}）：

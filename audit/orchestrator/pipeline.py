@@ -81,18 +81,41 @@ def _make_llm(config: AuditConfig) -> tuple[LLMClient, str | None]:
 def _make_review_fn(ctx: PipelineContext) -> Callable[..., Awaitable[list]]:
     """把 T3 的 review_file 适配为 T4 run_detection 期待的 review_fn。
 
-    T3 签名未知：这里前置注入 ctx，其余参数透传，并兼容同步/异步实现；
-    集成时如签名不符只需调整此闭包。
+    引擎侧调用约定（audit.detect.engine.IssueReviewFn）：review_fn(workspace, file_path,
+    hints)；review_file 真实签名为 (workspace, index, llm, file_path, hints, ...)。
+    此处按名转接（R1-1：历史上 *args 直接拼接导致 file_path 绑到 workspace 位），
+    并兼容同步/异步实现。
     """
     from audit.agents.review import review_file  # 延迟导入：T3 未集成时走 ImportError 分支
 
-    async def review_fn(*args: Any, **kwargs: Any) -> list:
-        # review_file 真实签名为 (workspace, index, llm, file_path, hints, ...)；
-        # 引擎侧调用 review_fn(workspace, file_path, hints)，此处做参数转接
-        result = review_file(ctx.workspace, ctx.index, ctx.llm, *args, **kwargs)
+    async def review_fn(
+        workspace: Any, file_path: str, hints: list[str] | None = None, **kwargs: Any
+    ) -> list:
+        result = review_file(workspace, ctx.index, ctx.llm, file_path, hints, **kwargs)
         return await _maybe_await(result)  # type: ignore[no-any-return]
 
     return review_fn
+
+
+async def _close_quietly(obj: Any) -> None:
+    """尽力释放对象资源（close/aclose，兼容同步/异步）；失败静默（收尾不影响主流程）。"""
+    for attr in ("aclose", "close"):
+        closer = getattr(obj, attr, None)
+        if callable(closer):
+            break
+    else:
+        return
+    try:
+        result = closer()
+        if inspect.isawaitable(result):
+            await result
+    except Exception:  # noqa: BLE001 —— 资源释放失败不改变审计结果
+        pass
+
+
+async def _skip_gated_stage(ctx: PipelineContext, stage: str, reason: str) -> None:
+    """ingest 未成功时跳过依赖工作副本的阶段，发明确事件（R1-2 门控）。"""
+    await ctx.emit(stage, f"跳过：{reason}（ingest 未成功，无可用工作副本）")
 
 
 async def _run_fix_stage(ctx: PipelineContext) -> None:
@@ -178,12 +201,16 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
 
     阶段：ingest → index → understand → detect → fix(可选) → testgen(可选) → report。
     总耗时写入 ctx.stats.duration_sec（time.monotonic）。
+
+    资源收口（R1-3/R1-4）：无论正常结束还是异常，finally 中统一关闭 LLM 客户端
+    （aclose）与索引连接（store.close）；ingest 未成功时 index/detect/fix 全部
+    门控跳过（R1-2），不会触碰用户原始输入目录。
     """
     started = time.monotonic()
     audit_id = new_audit_id()
 
     # 先建"临时"工作区：ingest 成功后替换为真实工作副本；
-    # ingest 未集成/失败时，后续依赖工作区的阶段自行跳过，报告阶段仍产出空报告。
+    # ingest 未集成/失败时，后续依赖工作区的阶段被门控跳过，报告阶段仍产出空报告。
     from audit.workspace import WorkspaceContext
 
     src = Path(config.source_path).resolve() if config.source_path else Path.cwd()
@@ -204,47 +231,71 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
     # 原始项目名（剥掉 zip 后缀）：T2 工作副本目录名固定为 src，报告应展示真实项目名
     ctx.extra["project_name"] = src.name[: -len(".zip")] if src.name.endswith(".zip") else src.name
 
+    try:
+        return await _run_audit_stages(ctx, started, audit_id)
+    finally:
+        # R1-4：关闭索引连接（index 阶段异常时其内部已兜底关闭，这里幂等收口）
+        index = ctx.index if ctx.index is not None else ctx.workspace.index
+        if index is not None:
+            await _close_quietly(index)
+        # R1-3：LLM 客户端（GlmClient 的 httpx 连接池）必须在结束时释放
+        await _close_quietly(llm)
+
+
+async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str) -> AuditReport:
+    """run_audit 的阶段主体（资源收口由 run_audit 的 finally 负责）。"""
+    config = ctx.config
+
     # -------- Stage 1: ingest
     async def _do_ingest() -> None:
         from audit.ingest import ingest
 
-        result = await _maybe_await(ingest(config.source_path, Path(config.work_root)))
+        # R1-17：把编排层生成的 audit_id 传入，保证工作副本落在同一 task_root
+        result = await _maybe_await(ingest(config.source_path, Path(config.work_root), audit_id=audit_id))
         ctx.workspace = result  # 替换为真实工作副本
         manifests = getattr(result, "manifests", None) or []
         await ctx.emit("ingest", f"工作副本就绪：{result.src_root}", files=len(manifests))
 
     ingest_ok = await _run_stage(ctx, "ingest", _do_ingest)
+    ctx.extra["ingest_ok"] = ingest_ok  # R1-2 门控标志
 
     # -------- Stage 1b: diff 增量剪枝（契约 v1.4，docs/09 §1 第 3 行）
     # 仅在 ingest 成功且 ctx.workspace 已替换为独立工作副本时执行：
     # ingest 失败时 ctx.workspace 仍指向原始输入目录，此时物理删文件会毁掉源项目。
-    if config.diff_ref and ingest_ok and ctx.workspace.src_root != src:
+    if config.diff_ref and ingest_ok and ctx.workspace.src_root != Path(config.source_path).resolve():
         try:
             await _apply_diff_increment(ctx)
         except Exception as exc:  # noqa: BLE001 —— 增量失败回退全量，不中断流水线
             _record_stage_error(ctx, "ingest", exc)
             await ctx.emit("ingest", f"stage error: {type(exc).__name__}: {exc}", error=True)
 
-    # -------- Stage 2: index
+    # -------- Stage 2: index（R1-2：未 ingest 成功时跳过，不扫描原始目录）
     async def _do_index() -> None:
         from audit.indexer import create_index
 
         store = await _maybe_await(create_index(ctx.workspace))
-        build_result = store.build()
-        if inspect.isawaitable(build_result):
-            await build_result
-        ctx.workspace.index = store  # 注入工作区
-        ctx.index = store
         try:
-            stats = await _maybe_await(store.stats())
-            if isinstance(stats, dict):
-                await ctx.emit("index", f"索引构建完成：{stats}", **stats)
-            else:
+            build_result = store.build()
+            if inspect.isawaitable(build_result):
+                await build_result
+            ctx.workspace.index = store  # 注入工作区
+            ctx.index = store
+            try:
+                stats = await _maybe_await(store.stats())
+                if isinstance(stats, dict):
+                    await ctx.emit("index", f"索引构建完成：{stats}", **stats)
+                else:
+                    await ctx.emit("index", "索引构建完成")
+            except Exception:  # noqa: BLE001 —— stats 仅用于进度展示
                 await ctx.emit("index", "索引构建完成")
-        except Exception:  # noqa: BLE001 —— stats 仅用于进度展示
-            await ctx.emit("index", "索引构建完成")
+        except BaseException:
+            await _close_quietly(store)  # 构建失败也释放连接（R1-4）
+            raise
 
-    await _run_stage(ctx, "index", _do_index)
+    if ingest_ok:
+        await _run_stage(ctx, "index", _do_index)
+    else:
+        await _skip_gated_stage(ctx, "index", "无工作副本可索引")
 
     # -------- Stage 3: understand
     async def _do_understand() -> None:
@@ -291,7 +342,10 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
         ctx.issues = list(issues or [])
         await ctx.emit("detect", f"检测完成：{len(ctx.issues)} 个问题", total=len(ctx.issues))
 
-    await _run_stage(ctx, "detect", _do_detect)
+    if ingest_ok:
+        await _run_stage(ctx, "detect", _do_detect)
+    else:
+        await _skip_gated_stage(ctx, "detect", "不执行检测")
 
     # -------- Stage 4b: 基线抑制（契约 v1.4，docs/09 §1 第 4 行）
     if config.baseline_path:
@@ -301,17 +355,22 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
             _record_stage_error(ctx, "detect", exc)
             await ctx.emit("detect", f"stage error: {type(exc).__name__}: {exc}", error=True)
 
-    # -------- Stage 5: fix（契约 v1.2：模块存在则真实执行）
-    if config.do_fix:
+    # -------- Stage 5: fix（契约 v1.2：模块存在则真实执行；R1-2：未 ingest 成功时门控）
+    if not config.do_fix:
+        await ctx.emit("fix", "跳过（未启用 --fix）")
+    elif ingest_ok:
         await _run_fix_stage(ctx)
     else:
-        await ctx.emit("fix", "跳过（未启用 --fix）")
+        await _skip_gated_stage(ctx, "fix", "不生成修复补丁")
 
-    # -------- Stage 6: testgen（契约 v1.2：模块存在则真实执行）
-    if config.do_tests:
+    # -------- Stage 6: testgen（契约 v1.2：模块存在则真实执行；R1-2 同类门控：
+    # 未 ingest 成功时 workspace 指向原始输入目录，写入生成测试会污染用户项目）
+    if not config.do_tests:
+        await ctx.emit("testgen", "跳过（未启用 --tests）")
+    elif ingest_ok:
         await _run_testgen_stage(ctx)
     else:
-        await ctx.emit("testgen", "跳过（未启用 --tests）")
+        await _skip_gated_stage(ctx, "testgen", "不生成单测")
 
     # -------- Stage 7: report
     async def _do_report() -> None:

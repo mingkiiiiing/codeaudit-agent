@@ -451,11 +451,11 @@ async def run_detection(
             from audit.agents.review import review_files_parallel
 
             jobs = [(rc.rel_path, _hints_of(rc.rel_path)) for rc in contexts]
-            errors_before = set(ctx.extra.get("review_errors", {}))
             per_file_results = await review_files_parallel(ctx, jobs, review_fn=review_fn)
-            failed_files = {
-                k for k in ctx.extra.get("review_errors", {}) if k not in errors_before
-            }
+            # R1-20 差集判定：review_files_parallel 只为成功的文件返回条目（失败文件
+            # 返回 None 不入结果），用"全部 job − 成功集合"判定失败，避免依赖
+            # review_errors 的前后差集（同文件重复失败且消息相同时会漏计）。
+            failed_files = {rel for rel, _ in jobs} - set(per_file_results)
         elif contexts:
             # 单文件：保持原有顺序路径（含逐文件异常记录语义）
             rc0 = contexts[0]

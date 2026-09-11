@@ -22,6 +22,7 @@ from audit.models import TestCase as CaseModel
 from audit.pipeline import PipelineContext
 from audit.report.builder import build_report
 from audit.utils import now_iso
+from audit.workspace import WorkspaceContext
 
 
 def make_issue(severity: Severity = Severity.HIGH, **kw) -> Issue:
@@ -136,3 +137,28 @@ def test_build_report_created_at_is_iso(pipeline_ctx: PipelineContext):
     # 格式校验：ISO 8601 含时区
     assert "T" in report.created_at and ("+" in report.created_at or "Z" in report.created_at or "-" in report.created_at[10:])
     assert time.time() - before < 60
+
+
+# ---------------------------------------------------------------- R1-10 回归
+
+
+def test_language_stats_exclude_generated_tests(sample_workspace: WorkspaceContext, fake_emitter):
+    """R1-10：语言/LOC 统计排除 tests/generated/ 下的生成测试文件。"""
+    from audit.report.builder import _collect_language_stats
+
+    # 基线：未放生成测试时的 loc
+    base_languages, base_loc, base_files = _collect_language_stats(_ctx_for(sample_workspace, fake_emitter))
+
+    gen = sample_workspace.abs_path("tests/generated/test_gen_orders.py")
+    gen.parent.mkdir(parents=True, exist_ok=True)
+    gen.write_text("# generated\n" + "x = 1\n" * 49, encoding="utf-8")
+
+    languages, loc, files = _collect_language_stats(_ctx_for(sample_workspace, fake_emitter))
+    assert files == base_files  # 生成测试不计入文件数
+    assert loc == base_loc  # 也不计入行数
+    assert languages == base_languages
+
+
+def _ctx_for(workspace: WorkspaceContext, fake_emitter) -> PipelineContext:
+    config = AuditConfig(source_path=str(workspace.src_root))
+    return PipelineContext(config=config, workspace=workspace, llm=FakeLLMClient(), emitter=fake_emitter)

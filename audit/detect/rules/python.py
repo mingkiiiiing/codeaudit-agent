@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import keyword as _keyword
+import math
 import re
 from typing import Pattern
 
@@ -990,11 +991,50 @@ class CommandInjectionRule(_PyRule):
         return hits
 
 
-_SECRET_NAME_HINTS = ("key", "secret", "token", "password", "passwd", "pwd", "apikey", "api_key", "credential", "private")
+# 敏感词精确匹配集（R1-9）：标识符按 _/驼峰分词后，token 必须**精确**命中其一
+# （历史上用子串包含，导致 _FINGERPRINT_KEY 之类的普通常量误报 critical）。
+_SECRET_NAME_TOKENS = frozenset(
+    {"key", "secret", "password", "passwd", "pwd", "token", "credential", "apikey"}
+)
+
+# 标识符分词：先按下划线切，再对每段按驼峰切（API_KEY → api/key；dbPassword → db/password）
+_SECRET_TOKEN_SPLIT_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+")
+
+
+def _secret_name_tokens(name: str) -> set[str]:
+    return {t.lower() for t in _SECRET_TOKEN_SPLIT_RE.findall(name)}
+
+
+def _shannon_entropy(text: str) -> float:
+    """字符串 Shannon 熵（比特/字符）；空串为 0。"""
+    if not text:
+        return 0.0
+    n = len(text)
+    return -sum((c / n) * math.log2(c / n) for c in {ch: text.count(ch) for ch in set(text)}.values())
+
+
+def _charset_diversity(text: str) -> int:
+    """字符集类别数：小写 / 大写 / 数字 / 其它（符号）。"""
+    return sum(
+        (
+            any(ch.islower() for ch in text),
+            any(ch.isupper() for ch in text),
+            any(ch.isdigit() for ch in text),
+            any(not ch.isalnum() for ch in text),
+        )
+    )
 
 
 class HardcodedSecretRule(_PyRule):
-    """硬编码密钥/口令（对应金标 G10）。"""
+    """硬编码密钥/口令（对应金标 G10）。
+
+    R1-9 判定口径：
+    - 标识符按 _/驼峰分词后精确命中敏感词（key/secret/password/token/passwd/pwd/
+      credential/apikey），且值满足随机性校验：ASCII、长度足够、
+      Shannon 熵 ≥ 3.5 或字符集多样性 ≥ 3 类；
+    - 或值为 sk- 前缀的 API key 形态（同样要求随机性校验）。
+    低熵占位串（"changeme"、"sk-aaaa..."）与中文提示文案不再误报。
+    """
 
     id = "PY-HARDCODED-SECRET"
     category = Category.SECURITY
@@ -1013,22 +1053,35 @@ class HardcodedSecretRule(_PyRule):
             value = self._string_value(raw, q_col)
             if value is None:
                 continue
-            name = m.group("name").lower()
-            name_hit = any(h in name for h in _SECRET_NAME_HINTS) and len(value) >= 16
-            sk_hit = value.startswith("sk-") and len(value) >= 20
+            name = m.group("name")
+            name_hit = (
+                bool(_secret_name_tokens(name) & _SECRET_NAME_TOKENS)
+                and len(value) >= 16
+                and self._looks_secretish(value)
+            )
+            sk_hit = value.startswith("sk-") and len(value) >= 20 and self._looks_secretish(value)
             if name_hit or sk_hit:
                 hits.append(
                     self.make_hit(
                         ctx,
                         idx + 1,
                         idx + 1,
-                        f"第 {idx + 1} 行将疑似敏感凭据硬编码在 `{m.group('name')}` 的字符串字面量中："
+                        f"第 {idx + 1} 行将疑似敏感凭据硬编码在 `{name}` 的字符串字面量中："
                         "密钥随代码库扩散且会进入版本历史，泄露风险极高；应改从环境变量/密钥管理服务读取，"
                         "并立即轮换已泄露的凭据。",
-                        meta={"var": m.group("name")},
+                        meta={"var": name},
                     )
                 )
         return hits
+
+    @staticmethod
+    def _looks_secretish(value: str) -> bool:
+        """随机性校验：真密钥几乎都是 ASCII，且熵高或字符集多样（≥3 类）。"""
+        if not value.isascii():
+            return False  # 非 ASCII（自然语言提示/文案）不算凭据
+        if _shannon_entropy(value) >= 3.5:
+            return True
+        return _charset_diversity(value) >= 3
 
     @staticmethod
     def _string_value(raw: str, quote_col: int) -> str | None:

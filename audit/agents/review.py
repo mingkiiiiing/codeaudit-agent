@@ -271,7 +271,8 @@ async def review_file(
 
     collected: list[dict[str, Any]] = []
     if runtime is not None:
-        _ensure_review_tools(runtime, workspace, index, collected)
+        state = {"record_issues_called": False}  # R1-26：检测 Agent 是否正常收口
+        _ensure_review_tools(runtime, workspace, index, collected, state)
         user_content = batch_instruction or REVIEW_TASK_INSTRUCTION.format(file_path=file_path)
         messages: list[Message] = [{"role": "user", "content": user_content}]
         await runtime.run(
@@ -279,6 +280,12 @@ async def review_file(
             messages,
             limits=limits or AgentLimits(max_iterations=REVIEW_MAX_ITERATIONS),
         )
+        if not state["record_issues_called"]:
+            # R1-26：runtime 非正常结束（从未调用 record_issues）必须显式失败，
+            # 由调用方记入 ctx.extra["review_errors"]，而不是静默当作"无问题"。
+            raise RuntimeError(
+                f"Review Agent 非正常结束：{file_path} 审查循环结束但从未调用 record_issues 收口"
+            )
     else:
         user_content = batch_instruction or (
             f"请审查文件 {file_path}，以 JSON 输出审查结论："
@@ -303,12 +310,14 @@ def _ensure_review_tools(
     workspace: WorkspaceContext,
     index: Any,
     collected: list[dict[str, Any]],
+    state: dict[str, bool] | None = None,
 ) -> None:
     """把 Review 所需工具注册进 runtime；record_issues 包装为带收集能力的处理器。
 
     - 只读工具：runtime 已注册则尊重调用方的版本，缺失才补；
     - record_issues：包装现有（或默认）处理器，把校验通过的 issues 载荷收集到
-      collected 供本模块转换为 Issue。
+      collected 供本模块转换为 Issue；state 非空时在收到调用（无论批次是否
+      校验通过）后置 state["record_issues_called"] = True，供非正常结束检测（R1-26）。
     """
     defaults = {spec.name: spec for spec in build_default_tools(workspace, index, sandbox=None)}
     for name in REVIEW_TOOL_NAMES:
@@ -320,6 +329,8 @@ def _ensure_review_tools(
             inner = existing.handler
 
             async def capturing(**kwargs: Any) -> Any:
+                if state is not None:
+                    state["record_issues_called"] = True
                 result = await inner(**kwargs)
                 if (
                     isinstance(result, dict)

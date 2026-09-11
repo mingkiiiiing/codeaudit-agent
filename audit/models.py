@@ -34,8 +34,10 @@ class IssueSource(str, enum.Enum):
 
 
 class FixStatus(str, enum.Enum):
+    """Issue 的修复状态（R1-21：删除从未被赋值的死枚举 PATCH_GENERATED，
+    补丁生成计数由 ctx.extra["fix_stats"]["patch_generated"] 承载）。"""
+
     NONE = "none"
-    PATCH_GENERATED = "patch_generated"
     VERIFIED = "verified"
     NEEDS_REVIEW = "needs-review"
     SYNTAX_OK = "syntax-ok"

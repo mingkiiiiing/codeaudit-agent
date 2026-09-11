@@ -237,3 +237,34 @@ def test_apply_diff_reports_timeout(tmp_path: Path, monkeypatch):
     ok, msg = apply_diff(ws, H.BARE_EXCEPT_DIFF)
     assert ok is False
     assert "超时" in msg
+
+
+# ---------------------------------------------------------------- R1-11 回归
+
+
+def test_ensure_standalone_repo_removes_broken_git_skeleton(tmp_path: Path):
+    """残缺 .git 骨架（指针文件 / 非仓库目录）被删除并强制 init 为有效仓库。"""
+    import subprocess as sp
+
+    from audit.fix.patcher import _ensure_standalone_repo
+
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "app.py").write_text("x = 1\n", encoding="utf-8")
+
+    # 场景 1：.git 是 worktree 指针文件（实体未随副本复制 → rev-parse 必败）
+    (src / ".git").write_text("gitdir: /somewhere/else/.git\n", encoding="utf-8")
+    _ensure_standalone_repo(src)
+    assert sp.run(["git", "-C", str(src), "rev-parse", "--git-dir"], capture_output=True).returncode == 0
+
+    # 场景 2：.git 是空目录（骨架，无仓库元数据）
+    src2 = tmp_path / "src2"
+    src2.mkdir()
+    (src2 / ".git").mkdir()
+    _ensure_standalone_repo(src2)
+    assert sp.run(["git", "-C", str(src2), "rev-parse", "--git-dir"], capture_output=True).returncode == 0
+
+    # 场景 3：已是有效仓库 → 幂等，不重建
+    head_before = (src / ".git" / "HEAD").read_bytes()
+    _ensure_standalone_repo(src)
+    assert (src / ".git" / "HEAD").read_bytes() == head_before

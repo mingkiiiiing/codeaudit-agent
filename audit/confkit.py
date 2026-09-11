@@ -97,11 +97,12 @@ def changed_files(source_root: Path, ref: str) -> set[str] | None:
     """相对 ref 变更的文件集合（相对仓库根的 posix 路径）。
 
     - 执行 ``git -C source_root diff --name-only <ref>``（list 参数，禁 shell=True）；
+    - ref 以 '-' 开头（R1-22：会被 git 当作选项解析，如 --upload-pack）→ 返回 None；
     - source_root 无 .git、git 不可用/超时/失败 → 返回 None（调用方回退全量）；
     - 未跟踪的新文件不在 git diff 输出内（与 semgrep --diff 行为一致）。
     """
     root = Path(source_root)
-    if not ref or not (root / ".git").exists():
+    if not ref or ref.startswith("-") or not (root / ".git").exists():
         return None
     try:
         proc = subprocess.run(
