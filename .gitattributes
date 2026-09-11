@@ -1,0 +1,2 @@
+# 统一 LF：沙箱 git apply 与单测夹具依赖逐字节稳定的换行
+* text=auto eol=lf

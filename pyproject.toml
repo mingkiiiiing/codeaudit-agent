@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "codeaudit-agent"
+version = "0.1.0"
+description = "代码库级智能审计与重构 Agent（GLM-5.3 Flash）"
+requires-python = ">=3.11"
+dependencies = [
+    "tree-sitter>=0.23,<0.26",
+    "tree-sitter-python>=0.23",
+    "tree-sitter-javascript>=0.23",
+    "tree-sitter-typescript>=0.23",
+    "httpx>=0.27",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "sse-starlette>=2.0",
+    "jinja2>=3.1",
+    "pygments>=2.17",
+    "charset-normalizer>=3.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[tool.setuptools]
+packages = { find = { include = ["audit*"] } }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+# ---------------------------------------------------------------------------
+# W3-A4：ruff 静态检查配置。
+# 约束：本节为 Wave 3 新增的唯一 pyproject 改动；依赖/构建/pytest 节零改动。
+# 调平原则：只通过规则选择与精确豁免使当前代码零错误，禁止批量修改业务代码。
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 120
+target-version = "py311"          # 与 requires-python = ">=3.11" 对齐
+
+# 在 ruff 默认排除（.git/.venv/__pycache__/.pytest_cache 等）之外追加排除。
+# 排除的都是"生成物或故意违例的审计夹具"，不代表工程质量：
+extend-exclude = [
+    ".codeaudit*",      # 审计 Agent 运行时生成的工作区副本（含被审计样例的拷贝）
+    ".demo_probe*",     # 演示流水线运行时生成的工作区/报告副本（W3-A3 演示脚本产物）
+    "bench/datasets",   # 评估基准的样例项目数据（故意包含可被检测的违例写法）
+    "tests/samples",    # 测试夹具项目 demo_proj：审计目标样本，故意含违例（如 ==/裸 except）
+    "demo/.demo_work",  # 离线演示脚本运行时生成的工作副本
+]
+
+[tool.ruff.lint]
+# 务实规则集：以"当前代码零错误"收敛。
+# - E4/E7/E9 + F（ruff 默认集）：语法/未定义名/未用导入/裸 except 等高价值检查；
+# - B（flake8-bugbear）：常见真实缺陷模式（循环闭包、可变默认参数等）。
+# 以下三类本轮明确不启用，均因启用即要求批量改代码（违反 W3 禁改约束），
+# 待后续专项重构后再开启：
+# - I（isort 排序）：存量约 29 处导入顺序未整理，自动排序需触碰约 20 个文件；
+# - UP（pyupgrade）：存量大量 typing 旧式写法（Optional/List/引号注解），现代化属批量改造；
+# - SIM（flake8-simplify）：存量命令式风格，等价重构同样需要批量改动。
+select = ["E4", "E7", "E9", "F", "B"]
+ignore = [
+    # B007：循环变量未在循环体内使用。存量两处均为 os.walk 的惯用法
+    # （必须显式命名 dirnames 等占位形参），改名即属批量修改，规则价值低。
+    "B007",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 以下逐文件精确豁免均为存量问题（新增代码不受豁免保护），每条注明理由：
+
+# 存量未使用导入（含被 re-export 或留作类型引用用途），禁改约束下保留：
+"audit/agent/tools.py" = ["F401"]
+"audit/indexer/base.py" = ["F401"]
+"audit/testgen/stage.py" = ["F401"]
+"audit/understand/architecture.py" = ["F401"]
+
+# review.py（W3-A2 正在并行改造的文件）：
+# - F821：IssueReviewFnLike 的字符串注解引用了未导入的 Awaitable（潜在真问题，已报告给集成人）；
+# - B023：循环内定义闭包引用循环变量 inner（建议 A2 一并确认语义）。
+"audit/agents/review.py" = ["F821", "B023"]
+
+# python.py：RuleHit 先从 audit.detect.base 导入、后从 audit.models 重复导入（后者生效），
+# 删除前者属代码修改，仅豁免重定义告警。
+"audit/detect/rules/python.py" = ["F811"]
+
+# real_run.py：zip() 未显式传 strict=（存量写法，修复属代码改动）。
+"bench/real_run.py" = ["B905"]
+
+# 测试目录：未使用导入常见于夹具/参数化直接引用场景，且既有测试禁改，统一豁免 F401；
+# 其余规则（含 F841/E731）在测试中保持生效。
+"tests/**" = ["F401"]
+# test_indexer.py 存量两处：lambda 赋值（E731）与未使用的局部变量 rows（F841）。
+"tests/unit/indexer/test_indexer.py" = ["E731", "F841"]
+
+# demo/（W3-A3 并行开发中的离线演示项目 mini_app）：演示代码常有展示性导入，
+# 与 tests/ 同理豁免 F401；注意 demo/.demo_work（运行时生成副本）已在 extend-exclude 排除。
+"demo/**" = ["F401"]
