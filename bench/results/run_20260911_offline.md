@@ -1,5 +1,7 @@
 ## Run 2026-09-11 ｜ model=offline-fakellm（纯规则基线） ｜ prompt_ver=n/a ｜ 配置=full / −verify / rules_only × 10 项目（api_key='' 强制离线，level=critical+high）
 
+> 注（2026-09-12，W5 加注）：下方消融表为 **3 配置时期版本**（full / −verify / rules_only）；当前代码已扩为 **7 组配置**（`python -m bench.run --ablation` 全量重跑会产出 7 行消融表）。本记录的历史数值仍按当时 3 配置口径读取，与现行配置数不冲突。
+
 | 指标 | 值 | 样本量 |
 |---|---|---|
 | Precision (critical+high) | 1.000 | 报告 74 条 / 金标 90 条 |
