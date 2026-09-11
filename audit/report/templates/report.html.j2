@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>代码审计报告：{{ project_name }}</title>
+<style>
+  :root { --border:#e2e8f0; --muted:#64748b; --bg:#f8fafc; --critical:#dc2626; --high:#ea580c; --medium:#ca8a04; --low:#16a34a; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background: var(--bg); color: #1e293b; line-height: 1.6; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 64px; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 20px; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+  h3 { font-size: 16px; margin: 20px 0 8px; }
+  .meta { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin: 12px 0; }
+  table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; font-size: 13px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+  th { background: #f1f5f9; font-weight: 600; white-space: nowrap; }
+  tr:last-child td { border-bottom: none; }
+  .score { font-size: 44px; font-weight: 700; }
+  .pill { display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; }
+  .pill.critical { background: var(--critical); } .pill.high { background: var(--high); }
+  .pill.medium { background: var(--medium); } .pill.low { background: var(--low); }
+  .muted { color: var(--muted); }
+  code, pre { font-family: Consolas, "JetBrains Mono", monospace; font-size: 13px; }
+  pre { background: #0f172a; color: #e2e8f0; padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+  pre code { background: none; color: inherit; padding: 0; }
+  .evidence { margin: 6px 0; padding-left: 20px; }
+  .evidence li { font-size: 13px; color: #334155; }
+  .issue-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  .issue-head .id { font-weight: 700; color: #0f766e; }
+  .kv { font-size: 12px; color: var(--muted); margin: 4px 0 10px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+  .stat { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }
+  .stat .num { font-size: 22px; font-weight: 700; }
+  .stat .lbl { font-size: 12px; color: var(--muted); }
+  footer { margin-top: 48px; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>代码审计报告：{{ project_name }}</h1>
+  <div class="meta">审计 ID：{{ audit_id }}　|　生成时间：{{ created_at }}</div>
+
+  <h2>一、项目概览</h2>
+  <div class="grid">
+    <div class="stat"><div class="num">{{ files_total }}</div><div class="lbl">源文件总数</div></div>
+    <div class="stat"><div class="num">{{ loc }}</div><div class="lbl">总代码行数</div></div>
+    <div class="stat"><div class="num">{{ languages | length }}</div><div class="lbl">语言数量</div></div>
+    <div class="stat"><div class="num">{{ total_issues }}</div><div class="lbl">发现问题</div></div>
+  </div>
+  <div class="card">
+    <b>语言分布</b>：
+    {% for lang, pct in languages.items() %}{{ lang }} {{ pct }}%{% if not loop.last %}、{% endif %}{% else %}<span class="muted">未知</span>{% endfor %}
+    {% if tech_stack %}<br><b>技术栈</b>：{{ tech_stack | join("、") }}{% endif %}
+  </div>
+
+  <h2>二、健康分</h2>
+  <div class="card">
+    <span class="score">{{ health_score }}</span><span class="muted"> / 100</span>
+    　<b>评级：{{ health_level }}</b>
+    <div class="muted">按严重度加权问题密度计算：critical=10、high=5、medium=2、low=0.5。</div>
+  </div>
+
+  <h2>三、问题总表</h2>
+  <p>共发现 <b>{{ total_issues }}</b> 个问题：
+    {% for g in groups %}<span class="pill {{ g.severity }}">{{ g.label }} {{ g.count }}</span>{% if not loop.last %} {% endif %}{% endfor %}
+  </p>
+  {% for g in groups %}
+  <h3>{{ g.label }}（{{ g.severity }}，{{ g.count }} 条）</h3>
+  {% if g.issues %}
+  <table>
+    <tr><th>ID</th><th>严重度</th><th>类别</th><th>位置</th><th>标题</th><th>置信度</th><th>来源</th><th>修复状态</th></tr>
+    {% for i in g.issues %}
+    <tr>
+      <td>{{ i.id }}</td>
+      <td><span class="pill {{ i.severity }}">{{ i.severity_label }}</span></td>
+      <td>{{ i.category }}</td>
+      <td><code>{{ i.location }}</code></td>
+      <td>{{ i.title }}</td>
+      <td>{{ i.confidence }}</td>
+      <td>{{ i.source }}</td>
+      <td>{{ i.fix_status }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">本级别未发现问题。</p>{% endif %}
+  {% endfor %}
+
+  <h2>四、重点问题详情（critical / high）</h2>
+  {% if detail_issues %}
+    {% for i in detail_issues %}
+    <div class="card">
+      <div class="issue-head"><span class="id">{{ i.id }}</span><b>{{ i.title }}</b><span class="pill {{ i.severity }}">{{ i.severity_label }}</span></div>
+      <div class="kv">位置：<code>{{ i.location }}</code>{% if i.line_end > i.line_start %} ~ {{ i.line_end }}{% endif %}
+        　类别：{{ i.category }}　置信度：{{ i.confidence }}　来源：{{ i.source }}　修复状态：{{ i.fix_status }}</div>
+      <p><b>描述</b>：{{ i.description or "-" }}</p>
+      {% if i.evidence %}<b>证据</b>：<ul class="evidence">{% for e in i.evidence %}<li><code>{{ e }}</code></li>{% endfor %}</ul>{% endif %}
+      <p><b>修复建议</b>：{{ i.suggestion or "-" }}</p>
+      {% if i.code_html %}<div class="kv">代码片段</div>{{ i.code_html | safe }}{% endif %}
+    </div>
+    {% endfor %}
+  {% else %}<p class="muted">无 critical / high 级别问题。</p>{% endif %}
+
+  <h2>五、架构摘要</h2>
+  {% if architecture_text %}
+  <div class="card">
+    <p>{{ architecture_text }}</p>
+    {% if architecture_modules %}
+    <b>模块职责</b>
+    <ul>{% for mod, desc in architecture_modules.items() %}<li><code>{{ mod }}</code>：{{ desc }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if hotspots %}
+    <b>风险热点</b>
+    <ul>{% for h in hotspots %}<li><code>{{ h }}</code></li>{% endfor %}</ul>
+    {% endif %}
+  </div>
+  {% else %}<p class="muted">本阶段未启用或未产出架构卡片。</p>{% endif %}
+
+  <h2>六、Patch 与测试统计</h2>
+  {% if patches %}
+  <table>
+    <tr><th>补丁 ID</th><th>关联问题</th><th>应用状态</th><th>测试通过</th><th>说明</th></tr>
+    {% for p in patches %}
+    <tr><td>{{ p.id }}</td><td>{{ p.issue_id }}</td><td>{{ p.apply_status }}</td><td>{{ p.tests_passed }}/{{ p.tests_run }}</td><td>{{ p.rationale }}</td></tr>
+    {% endfor %}
+  </table>
+  {% for p in patches %}{% if p.has_diff %}<div class="kv">补丁 {{ p.id }} diff：</div><pre>{{ p.diff_html | safe }}</pre>{% endif %}{% endfor %}
+  {% else %}<p class="muted">未生成补丁（Wave 2 功能或未启用 <code>--fix</code>）。</p>{% endif %}
+  {% if test_cases %}
+  <table>
+    <tr><th>用例 ID</th><th>被测符号</th><th>类型</th><th>状态</th><th>断言数</th></tr>
+    {% for t in test_cases %}
+    <tr><td>{{ t.id }}</td><td><code>{{ t.target }}</code></td><td>{{ t.kind }}</td><td>{{ t.status }}</td><td>{{ t.assert_count }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">生成 {{ tests_total }} 条用例，通过 {{ tests_passed }} 条。</p>
+  {% else %}<p class="muted">未生成测试用例（Wave 2 功能或未启用 <code>--tests</code>）。</p>{% endif %}
+
+  <h2>七、耗时与 Token 统计</h2>
+  <div class="grid">
+    <div class="stat"><div class="num">{{ "%.2f" | format(stats.duration_sec) }}s</div><div class="lbl">总耗时</div></div>
+    <div class="stat"><div class="num">{{ stats.llm_calls }}</div><div class="lbl">LLM 调用</div></div>
+    <div class="stat"><div class="num">{{ stats.prompt_tokens }}</div><div class="lbl">Prompt tokens</div></div>
+    <div class="stat"><div class="num">{{ stats.completion_tokens }}</div><div class="lbl">Completion tokens</div></div>
+    <div class="stat"><div class="num">{{ stats.cache_hits }}/{{ stats.cache_misses }}</div><div class="lbl">缓存命中/未命中</div></div>
+  </div>
+
+  <footer>本报告由 CodeAudit Agent 自动生成（{{ created_at }}）</footer>
+</div>
+</body>
+</html>

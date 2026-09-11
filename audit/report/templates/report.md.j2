@@ -1,0 +1,128 @@
+# 代码审计报告：{{ project_name }}
+
+> 审计 ID：{{ audit_id }}　|　生成时间：{{ created_at }}
+
+## 一、项目概览
+
+| 指标 | 值 |
+| --- | --- |
+| 源文件总数 | {{ files_total }} |
+| 总代码行数 | {{ loc }} |
+| 语言分布 | {% for lang, pct in languages.items() %}{{ lang }} {{ pct }}%{% if not loop.last %}、{% endif %}{% else %}未知{% endfor %} |
+| 技术栈 | {% for t in tech_stack %}{{ t }}{% if not loop.last %}、{% endif %}{% else %}-{% endfor %} |
+
+## 二、健康分
+
+**{{ health_score }} / 100**（评级：{{ health_level }}）
+
+按严重度加权问题密度计算：critical=10、high=5、medium=2、low=0.5。
+
+## 三、问题总表
+
+共发现 **{{ total_issues }}** 个问题：{% for g in groups %}{{ g.severity }} {{ g.count }}{% if not loop.last %} ｜ {% endif %}{% endfor %}
+
+{% for g in groups %}
+### {{ g.label }}（{{ g.severity }}，{{ g.count }} 条）
+
+{% if g.issues %}
+| ID | 严重度 | 类别 | 位置 | 标题 | 置信度 | 来源 | 修复状态 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+{% for i in g.issues %}
+| {{ i.id | cell }} | {{ i.severity_label }} | {{ i.category | cell }} | {{ i.location | cell }} | {{ i.title | cell }} | {{ i.confidence }} | {{ i.source }} | {{ i.fix_status }} |
+{% endfor %}
+{% else %}
+本级别未发现问题。
+{% endif %}
+{% endfor %}
+## 四、重点问题详情（critical / high）
+
+{% if detail_issues %}
+{% for i in detail_issues %}
+### {{ i.id }}　{{ i.title }}
+
+- **位置**：{{ i.location }}{% if i.line_end > i.line_start %} ~ {{ i.line_end }}{% endif %}
+- **类别 / 严重度**：{{ i.category }} / {{ i.severity_label }}　**置信度**：{{ i.confidence }}　**来源**：{{ i.source }}　**修复状态**：{{ i.fix_status }}
+
+**描述**：{{ i.description or "-" }}
+
+{% if i.evidence %}
+**证据**：
+{% for e in i.evidence %}
+- {{ e | cell }}
+{% endfor %}
+{% endif %}
+
+**修复建议**：{{ i.suggestion or "-" }}
+
+{% if i.code %}
+**代码片段**（{{ i.location }}）：
+
+```{{ i.lang }}
+{{ i.code }}
+```
+{% endif %}
+{% endfor %}
+{% else %}
+无 critical / high 级别问题。
+{% endif %}
+
+## 五、架构摘要
+
+{% if architecture_text %}
+{{ architecture_text }}
+
+{% if architecture_modules %}
+**模块职责**：
+{% for mod, desc in architecture_modules.items() %}
+- `{{ mod }}`：{{ desc | cell }}
+{% endfor %}
+{% endif %}
+{% if hotspots %}
+**风险热点**：
+{% for h in hotspots %}
+- {{ h | cell }}
+{% endfor %}
+{% endif %}
+{% else %}
+本阶段未启用或未产出架构卡片。
+{% endif %}
+
+## 六、Patch 与测试统计
+
+{% if patches %}
+共生成 **{{ patches | length }}** 个补丁：
+
+| 补丁 ID | 关联问题 | 应用状态 | 测试通过 | 说明 |
+| --- | --- | --- | --- | --- |
+{% for p in patches %}
+| {{ p.id | cell }} | {{ p.issue_id | cell }} | {{ p.apply_status }} | {{ p.tests_passed }}/{{ p.tests_run }} | {{ p.rationale | cell }} |
+{% endfor %}
+{% else %}
+未生成补丁（Wave 2 功能或未启用 `--fix`）。
+{% endif %}
+
+{% if test_cases %}
+生成测试用例 **{{ tests_total }}** 条（通过 {{ tests_passed }} 条）：
+
+| 用例 ID | 被测符号 | 类型 | 状态 | 断言数 |
+| --- | --- | --- | --- | --- |
+{% for t in test_cases %}
+| {{ t.id | cell }} | {{ t.target | cell }} | {{ t.kind }} | {{ t.status }} | {{ t.assert_count }} |
+{% endfor %}
+{% else %}
+未生成测试用例（Wave 2 功能或未启用 `--tests`）。
+{% endif %}
+
+## 七、耗时与 Token 统计
+
+| 指标 | 值 |
+| --- | --- |
+| 总耗时 | {{ "%.2f" | format(stats.duration_sec) }} 秒 |
+| LLM 调用次数 | {{ stats.llm_calls }} |
+| Prompt tokens | {{ stats.prompt_tokens }} |
+| Completion tokens | {{ stats.completion_tokens }} |
+| 缓存命中 / 未命中 | {{ stats.cache_hits }} / {{ stats.cache_misses }} |
+
+---
+
+*本报告由 CodeAudit Agent 自动生成（{{ created_at }}）。*
