@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CodeAudit Agent · 代码库级智能审计</title>
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --primary: #0f766e;
+    --primary-soft: #ccfbf1;
+    --radius: 10px;
+    --mono: Consolas, "SFMono-Regular", Menlo, monospace;
+    --sev-critical: #b91c1c;
+    --sev-high: #ea580c;
+    --sev-medium: #ca8a04;
+    --sev-low: #2563eb;
+    --diff-add-bg: #dcfce7; --diff-add-fg: #166534;
+    --diff-del-bg: #fee2e2; --diff-del-fg: #991b1b;
+    --diff-hunk-bg: #eff6ff; --diff-hunk-fg: #1d4ed8;
+  }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; margin: 0; background: var(--bg); color: var(--text); font-size: 14px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 24px 72px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: .2px; }
+  h2 { font-size: 16px; margin: 0 0 14px; }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 22px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 18px; }
+  .hidden { display: none !important; }
+  label { font-size: 13px; font-weight: 600; display: block; margin-bottom: 6px; }
+  input[type=text], select { padding: 8px 11px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; color: var(--text); }
+  input[type=text] { width: 100%; }
+  input[type=text]:focus, select:focus { outline: 2px solid var(--primary-soft); border-color: var(--primary); }
+  .opts { margin-top: 12px; display: flex; gap: 22px; font-size: 13px; }
+  .opts label { display: flex; align-items: center; gap: 6px; font-weight: 400; margin: 0; }
+  .btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 9px 22px; font-size: 14px; cursor: pointer; }
+  .btn:disabled { background: #94a3b8; cursor: not-allowed; }
+  .row-actions { margin-top: 14px; display: flex; align-items: center; gap: 16px; }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #fff; background: #94a3b8; }
+  .pill.running, .pill.queued { background: #ca8a04; }
+  .pill.done { background: #16a34a; }
+  .pill.failed { background: #dc2626; }
+
+  /* 进度 */
+  .stages { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .stage { display: flex; align-items: center; gap: 7px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; font-size: 13px; color: var(--muted); background: #fff; }
+  .stage .mark { display: inline-flex; width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid #cbd5e1; align-items: center; justify-content: center; font-size: 11px; }
+  .stage.active { border-color: var(--primary); color: var(--primary); }
+  .stage.active .mark { border-color: var(--primary); background: var(--primary); color: #fff; }
+  .stage.done { border-color: #86efac; color: #166534; background: #f0fdf4; }
+  .stage.done .mark { border-color: #16a34a; background: #16a34a; color: #fff; }
+  .stage.skipped { color: #94a3b8; background: #f8fafc; }
+  .stage.skipped .mark { border-style: dashed; }
+  .stage.error { border-color: #fca5a5; color: #991b1b; background: #fef2f2; }
+  .stage.error .mark { border-color: #dc2626; background: #dc2626; color: #fff; }
+  .current { font-family: var(--mono); font-size: 12.5px; color: var(--text); background: #f8fafc; border: 1px dashed var(--border); border-radius: 8px; padding: 8px 12px; min-height: 34px; word-break: break-all; }
+  .current .tag { color: var(--primary); font-weight: 600; margin-right: 6px; }
+  details summary { cursor: pointer; font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  #log { max-height: 200px; overflow-y: auto; background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12px; margin-top: 8px; }
+  #log div { padding: 1px 0; }
+  #log .st { color: #5eead4; font-weight: 600; }
+  .error-box { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 8px; padding: 10px 12px; font-family: var(--mono); font-size: 12.5px; margin-top: 10px; }
+
+  /* 仪表盘头 */
+  .dash-head { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
+  .score { min-width: 190px; padding-right: 24px; border-right: 1px solid var(--border); }
+  .score .num { font-size: 52px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
+  .score .num small { font-size: 18px; color: var(--muted); font-weight: 500; }
+  .score .lvl { margin-top: 6px; font-size: 13px; color: var(--muted); }
+  .score.good .num { color: #16a34a; } .score.fair .num { color: #ca8a04; }
+  .score.poor .num { color: #ea580c; } .score.bad .num { color: #b91c1c; }
+  .badges { display: flex; flex-wrap: wrap; gap: 10px; align-content: flex-start; flex: 1; }
+  .badge { min-width: 104px; padding: 10px 14px; border-radius: 8px; color: #fff; }
+  .badge .k { font-size: 12px; opacity: .92; } .badge .v { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .badge.critical { background: var(--sev-critical); } .badge.high { background: var(--sev-high); }
+  .badge.medium { background: var(--sev-medium); } .badge.low { background: var(--sev-low); }
+  .meta { display: grid; grid-template-columns: auto auto; gap: 4px 14px; font-size: 12.5px; color: var(--muted); align-content: start; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .links { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; }
+  .links a { color: var(--primary); text-decoration: none; margin-right: 16px; }
+  .links a:hover { text-decoration: underline; }
+
+  /* 问题表 */
+  .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px; }
+  .toolbar input[type=text] { width: 260px; }
+  .toolbar .count { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; background: #f8fafc; white-space: nowrap; }
+  tr.row { cursor: pointer; }
+  tr.row:hover { background: #f8fafc; }
+  tr.row.open { background: #f0fdfa; }
+  td.loc { font-family: var(--mono); font-size: 12px; white-space: nowrap; }
+  .sev { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 11.5px; font-weight: 600; color: #fff; white-space: nowrap; }
+  .sev.critical { background: var(--sev-critical); } .sev.high { background: var(--sev-high); }
+  .sev.medium { background: var(--sev-medium); } .sev.low { background: var(--sev-low); }
+  .cat { display: inline-block; padding: 1px 8px; border-radius: 6px; font-size: 11.5px; background: #f1f5f9; color: #334155; white-space: nowrap; }
+  .fixst { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .fixst.verified { color: #166534; font-weight: 600; }
+  .fixst.needs-review { color: #b45309; }
+  .empty { padding: 26px; text-align: center; color: var(--muted); }
+  tr.detail td { background: #fbfdfc; padding: 14px 18px 18px; }
+  .detail-card h4 { margin: 0 0 8px; font-size: 13px; color: var(--muted); font-weight: 600; }
+  .detail-card p { margin: 0 0 12px; line-height: 1.6; }
+  .detail-card ul { margin: 0 0 12px; padding-left: 20px; line-height: 1.6; }
+  .detail-card .id { font-family: var(--mono); font-size: 12px; color: var(--muted); float: right; }
+  pre.code { background: #0f172a; color: #e2e8f0; border-radius: 8px; padding: 12px 14px; font-family: var(--mono); font-size: 12.5px; overflow-x: auto; margin: 0; line-height: 1.5; }
+
+  /* Patch */
+  .patch { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 14px; overflow: hidden; }
+  .patch-head { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; padding: 10px 14px; background: #f8fafc; font-size: 13px; }
+  .patch-head .pid { font-family: var(--mono); font-weight: 600; }
+  .patch-head .st { padding: 1px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; background: #e2e8f0; color: #334155; }
+  .patch-head .st.verified { background: #dcfce7; color: #166534; }
+  .patch-head .st.needs-review { background: #fef3c7; color: #92400e; }
+  .patch-head .st.failed { background: #fee2e2; color: #991b1b; }
+  .patch-head .st.syntax-ok { background: #dbeafe; color: #1e40af; }
+  .patch-head .rat { flex-basis: 100%; color: var(--muted); font-size: 12.5px; }
+  pre.diff { margin: 0; padding: 0; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; overflow-x: auto; background: #fff; }
+  pre.diff .ln { display: block; padding: 0 14px; white-space: pre; }
+  pre.diff .add { background: var(--diff-add-bg); color: var(--diff-add-fg); }
+  pre.diff .del { background: var(--diff-del-bg); color: var(--diff-del-fg); }
+  pre.diff .hunk { background: var(--diff-hunk-bg); color: var(--diff-hunk-fg); }
+  pre.diff .hdr { font-weight: 600; color: #334155; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CodeAudit Agent</h1>
+  <div class="sub">代码库级智能审计与重构 —— 七阶段流水线（Ingest → Index → Understand → Detect → Fix → TestGen → Report），静态规则 + LLM Agent 双通道检测</div>
+
+  <!-- 1. 新建任务 -->
+  <div class="card">
+    <h2>新建审计任务</h2>
+    <label for="path">待审计项目路径（服务端本地目录或 zip）</label>
+    <input type="text" id="path" placeholder="例如：D:\demo\my-project 或 /path/to/project.zip">
+    <div class="opts">
+      <label><input type="checkbox" id="do_fix"> 生成修复补丁（--fix）</label>
+      <label><input type="checkbox" id="do_tests"> 生成单测（--tests）</label>
+    </div>
+    <div class="row-actions">
+      <button class="btn" id="start">开始审计</button>
+      <span>状态：<span class="pill" id="status">idle</span></span>
+      <span id="audit_id_label" style="font-family:var(--mono);font-size:12px;color:var(--muted)"></span>
+    </div>
+  </div>
+
+  <!-- 2. 任务进度 -->
+  <div class="card hidden" id="progress_card">
+    <h2>任务进度</h2>
+    <div class="stages" id="stages"></div>
+    <div class="current" id="current">等待事件 …</div>
+    <div class="error-box hidden" id="error_box"></div>
+    <details>
+      <summary>事件日志</summary>
+      <div id="log"></div>
+    </details>
+  </div>
+
+  <!-- 3. 仪表盘 -->
+  <div id="dashboard" class="hidden">
+    <div class="card">
+      <div class="dash-head">
+        <div class="score" id="score">
+          <div class="num"><span id="score_num">–</span><small> / 100</small></div>
+          <div class="lvl" id="score_lvl">健康分</div>
+        </div>
+        <div class="badges" id="badges"></div>
+        <div class="meta" id="meta"></div>
+      </div>
+      <div class="links">
+        <a id="link_html" href="#" target="_blank">report.html</a>
+        <a id="link_md" href="#" target="_blank">report.md</a>
+        <a id="link_json" href="#" target="_blank">report.json</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>问题列表</h2>
+      <div class="toolbar">
+        <select id="f_sev">
+          <option value="">全部严重度</option>
+          <option value="critical">致命 critical</option>
+          <option value="high">严重 high</option>
+          <option value="medium">中等 medium</option>
+          <option value="low">轻微 low</option>
+        </select>
+        <select id="f_cat">
+          <option value="">全部类别</option>
+          <option value="bug">缺陷 bug</option>
+          <option value="performance">性能 performance</option>
+          <option value="security">安全 security</option>
+          <option value="style">规范 style</option>
+        </select>
+        <input type="text" id="f_kw" placeholder="关键词：标题 / 文件 / 描述 / ID">
+        <span class="count" id="issue_count"></span>
+      </div>
+      <table>
+        <thead>
+          <tr><th>严重度</th><th>类别</th><th>文件:行</th><th>标题</th><th>置信度</th><th>状态</th></tr>
+        </thead>
+        <tbody id="issues_body"></tbody>
+      </table>
+    </div>
+
+    <div class="card">
+      <h2>修复补丁 <span id="patch_count" style="color:var(--muted);font-size:13px;font-weight:400"></span></h2>
+      <div id="patches"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  const STAGES = [
+    ["ingest", "接入"], ["index", "索引"], ["understand", "理解"], ["detect", "检测"],
+    ["fix", "修复"], ["testgen", "单测生成"], ["report", "报告"],
+  ];
+  const SEV_LABEL = { critical: "致命", high: "严重", medium: "中等", low: "轻微" };
+  const SEV_RANK = { critical: 0, high: 1, medium: 2, low: 3 };
+  const CAT_LABEL = { bug: "缺陷", performance: "性能", style: "规范", security: "安全" };
+  const FIX_LABEL = { none: "未修复", patch_generated: "已生成补丁", verified: "已验证", "needs-review": "待人工复核", "syntax-ok": "语法校验通过" };
+  const APPLY_LABEL = { pending: "待处理", verified: "已验证", "needs-review": "待复核", "syntax-ok": "语法通过", failed: "失败" };
+
+  const state = { auditId: null, es: null, stages: {}, issues: [], patches: [], summary: null };
+
+  // ---------------------------------------------------------------- 状态 / 日志
+  function setStatus(s) { const el = $("status"); el.textContent = s; el.className = "pill " + s; }
+  function log(stage, msg) {
+    const box = $("log");
+    const div = document.createElement("div");
+    div.innerHTML = `<span class="st">[${esc(stage)}]</span> ${esc(msg)}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ---------------------------------------------------------------- 阶段进度
+  function renderStages() {
+    $("stages").innerHTML = STAGES.map(([key, label]) => {
+      const st = state.stages[key] || "pending";
+      const mark = st === "done" ? "✓" : st === "error" ? "!" : st === "skipped" ? "–" : st === "active" ? "●" : "";
+      return `<div class="stage ${st}" data-stage="${key}"><span class="mark">${mark}</span>${label}</div>`;
+    }).join("");
+  }
+  function updateStage(ev) {
+    const key = ev.stage;
+    if (!STAGES.some(([k]) => k === key)) return;
+    const msg = ev.message || "";
+    let st;
+    if (ev.error) st = "error";
+    else if (/跳过|skipped/.test(msg)) st = "skipped";
+    else if (/完成|就绪|已生成/.test(msg)) st = "done";
+    else st = "active";
+    // 后续阶段出现时，前序仍 active 的视作完成
+    const idx = STAGES.findIndex(([k]) => k === key);
+    STAGES.slice(0, idx).forEach(([k]) => { if (state.stages[k] === "active") state.stages[k] = "done"; });
+    if (!(state.stages[key] === "error" || state.stages[key] === "skipped")) state.stages[key] = st;
+    renderStages();
+  }
+  function finishStages() {
+    // 任务收尾：仍处于 active / 从未出现（SSE 提前断开）的阶段统一标记完成
+    STAGES.forEach(([k]) => {
+      const st = state.stages[k];
+      if (st === "active" || st === undefined) state.stages[k] = "done";
+    });
+    renderStages();
+  }
+
+  // ---------------------------------------------------------------- 创建任务 + SSE
+  async function startAudit() {
+    const path = $("path").value.trim();
+    if (!path) { alert("请输入项目路径"); return; }
+    $("start").disabled = true;
+    $("log").innerHTML = "";
+    $("dashboard").classList.add("hidden");
+    $("progress_card").classList.remove("hidden");
+    $("error_box").classList.add("hidden");
+    $("current").textContent = "任务已提交，等待事件 …";
+    state.stages = {}; renderStages();
+    setStatus("queued");
+
+    let resp, data;
+    try {
+      resp = await fetch("/api/audits", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source_path: path, do_fix: $("do_fix").checked, do_tests: $("do_tests").checked }),
+      });
+      data = await resp.json();
+    } catch (e) { alert("请求失败：" + e); $("start").disabled = false; setStatus("idle"); return; }
+    if (!resp.ok) { alert("创建任务失败：" + (data.detail || resp.status)); $("start").disabled = false; setStatus("idle"); return; }
+
+    state.auditId = data.audit_id;
+    $("audit_id_label").textContent = "audit_id=" + state.auditId;
+    log("api", `任务已创建 audit_id=${state.auditId}`);
+    subscribe();
+  }
+
+  function subscribe() {
+    if (state.es) state.es.close();
+    const es = new EventSource(`/api/audits/${state.auditId}/events`);
+    state.es = es;
+    es.onmessage = (ev) => {
+      let event;
+      try { event = JSON.parse(ev.data); } catch { return; }
+      if (event.type === "done") { es.close(); state.es = null; onFinished(); return; }
+      if (event.stage) {
+        setStatus("running");
+        log(event.stage, event.message || "");
+        $("current").innerHTML = `<span class="tag">[${esc(event.stage)}]</span>${esc(event.message || "")}`;
+        updateStage(event);
+      }
+    };
+    es.onerror = () => { es.close(); state.es = null; log("api", "事件流断开，改为轮询状态"); pollUntilDone(); };
+  }
+
+  async function pollUntilDone() {
+    for (let i = 0; i < 600; i++) {
+      const d = await (await fetch(`/api/audits/${state.auditId}`)).json();
+      if (d.status === "done" || d.status === "failed") { onFinished(); return; }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+
+  async function onFinished() {
+    finishStages();
+    $("start").disabled = false;
+    let d;
+    try { d = await (await fetch(`/api/audits/${state.auditId}`)).json(); } catch (e) { setStatus("failed"); return; }
+    setStatus(d.status);
+    if (d.status !== "done") {
+      $("error_box").textContent = "任务失败：" + (d.error || "未知错误");
+      $("error_box").classList.remove("hidden");
+      return;
+    }
+    $("current").innerHTML = `<span class="tag">[done]</span>审计完成，正在加载仪表盘 …`;
+    await loadDashboard();
+    $("current").innerHTML = `<span class="tag">[done]</span>审计完成`;
+  }
+
+  // ---------------------------------------------------------------- 仪表盘
+  async function loadDashboard() {
+    const id = state.auditId;
+    const [summary, patches] = await Promise.all([
+      fetch(`/api/audits/${id}/summary`).then((r) => r.json()),
+      fetch(`/api/audits/${id}/patches`).then((r) => r.json()),
+    ]);
+    state.summary = summary;
+    state.patches = patches.patches || [];
+    renderHead(summary);
+    renderPatches();
+    $("link_html").href = `/api/audits/${id}/report?format=html`;
+    $("link_md").href = `/api/audits/${id}/report?format=md`;
+    $("link_json").href = `/api/audits/${id}/report?format=json`;
+    $("f_sev").value = ""; $("f_cat").value = ""; $("f_kw").value = "";
+    await fetchIssues();
+    $("dashboard").classList.remove("hidden");
+  }
+
+  function healthClass(score) { return score >= 85 ? "good" : score >= 70 ? "fair" : score >= 50 ? "poor" : "bad"; }
+  function healthLevel(score) { return score >= 85 ? "良好" : score >= 70 ? "一般" : score >= 50 ? "较差" : "病态"; }
+
+  function renderHead(s) {
+    $("score").className = "score " + healthClass(s.health_score);
+    $("score_num").textContent = s.health_score;
+    $("score_lvl").textContent = `健康分 · ${healthLevel(s.health_score)} · ${esc(s.project_name || "")}`;
+    const sum = s.summary || {};
+    $("badges").innerHTML = ["critical", "high", "medium", "low"].map((k) =>
+      `<div class="badge ${k}"><div class="k">${SEV_LABEL[k]} ${k}</div><div class="v">${sum[k] || 0}</div></div>`).join("");
+    const t = s.tokens || {};
+    $("meta").innerHTML = [
+      ["问题总数", s.total_issues], ["代码行数", s.loc],
+      ["耗时", `${Number(s.duration_sec || 0).toFixed(2)} s`], ["LLM 调用", t.llm_calls || 0],
+      ["Prompt tokens", t.prompt_tokens || 0], ["Completion tokens", t.completion_tokens || 0],
+      ["缓存命中/未命中", `${t.cache_hits || 0} / ${t.cache_misses || 0}`], ["审计 ID", s.audit_id],
+    ].map(([k, v]) => `<span>${k}</span><b>${esc(v)}</b>`).join("");
+  }
+
+  // ---------------------------------------------------------------- 问题列表（severity/category 走服务端过滤，关键词前端过滤）
+  async function fetchIssues() {
+    const params = new URLSearchParams({ limit: "1000", offset: "0" });
+    if ($("f_sev").value) params.set("severity", $("f_sev").value);
+    if ($("f_cat").value) params.set("category", $("f_cat").value);
+    const resp = await fetch(`/api/audits/${state.auditId}/issues?` + params.toString());
+    const data = await resp.json();
+    if (!resp.ok) { $("issues_body").innerHTML = `<tr><td colspan="6" class="empty">${esc(data.detail || "加载失败")}</td></tr>`; return; }
+    state.issues = (data.issues || []).slice().sort((a, b) =>
+      (SEV_RANK[a.severity] ?? 9) - (SEV_RANK[b.severity] ?? 9) || (a.file || "").localeCompare(b.file || "") || (a.line_start || 0) - (b.line_start || 0));
+    renderIssues();
+  }
+
+  function renderIssues() {
+    const kw = $("f_kw").value.trim().toLowerCase();
+    const list = kw ? state.issues.filter((i) =>
+      [i.id, i.title, i.file, i.description, i.suggestion].some((v) => String(v || "").toLowerCase().includes(kw))) : state.issues;
+    $("issue_count").textContent = `显示 ${list.length} / ${state.issues.length} 条`;
+    if (!list.length) { $("issues_body").innerHTML = `<tr><td colspan="6" class="empty">没有符合条件的问题</td></tr>`; return; }
+    $("issues_body").innerHTML = list.map((i, idx) => {
+      const fixKey = i.fix_status || "none";
+      return `
+      <tr class="row" data-idx="${idx}">
+        <td><span class="sev ${esc(i.severity)}">${SEV_LABEL[i.severity] || esc(i.severity)}</span></td>
+        <td><span class="cat">${CAT_LABEL[i.category] || esc(i.category)}</span></td>
+        <td class="loc">${esc(i.file)}:${i.line_start}${i.line_end > i.line_start ? "-" + i.line_end : ""}</td>
+        <td>${esc(i.title)}</td>
+        <td>${Math.round((i.confidence || 0) * 100)}%</td>
+        <td><span class="fixst ${esc(fixKey)}">${FIX_LABEL[fixKey] || esc(fixKey)}</span></td>
+      </tr>
+      <tr class="detail hidden" data-for="${idx}"><td colspan="6">${detailCard(i)}</td></tr>`;
+    }).join("");
+    $("issues_body").querySelectorAll("tr.row").forEach((tr) => {
+      tr.addEventListener("click", () => {
+        const det = $("issues_body").querySelector(`tr.detail[data-for="${tr.dataset.idx}"]`);
+        const open = det.classList.toggle("hidden");
+        tr.classList.toggle("open", !open);
+      });
+    });
+  }
+
+  function detailCard(i) {
+    const evidence = (i.evidence || []).length
+      ? `<h4>证据</h4><ul>${i.evidence.map((e) => `<li>${esc(e)}</li>`).join("")}</ul>` : "";
+    const code = i.code_snippet ? `<h4>代码片段（${esc(i.file)}:${i.line_start}）</h4><pre class="code">${esc(i.code_snippet)}</pre>` : "";
+    const src = { rule: "规则", llm: "LLM", "rule+llm": "规则+LLM" }[i.source] || esc(i.source);
+    const patch = i.patch_id ? `　补丁：<span style="font-family:var(--mono)">${esc(i.patch_id)}</span>` : "";
+    return `<div class="detail-card">
+      <span class="id">${esc(i.id)}　来源：${src}${patch}</span>
+      <h4>描述</h4><p>${esc(i.description) || "-"}</p>
+      ${evidence}
+      <h4>修复建议</h4><p>${esc(i.suggestion) || "-"}</p>
+      ${code}
+    </div>`;
+  }
+
+  // ---------------------------------------------------------------- Patch + diff
+  function renderDiff(diff) {
+    if (!diff) return `<pre class="diff"><span class="ln" style="color:var(--muted)">（无 diff 内容）</span></pre>`;
+    const lines = diff.replace(/\r\n/g, "\n").split("\n");
+    return `<pre class="diff">${lines.map((ln) => {
+      let cls = "";
+      if (ln.startsWith("+++") || ln.startsWith("---")) cls = "hdr";
+      else if (ln.startsWith("@@")) cls = "hunk";
+      else if (ln.startsWith("+")) cls = "add";
+      else if (ln.startsWith("-")) cls = "del";
+      return `<span class="ln ${cls}">${esc(ln) || " "}</span>`;
+    }).join("")}</pre>`;
+  }
+
+  function renderPatches() {
+    const ps = state.patches;
+    $("patch_count").textContent = ps.length ? `共 ${ps.length} 个` : "";
+    if (!ps.length) { $("patches").innerHTML = `<div class="empty">未生成补丁（未启用 --fix，或没有可修复的问题）</div>`; return; }
+    $("patches").innerHTML = ps.map((p) => `
+      <div class="patch">
+        <div class="patch-head">
+          <span class="pid">${esc(p.id)}</span>
+          <span>关联问题：<span style="font-family:var(--mono)">${esc(p.issue_id || "-")}</span></span>
+          <span class="st ${esc(p.apply_status)}">${APPLY_LABEL[p.apply_status] || esc(p.apply_status)}</span>
+          <span>测试：${p.tests_passed} / ${p.tests_run}</span>
+          ${p.rationale ? `<span class="rat">${esc(p.rationale)}</span>` : ""}
+        </div>
+        ${renderDiff(p.diff)}
+      </div>`).join("");
+  }
+
+  // ---------------------------------------------------------------- 绑定
+  $("start").addEventListener("click", startAudit);
+  $("path").addEventListener("keydown", (e) => { if (e.key === "Enter") startAudit(); });
+  $("f_sev").addEventListener("change", fetchIssues);
+  $("f_cat").addEventListener("change", fetchIssues);
+  let kwTimer = null;
+  $("f_kw").addEventListener("input", () => { clearTimeout(kwTimer); kwTimer = setTimeout(renderIssues, 120); });
+  renderStages();
+})();
+</script>
+</body>
+</html>
