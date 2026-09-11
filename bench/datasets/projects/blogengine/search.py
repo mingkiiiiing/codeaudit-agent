@@ -1,0 +1,31 @@
+"""blogengine 站内搜索：标签倒排与浏览轨迹。"""
+
+from __future__ import annotations
+
+
+def build_tag_index(posts: list[dict[str, str]]) -> dict[str, set[str]]:
+    """按标签建倒排索引（slug 集合）。"""
+    index: dict[str, set[str]] = {}
+    for post in posts:
+        for tag in post.get("tags", "").split():
+            index.setdefault(tag, set()).add(post["slug"])
+    return index
+
+
+def recently_revisited(history: list[str]) -> list[str]:
+    """找出会话内反复浏览的文章（list 判重，文章多时 O(n^2)）。"""
+    again: list[str] = []
+    seen = []
+    for slug in history:
+        if slug in seen:
+            again.append(slug)
+        else:
+            seen.append(slug)
+    return again
+
+
+def snippet_of(post: dict[str, str], limit: int | None = None) -> str:
+    """取文章摘要（limit 为 None 时截 80 字）。"""
+    if limit == None:
+        limit = 80
+    return post.get("summary", "")[:limit]

@@ -1,0 +1,117 @@
+{
+  "audit_id": "fixt0001",
+  "project_name": "fixture_proj",
+  "languages": {
+    "python": 100.0
+  },
+  "loc": 120,
+  "health_score": 76.4,
+  "summary": {
+    "critical": 0,
+    "high": 1,
+    "medium": 1,
+    "low": 1
+  },
+  "issues": [
+    {
+      "id": "ISS-0001",
+      "category": "bug",
+      "severity": "high",
+      "title": "比较结果未使用",
+      "file": "app/services/orders.py",
+      "line_start": 12,
+      "line_end": 12,
+      "code_snippet": "orders.sort()\nreturn orders",
+      "description": "调用了 sort() 但未使用返回值，排序结果被丢弃。",
+      "evidence": [
+        "orders.sort() 的返回值为 None，未赋值给任何变量"
+      ],
+      "suggestion": "改为 orders = sorted(orders) 或就地使用 orders.sort()。",
+      "confidence": 0.92,
+      "source": "rule+llm",
+      "fix_status": "verified",
+      "patch_id": "FIX-0001"
+    },
+    {
+      "id": "ISS-0002",
+      "category": "performance",
+      "severity": "medium",
+      "title": "循环内重复编译正则",
+      "file": "app/utils/net.py",
+      "line_start": 30,
+      "line_end": 34,
+      "code_snippet": "for line in lines:\n    if re.match(pattern, line):",
+      "description": "在循环体内反复调用 re.match，正则未被缓存，重复编译开销大。",
+      "evidence": [
+        "循环体位于第 30-34 行，每次迭代都调用 re.match"
+      ],
+      "suggestion": "把 re.compile(pattern) 提到循环外，循环内使用编译后的对象。",
+      "confidence": 0.78,
+      "source": "rule",
+      "fix_status": "none",
+      "patch_id": ""
+    },
+    {
+      "id": "ISS-0003",
+      "category": "style",
+      "severity": "low",
+      "title": "魔法数字重复出现",
+      "file": "app/config.py",
+      "line_start": 8,
+      "line_end": 8,
+      "code_snippet": "",
+      "description": "同一魔法数字 86400 在文件内出现 3 次。",
+      "evidence": [],
+      "suggestion": "提取为常量 SECONDS_PER_DAY = 86400。",
+      "confidence": 0.65,
+      "source": "rule",
+      "fix_status": "none",
+      "patch_id": ""
+    }
+  ],
+  "patches": [
+    {
+      "id": "FIX-0001",
+      "issue_id": "ISS-0001",
+      "diff": "--- a/app/services/orders.py\n+++ b/app/services/orders.py\n@@ -10,7 +10,7 @@\n def load_orders():\n-    orders.sort()\n+    orders = sorted(orders)\n     return orders",
+      "rationale": "sort() 返回 None，改为 sorted() 保留排序结果。",
+      "apply_status": "verified",
+      "tests_run": 3,
+      "tests_passed": 3
+    }
+  ],
+  "test_cases": [
+    {
+      "id": "TST-0001",
+      "target": "app.services.orders.load_orders",
+      "file": "tests/generated/test_load_orders.py",
+      "status": "passed",
+      "kind": "normal",
+      "assert_count": 2
+    }
+  ],
+  "architecture": {
+    "text": "小型 Flask 风格项目：app/services 提供业务服务，app/utils 提供工具函数。",
+    "tech_stack": [
+      "python"
+    ],
+    "modules": {
+      "app/services": "业务服务",
+      "app/utils": "工具函数"
+    },
+    "hotspots": [
+      "app/services/orders.py"
+    ]
+  },
+  "stats": {
+    "duration_sec": 0.0,
+    "llm_calls": 0,
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "files_total": 0,
+    "loc_total": 0
+  },
+  "created_at": ""
+}
