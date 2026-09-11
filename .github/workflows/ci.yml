@@ -27,13 +27,13 @@ jobs:
         include:
           - python-version: "3.11"
             os: ubuntu-latest
-            with-cov: false   # 覆盖率只在主版本条目统计一次
+            with-cov: 'false'  # 覆盖率只在主版本条目统计一次
           - python-version: "3.13"
             os: ubuntu-latest
-            with-cov: true
+            with-cov: 'true'
           - python-version: "3.13"
             os: windows-latest
-            with-cov: false
+            with-cov: 'false'
 
     steps:
       - name: Checkout
@@ -62,22 +62,25 @@ jobs:
         run: pip install pytest-cov
 
       - name: Run tests
-        # 常规条目：安静模式 + 短回溯，失败时输出可读
+        # 常规条目：安静模式 + 短回溯，失败时输出可读；tee 落盘供失败上传
         if: matrix.with-cov != 'true'
-        run: pytest -q --tb=short
+        run: |
+          set -o pipefail
+          pytest -q --tb=short 2>&1 | tee pytest-out.txt | tail -n 5
 
       - name: Run tests with coverage (py3.13 / ubuntu)
         # 覆盖率条目：仅统计 audit 包，输出终端报表；
         # 后续如需上传 Coveralls/Codecov 或生成徽章，可在此追加步骤。
         if: matrix.with-cov == 'true'
-        run: pytest -q --tb=short --cov=audit --cov-report=term
+        run: |
+          set -o pipefail
+          pytest -q --tb=short --cov=audit --cov-report=term 2>&1 | tee pytest-out.txt | tail -n 5
 
-      - name: Debug issue on failure (temporary)
-        # 临时调试步骤：失败时把 pytest 完整尾部开成 Issue（匿名 API 可读），
-        # 定位平台差异后移除。
+      - name: Upload pytest output on failure (temporary)
+        # 临时调试：失败时上传 pytest 完整输出，公开仓库可匿名下载定位平台差异。
         if: failure()
-        env:
-          TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          RUNID: ${{ github.run_id }}
-        run: python scripts/ci_debug_issue.py /tmp/pytest_dbg.txt
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-debug-${{ matrix.python-version }}-${{ matrix.os }}
+          path: pytest-out.txt
+          if-no-files-found: warn
