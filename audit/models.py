@@ -245,6 +245,7 @@ class AuditStats(_Model):
     cache_misses: int = 0
     files_total: int = 0
     loc_total: int = 0
+    suppressed: int = 0  # 被基线抑制的问题数（契约 v1.4）
 
 
 @dataclass
@@ -261,6 +262,7 @@ class AuditReport(_Model):
     architecture: ArchitectureCard | None = None
     stats: AuditStats = field(default_factory=AuditStats)
     created_at: str = ""
+    schema_version: str = "1.0"  # 报告格式版本（契约 v1.4）
 
 
 def count_by_severity(issues: list[Issue]) -> dict[str, int]:

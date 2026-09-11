@@ -61,6 +61,17 @@ def make_id(prefix: str, n: int) -> str:
     return f"{prefix}-{n:04d}"
 
 
+def issue_fingerprint(issue: Any) -> str:
+    """问题指纹（契约 v1.4）：基线匹配的唯一依据。
+
+    由 文件|行区间|类别|标题前 60 字 决定，与描述措辞/置信度无关——
+    同一位置同一类问题的指纹在多次审计间保持稳定。
+    """
+    category = getattr(issue.category, "value", issue.category)
+    key = f"{issue.file}|{issue.line_start}|{issue.line_end}|{category}|{(issue.title or '')[:60]}"
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
 def new_audit_id() -> str:
     return uuid.uuid4().hex[:12]
 

@@ -4,8 +4,26 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeaudit-agent"
-version = "0.1.0"
+# 版本单源：唯一来源为 audit/__init__.__version__（dynamic 声明，见文件底部 [tool.setuptools.dynamic]）
+dynamic = ["version"]
 description = "代码库级智能审计与重构 Agent（GLM-5.3 Flash）"
+readme = "README.md"
+# 兼容性说明：[build-system] 声明的 setuptools>=68 在 61~76 区间不支持 SPDX 字符串写法
+# （license = "MIT" 需 setuptools>=77），故采用 PEP 621 表写法，全区间可用。
+license = { text = "MIT" }
+authors = [{ name = "mingkiiiiing", email = "2200658909@qq.com" }]
+keywords = ["code-review", "static-analysis", "llm-agent", "code-audit", "sast"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Quality Assurance",
+]
 requires-python = ">=3.11"
 dependencies = [
     "tree-sitter>=0.23,<0.26",
@@ -24,8 +42,28 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8", "pytest-asyncio>=0.23"]
 
+[project.urls]
+Homepage = "https://github.com/mingkiiiiing/codeaudit-agent"
+Repository = "https://github.com/mingkiiiiing/codeaudit-agent"
+Issues = "https://github.com/mingkiiiiing/codeaudit-agent/issues"
+Changelog = "https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md"
+
+[project.scripts]
+codeaudit = "cli:main"
+
 [tool.setuptools]
+# cli.py 是仓库根目录下的顶层模块（不在 audit 包内），
+# console script 指向 cli:main，因此必须把 cli 作为 py-module 一并打包。
+py-modules = ["cli"]
 packages = { find = { include = ["audit*"] } }
+
+# 版本动态读取 audit.__version__（静态解析，无需安装依赖即可构建）
+[tool.setuptools.dynamic]
+version = { attr = "audit.__version__" }
+
+# Jinja2 报告模板随包分发（audit.report.render 按相对路径加载模板）
+[tool.setuptools.package-data]
+audit = ["report/templates/*.j2"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
