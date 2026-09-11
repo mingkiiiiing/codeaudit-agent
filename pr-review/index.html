@@ -314,6 +314,29 @@
   
   
     <li class="md-nav__item">
+      <a href="../design/00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    00 项目总览
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../design/01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-nav__link">
         
   
@@ -504,6 +527,29 @@
   
   <span class="md-ellipsis">
     09 Wave4总体方案-开源生态对标
+    
+  </span>
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/10-Wave5%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B4%A8%E9%87%8F%E6%94%BB%E5%9D%9A/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    10 Wave5 质量攻坚
     
   </span>
   
@@ -894,7 +940,8 @@
 <ul>
 <li><code>fetch-depth: 0</code> 是硬前提，浅克隆下 <code>--diff origin/main</code> 拿不到变更文件清单；</li>
 <li><code>--diff</code> 的 ref 按目标分支写死为 <code>origin/main</code>（fork PR 与分支 PR 均成立）；如工作流按目标分支动态化，可用 <code>${{ github.base_ref }}</code> 换算；</li>
-<li>阈值建议从 <code>high</code> 起步：critical + high 是修复闭环的触发级别，medium / low 适合作为非阻塞的报告项而非门禁。</li>
+<li>阈值建议从 <code>high</code> 起步：critical + high 是修复闭环的触发级别，medium / low 适合作为非阻塞的报告项而非门禁；</li>
+<li><strong>工作区无需手动排除</strong>：审计默认把工作副本与报告写在仓库根的 <code>.codeaudit/</code>，该目录已在流水线的默认忽略目录清单（与 <code>.git</code>、<code>node_modules</code> 等并列），对已含 <code>.codeaudit/</code> 的项目再次审计不会产生嵌套副本，也<strong>不需要手动加 .gitignore</strong> 才能跑对；最佳实践是再进一步，用 <code>--work-root</code> 把工作区外置到源码树之外（如 <code>--work-root "$RUNNER_TEMP/codeaudit"</code>），报告产物（<code>&lt;work-root&gt;/reports</code>）与源码彻底分离。</li>
 </ul>
 <h2 id="_3">阈值与门禁的分寸<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
 <ul>
