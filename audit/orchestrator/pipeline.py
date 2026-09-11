@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from audit.config import AuditConfig
+from audit.confkit import apply_baseline, apply_diff_filter, changed_files, load_baseline, write_baseline
 from audit.llm.base import FakeLLMClient, LLMClient
 from audit.models import AuditReport, count_by_severity
 from audit.pipeline import EventEmitter, PipelineContext
@@ -122,6 +123,56 @@ async def _run_testgen_stage(ctx: PipelineContext) -> None:
         await ctx.emit("testgen", f"stage error: {type(exc).__name__}: {exc}", error=True)
 
 
+# ---------------------------------------------------------------- 契约 v1.4：diff 增量 / 基线（W4-A2）
+
+_DIFF_UNSUPPORTED_MSG = "diff 增量仅支持本地 git 目录输入，本次跳过增量"
+
+
+async def _apply_diff_increment(ctx: PipelineContext) -> None:
+    """diff 增量剪枝（契约 v1.4，docs/09 §1 第 3 行）：ingest 阶段完成后调用。
+
+    - zip 输入 / 非 git 目录（或 git 失败）：发 warning 事件并继续全量。注意该
+      警告挂 stage="init" 通道（与"LLM 未配置"警告同口径）：文案含"跳过"二字，
+      若挂 stage="ingest" 会把 Web 端已完成检测完成的 ingest 阶段钉死为 skipped；
+    - 拿到变更集合：物理剪枝工作副本到变更文件，并发「增量模式」事件；
+    - 变更集合与工作副本无交集（保留 0 个）：发「增量集合为空」警告并回退全量。
+    """
+    source = Path(ctx.config.source_path)
+    if source.is_file():  # zip 入口：工作副本来自解压，无从对 git ref 求差
+        await ctx.emit("init", _DIFF_UNSUPPORTED_MSG, warning=True)
+        return
+    changed = changed_files(source, ctx.config.diff_ref)
+    if changed is None:  # 非 git 目录或 git 不可用/失败
+        await ctx.emit("init", _DIFF_UNSUPPORTED_MSG, warning=True)
+        return
+    kept = apply_diff_filter(ctx.workspace, changed)
+    if kept == 0:
+        await ctx.emit("ingest", "增量集合为空，回退全量", warning=True)
+        return
+    await ctx.emit("ingest", f"增量模式：仅审计 {kept} 个变更文件", files=kept)
+
+
+async def _apply_baseline_suppression(ctx: PipelineContext) -> None:
+    """基线抑制（契约 v1.4，docs/09 §1 第 4 行）：detect 阶段完成后调用。
+
+    - 命中基线指纹的问题从 ctx.issues 剔除，计入 ctx.stats.suppressed；
+    - 事件文案「基线抑制：N 个已知问题」不含 Web 阶段判定关键字，安全。
+    """
+    fingerprints = load_baseline(Path(ctx.config.baseline_path))
+    ctx.issues, suppressed = apply_baseline(ctx.issues, fingerprints)
+    ctx.stats.suppressed = suppressed
+    await ctx.emit("detect", f"基线抑制：{suppressed} 个已知问题", suppressed=suppressed)
+
+
+async def _export_baseline(ctx: PipelineContext) -> None:
+    """基线导出（契约 v1.4）：report 阶段完成后调用，把当前问题写为基线文件。
+
+    事件文案含「基线已写入」；不改变既有 report 阶段的「报告已生成」事件。
+    """
+    out = write_baseline(ctx.issues, Path(ctx.config.report_baseline_out))
+    await ctx.emit("report", f"基线已写入：{out}", baseline=str(out))
+
+
 async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
     """执行七阶段审计流水线，返回最终 AuditReport（审计永不整体失败）。
 
@@ -162,7 +213,17 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
         manifests = getattr(result, "manifests", None) or []
         await ctx.emit("ingest", f"工作副本就绪：{result.src_root}", files=len(manifests))
 
-    await _run_stage(ctx, "ingest", _do_ingest)
+    ingest_ok = await _run_stage(ctx, "ingest", _do_ingest)
+
+    # -------- Stage 1b: diff 增量剪枝（契约 v1.4，docs/09 §1 第 3 行）
+    # 仅在 ingest 成功且 ctx.workspace 已替换为独立工作副本时执行：
+    # ingest 失败时 ctx.workspace 仍指向原始输入目录，此时物理删文件会毁掉源项目。
+    if config.diff_ref and ingest_ok and ctx.workspace.src_root != src:
+        try:
+            await _apply_diff_increment(ctx)
+        except Exception as exc:  # noqa: BLE001 —— 增量失败回退全量，不中断流水线
+            _record_stage_error(ctx, "ingest", exc)
+            await ctx.emit("ingest", f"stage error: {type(exc).__name__}: {exc}", error=True)
 
     # -------- Stage 2: index
     async def _do_index() -> None:
@@ -232,6 +293,14 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
 
     await _run_stage(ctx, "detect", _do_detect)
 
+    # -------- Stage 4b: 基线抑制（契约 v1.4，docs/09 §1 第 4 行）
+    if config.baseline_path:
+        try:
+            await _apply_baseline_suppression(ctx)
+        except Exception as exc:  # noqa: BLE001 —— 基线故障按零抑制继续
+            _record_stage_error(ctx, "detect", exc)
+            await ctx.emit("detect", f"stage error: {type(exc).__name__}: {exc}", error=True)
+
     # -------- Stage 5: fix（契约 v1.2：模块存在则真实执行）
     if config.do_fix:
         await _run_fix_stage(ctx)
@@ -262,6 +331,14 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
         )
 
     await _run_stage(ctx, "report", _do_report)
+
+    # -------- Stage 7b: 基线导出（契约 v1.4）：把本次剩余问题写为基线文件
+    if config.report_baseline_out:
+        try:
+            await _export_baseline(ctx)
+        except Exception as exc:  # noqa: BLE001 —— 导出失败不影响报告
+            _record_stage_error(ctx, "report", exc)
+            await ctx.emit("report", f"stage error: {type(exc).__name__}: {exc}", error=True)
 
     ctx.stats.duration_sec = time.monotonic() - started
 

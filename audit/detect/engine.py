@@ -6,6 +6,11 @@
 - validate_issue_lines(issue, lines) -> bool
 - hits_to_issues(hits, id_start=1) -> list[Issue]
 - dedup_issues(issues) -> list[Issue]
+- filter_suppressed(hits, lines) -> list[RuleHit]
+  # 行内抑制（W4-A2，docs/09 §1 第 4 行）：命中行区间内任一行含
+  # `# codeaudit: ignore` 丢弃该 hit；`# codeaudit: ignore[ID,...]` 仅当
+  # hit.rule_id 在 ID 列表中才丢弃。只作用于静态规则结果（llm_only 模式与
+  # LLM 审查通道不经过此过滤）。
 - run_detection(ctx, review_fn=None, verify_fn=None) -> list[Issue]
   # review_fn 由集成时注入（simple=review_file 包装 / tools=make_tools_review_fn）；
   # 文件数 >1 时经 audit.agents.review.review_files_parallel 文件级并发审查；
@@ -21,6 +26,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 from typing import Any, Awaitable, Callable, Sequence
 
 from audit.detect.base import RuleContext, RuleRegistry
@@ -39,6 +45,7 @@ __all__ = [
     "apply_verify",
     "build_rule_contexts",
     "dedup_issues",
+    "filter_suppressed",
     "hits_to_issues",
     "run_detection",
     "run_rules",
@@ -108,6 +115,63 @@ def build_rule_contexts(ctx: PipelineContext) -> list[RuleContext]:
 
 # ---------------------------------------------------------------- 规则执行
 
+# 行内抑制注释（semgrep 风格，docs/09 §1 第 4 行）：
+#   `# codeaudit: ignore`              → 抑制本行全部规则；
+#   `# codeaudit: ignore[ID1, ID2]`    → 只抑制列出的规则 ID（逗号分隔可含空格）。
+# 关键字大小写不敏感；`ignore` 后必须紧跟单词边界（避免 "ignored" 误判）。
+_INLINE_SUPPRESS_RE = re.compile(
+    r"codeaudit\s*:\s*ignore\b(?:\[(?P<ids>[^\]]*)\])?", re.IGNORECASE
+)
+
+
+def _parse_suppress_ids(line: str) -> set[str] | None:
+    """解析单行抑制注释。无抑制注释返回 None；裸 ignore 返回空集（=全部抑制）；
+    ignore[IDs] 返回 ID 集合（ID 与注册表中的完整规则 id 精确匹配）。"""
+    match = _INLINE_SUPPRESS_RE.search(line)
+    if match is None:
+        return None
+    raw_ids = match.group("ids")
+    if raw_ids is None:
+        return set()  # 裸 ignore：抑制全部规则
+    return {part.strip() for part in raw_ids.split(",") if part.strip()}
+
+
+def filter_suppressed(hits: Sequence[RuleHit], lines: list[str]) -> list[RuleHit]:
+    """过滤被行内抑制注释命中的静态规则结果（W4-A2，docs/09 §1 第 4 行）。
+
+    判定范围：hit 的行区间 [line_start, line_end] 内任一行含抑制注释即生效——
+    - `# codeaudit: ignore`（裸，解析为空集）：丢弃该 hit；
+    - `# codeaudit: ignore[ID,...]`：hit.rule_id 在 ID 列表中才丢弃；
+    - 无关注释 / ID 不在列表中：保留。
+    只作用于静态规则结果；llm_only 模式与 LLM 审查结果不经此函数。
+    文件不含任何 "codeaudit" 字样时快速原样返回（默认行为零改动）。
+    """
+    hits = list(hits)
+    if not hits or not any("codeaudit" in line.lower() for line in lines):
+        return hits
+    suppress_by_line: dict[int, set[str]] = {}
+    for lineno, line in enumerate(lines, start=1):
+        ids = _parse_suppress_ids(line)
+        if ids is not None:
+            suppress_by_line[lineno] = ids
+    if not suppress_by_line:
+        return hits
+    kept: list[RuleHit] = []
+    for hit in hits:
+        start = max(1, hit.line_start)
+        end = max(start, hit.line_end)  # 行区间与 hits_to_issues 口径一致
+        suppressed = False
+        for lineno in range(start, end + 1):
+            ids = suppress_by_line.get(lineno)
+            if ids is None:
+                continue  # 该行无抑制注释
+            if not ids or hit.rule_id in ids:
+                suppressed = True  # 裸 ignore 命中，或 hit 规则 ID 在列表中
+                break
+        if not suppressed:
+            kept.append(hit)
+    return kept
+
 
 def _run_rules_on_contexts(
     contexts: list[RuleContext],
@@ -123,10 +187,13 @@ def _run_rules_on_contexts(
             if rule.id in disabled:
                 continue
             try:
-                hits.extend(rule.check(rc))
+                found = list(rule.check(rc))
             except Exception as exc:  # 单规则崩溃不阻断整体
                 if extra is not None:
                     extra.setdefault("rule_errors", {})[rule.id] = repr(exc)
+                continue
+            # 行内抑制接线：带 `# codeaudit: ignore[...]` 的行按语义丢弃命中
+            hits.extend(filter_suppressed(found, rc.lines))
     hits.sort(key=lambda h: (h.file, h.line_start, h.rule_id))
     return hits
 
