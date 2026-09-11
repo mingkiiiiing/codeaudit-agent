@@ -80,21 +80,4 @@ jobs:
           TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           RUNID: ${{ github.run_id }}
-        run: |
-          python -m pytest -q --tb=long -x 2>&1 | tail -n 200 > /tmp/pytest_dbg.txt || true
-          python - <<'PY'
-          import json, os, urllib.request
-          body = open("/tmp/pytest_dbg.txt", encoding="utf-8", errors="replace").read()
-          payload = json.dumps({
-              "title": f"CI debug: run {os.environ['RUNID']} (temporary)",
-              "body": "``" + "`
-" + body + "
-`" + "``",
-          }).encode()
-          req = urllib.request.Request(
-              f"https://api.github.com/repos/{os.environ['REPO']}/issues",
-              data=payload, method="POST",
-              headers={"Authorization": f"Bearer {os.environ['TOKEN']}",
-                       "Accept": "application/vnd.github+json"})
-          print("issue status:", urllib.request.urlopen(req).status)
-          PY
+        run: python scripts/ci_debug_issue.py /tmp/pytest_dbg.txt
