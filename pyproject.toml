@@ -82,6 +82,7 @@ target-version = "py311"          # 与 requires-python = ">=3.11" 对齐
 # 排除的都是"生成物或故意违例的审计夹具"，不代表工程质量：
 extend-exclude = [
     ".codeaudit*",      # 审计 Agent 运行时生成的工作区副本（含被审计样例的拷贝）
+    ".dogfood*",        # W5 Dogfood 自审计运行时生成的工作区（自身源码被审时的副本与报告）
     ".demo_probe*",     # 演示流水线运行时生成的工作区/报告副本（W3-A3 演示脚本产物）
     "bench/datasets",   # 评估基准的样例项目数据（故意包含可被检测的违例写法）
     "tests/samples",    # 测试夹具项目 demo_proj：审计目标样本，故意含违例（如 ==/裸 except）

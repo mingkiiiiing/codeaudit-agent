@@ -14,3 +14,21 @@ demo/.demo_work/
 .ruff_cache/
 .demo_probe*/
 .coverage
+
+# W5-A2 压测数据（bench/stress 生成物，>10MB 不入库）；嵌套 .gitignore 保证任意调用根下都被排除
+bench/stress/data/*
+!bench/stress/data/.gitignore
+
+# W5-A4：Dogfood 自审计工作区与 CI / 压测 / 推送调试残留，一律不入库
+.dogfood*/
+.push.log
+ci_failure.log
+.ci_debug/
+.cred.tmp
+.art.json
+ci_jobs*.json
+.ci_runs.json
+.ci_issues.json
+site/
+r1outer/
+r1test/

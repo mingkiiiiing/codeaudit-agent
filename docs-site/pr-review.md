@@ -67,7 +67,8 @@ jobs:
 
 - `fetch-depth: 0` 是硬前提，浅克隆下 `--diff origin/main` 拿不到变更文件清单；
 - `--diff` 的 ref 按目标分支写死为 `origin/main`（fork PR 与分支 PR 均成立）；如工作流按目标分支动态化，可用 `${{ github.base_ref }}` 换算；
-- 阈值建议从 `high` 起步：critical + high 是修复闭环的触发级别，medium / low 适合作为非阻塞的报告项而非门禁。
+- 阈值建议从 `high` 起步：critical + high 是修复闭环的触发级别，medium / low 适合作为非阻塞的报告项而非门禁；
+- **工作区无需手动排除**：审计默认把工作副本与报告写在仓库根的 `.codeaudit/`，该目录已在流水线的默认忽略目录清单（与 `.git`、`node_modules` 等并列），对已含 `.codeaudit/` 的项目再次审计不会产生嵌套副本，也**不需要手动加 .gitignore** 才能跑对；最佳实践是再进一步，用 `--work-root` 把工作区外置到源码树之外（如 `--work-root "$RUNNER_TEMP/codeaudit"`），报告产物（`<work-root>/reports`）与源码彻底分离。
 
 ## 阈值与门禁的分寸
 

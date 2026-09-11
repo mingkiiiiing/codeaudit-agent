@@ -4,7 +4,32 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [Unreleased]
+## [0.2.1] - 2026-09-12
+
+Wave 5：质量攻坚——三路只读审查 + Dogfood 自审计共产出 68 项发现，本版修复其中 25 项核心问题，并新增联调测试套件（34 用例）与压力测试基线。
+
+### Fixed
+
+- **LLM 审查生效修复（critical）**：simple 审查模式下回调参数错绑，导致 LLM 通道完全不参与审查、报告却按「规则 + LLM」口径呈现；修复后 simple 模式真实生效。
+- **修复 Patch 静默跳过**：嵌套 git 仓库场景下 `git apply` 可能在用户原始项目的外层仓库执行而被静默跳过；补丁的应用与回滚现严格限定在审计工作副本内。
+- **SARIF 文件 uri 跨平台**：Windows 上生成的 SARIF `uri` 含反斜杠、不符合规范；统一归一为 `/` 分隔，各平台均可通过 upload-sarif 校验。
+- **密钥规则误报**：PY-HARDCODED-SECRET 规则改为标识符分词精确匹配敏感词，并叠加熵 / 字符集随机性校验，普通命名常量（如内部指纹键名）不再被判为 critical。
+- **服务端报告目录按任务隔离**：报告改写入 `<work-root>/<audit_id>/reports/`，并发或连续多次审计不再相互覆盖。
+
+### Changed
+
+- **接入失败门控**：ingest 失败时 index / detect / fix / testgen 全部跳过并发「跳过：…（ingest 未成功）」事件，报告为空壳——绝不触碰用户原始目录、绝不向原项目写入补丁。
+- **资源收口**：审计结束统一关闭 LLM 客户端与索引连接，长跑与批量场景不再泄漏连接。
+- **服务端任务表有界化**：终态（已完成 / 失败）任务记录按 LRU 淘汰，服务长期运行内存不再无限增长。
+- **门禁消息走 stderr**：`[门禁] 通过 / 未通过` 判定信息输出到 stderr，`--json --check` 组合下 stdout 为纯 JSON，可整体 `json.loads`。
+- **`.codeaudit/` 默认忽略**：审计工作区目录加入流水线默认忽略清单（与 `.git`、`node_modules` 并列），对已含工作区的项目复跑不再产生嵌套副本与假问题，无需手动配置 gitignore。
+- **程序名动态显示**：帮助 / usage 中的程序名按调用方式显示——`python cli.py` 显示 `cli.py`，安装态显示 `codeaudit`。
+- **文档站与协作设施完善**：文档站导航收录设计文档 00、首页链接口径对齐；CLI 文档补全 `--fail-on` 单独指定即隐含启用门禁、程序名与门禁消息流向说明；README 区分离线基线（`bench.run`，零 Key 可跑）与真跑评估（`bench.real_run`，需 API Key）、注明 `.env` 不自动加载需手动 export、目录树补全 `scripts/` 与压测目录、Makefile 清单补 `clean`；离线 run 记录头部加注消融表配置数口径；CI / 压测调试残留路径统一纳入 `.gitignore` 与 ruff 排除。
+
+### Security
+
+- **zip 炸弹防护**：zip 接入增加 1 GB 累计解压上限，超限中止并明确报错，恶意超大压缩包不再拖垮进程。
+- **测试目标注入防护**：run_tests 工具拒绝以 `-` 开头或越界的测试目标，阻断参数注入路径。
 
 ## [0.2.0] - 2026-09-11
 
@@ -39,6 +64,7 @@ Wave 1~3：核心流水线、检测与修复能力、产品化入口与评估基
 - **评估基准**：240 条金标（10 个项目集）、匹配与消融脚本、效率对比；离线纯规则基线实测 Precision(critical+high) 1.000 / Recall 0.844 / P50 5.0 s/KLOC（见 `bench/results/`；LLM 通道指标待真跑）。
 - **工程化**：650 项单元测试全绿（Wave 3 收口基线）、GitHub Actions CI（Python 3.11 / 3.13 × ubuntu / windows 矩阵）、离线全闭环演示 `python demo/run_demo.py`。
 
-[Unreleased]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mingkiiiiing/codeaudit-agent/releases/tag/v0.1.0

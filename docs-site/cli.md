@@ -14,16 +14,18 @@ codeaudit run ./my-project --no-llm
 python cli.py run ./my-project --no-llm
 ```
 
+帮助与用法信息中的程序名按实际调用方式**动态显示**：`python cli.py …` 的 `--help` / usage 显示 `cli.py`，安装态 `codeaudit …` 显示 `codeaudit`，两种方式行为完全一致。
+
 全局查看版本：`codeaudit --version`。
 
 ## 退出码约定
 
 | 退出码 | 含义 |
 |---|---|
-| `0` | 完成。**含发现问题时**——只要未启用门禁（`--check`），发现多少问题都返回 0 |
+| `0` | 完成。**含发现问题时**——只要未启用门禁（`--check` 或 `--fail-on`），发现多少问题都返回 0 |
 | `1` | 运行错误：路径不存在、报告文件非法、运行期异常等 |
 | `2` | bench 真跑缺 `GLM_API_KEY`（该码已被评估脚本占用，CI 场景不会出现） |
-| `3` | `--check` 门禁失败：问题严重度达到或超过 `--fail-on` 阈值 |
+| `3` | 门禁失败（由 `--check` 启用，或单独指定 `--fail-on` 隐含启用）：问题严重度达到或超过阈值 |
 
 ## run —— 完整审计
 
@@ -43,9 +45,9 @@ codeaudit run <source_path> [参数]
 | `--review-mode simple\|tools` | LLM 审查模式：单次 JSON 调用 / 工具取证循环（默认 simple） |
 | `--no-verify` | 关闭 Verify Agent 复核 |
 | `--fix-max N` / `--testgen-max N` | 单次审计最多生成的 Patch 数 / 单测目标函数数（默认 50 / 30） |
-| `--json` | 以 JSON 输出完整报告到 stdout |
+| `--json` | 以 JSON 输出完整报告到 stdout（门禁消息一律走 stderr，`--json --check` 组合下 stdout 仍可整体 `json.loads`） |
 | `--check` **0.2.0** | 启用 CI 门禁：命中阈值时退出码 `3`（详见 [PR 增量审计实践](pr-review.md)） |
-| `--fail-on <sev>` **0.2.0** | 门禁阈值 `critical\|high\|medium\|low`，与 `--check` 搭配 |
+| `--fail-on <sev>` **0.2.0** | 门禁阈值 `critical\|high\|medium\|low`（critical > high > medium > low，缺省 `high`）；**单独指定即隐含启用门禁**，无需同时给 `--check` |
 | `--format sarif` **0.2.0** | 追加生成 SARIF 2.1.0 报告 `<out>/report.sarif`（与 JSON/Markdown/HTML 并存，见 [SARIF 上传 Security](sarif.md)） |
 | `--diff <ref>` **0.2.0** | 只审相对 git ref（如 `HEAD~1`、`origin/main`）发生变更的文件；CI 中需 `fetch-depth: 0` |
 | `--baseline <file>` **0.2.0** | 基线文件（问题指纹列表）；命中的存量问题被抑制并计入 `stats.suppressed` |

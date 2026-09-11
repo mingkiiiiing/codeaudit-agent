@@ -97,11 +97,13 @@ codeaudit run ./my-project # 与 python cli.py run 等价
 ### 配置 GLM_API_KEY（可选）
 
 ```bash
-cp .env.example .env                        # 三个变量带注释，按需填写后再 export
+cp .env.example .env                        # 变量模板（带注释），仅作留存；见下方说明
 export GLM_API_KEY=sk-xxx                    # 智谱开放平台 API Key
 export GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 可选，默认值
 export GLM_MODEL=glm-5.3-flash               # 可选，默认值
 ```
+
+> 本工具**不自动加载 `.env` 文件**（dotenv 产品化在 Roadmap），只从进程环境变量取值：`.env` 仅作变量模板，实际运行前需在当前 shell `export`，或由 CI secrets 注入。
 
 未设置 `GLM_API_KEY` 时流水线自动进入**纯规则离线模式**（进度事件提示"LLM 未配置，运行纯规则模式"），仅静态规则通道工作，不发起任何网络请求；也可用 `--no-llm` 显式强制。修复与单测生成依赖 LLM，离线模式下这两个阶段会被跳过并在报告中注明（想看离线闭环效果请跑 `python demo/run_demo.py`，见上文「快速体验」）。
 
@@ -143,6 +145,8 @@ python cli.py report ./reports/report.json --format html --out ./reports/report.
 | `--no-verify` | 关闭 Verify Agent 复核 |
 | `--fix-max N` / `--testgen-max N` | 单次审计最多生成的 Patch 数 / 单测目标函数数（默认 50 / 30） |
 | `--json` | 以 JSON 输出完整报告 |
+
+> 工作区说明：默认工作区根 `.codeaudit/` 已在流水线的默认忽略目录清单中（与 `.git`、`node_modules` 等并列），对已含 `.codeaudit/` 的项目再次审计不会把工作副本再扫一遍、产生嵌套副本，**无需手动配置 gitignore**；仓库根 `.gitignore` 中的 `.codeaudit/` 条目仅用于保持本仓库自身的整洁。想彻底分离产物与源码时，可用 `--work-root` 把工作区外置到源码树之外。
 
 0.2.0 新增参数（CI 门禁向，全参数速查与退出码约定见 [docs-site/cli.md](docs-site/cli.md)）：
 
@@ -209,6 +213,8 @@ curl -s http://127.0.0.1:8000/api/audits/<audit_id>/patches
 codeaudit run . --no-llm --check --fail-on high
 ```
 
+门禁判定消息（`[门禁] 通过 / 未通过 …`）输出到 **stderr**，标准输出保持纯净：`--json` 与 `--check` 同开时，stdout 只含报告 JSON、可被 CI 脚本整体 `json.loads`。单独给出 `--fail-on` 时门禁同样生效（无需显式 `--check`）。
+
 **PR 增量审计 + 存量豁免**（完整工作流见 [docs-site/pr-review.md](docs-site/pr-review.md)）：
 
 ```yaml
@@ -241,9 +247,13 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 | 效率提升 | `(T_human − (T_agent + T_review)) / T_human` | ≥ 70% | 见 `bench/results/` |
 | 成本 | tokens/KLOC（prompt / completion 分列） | — | 见 `bench/results/` |
 
-以上为设计目标；实测数据由 `python -m bench.run --projects ... --goldset bench/datasets/goldset.jsonl --ablation` 产出（需配置 `GLM_API_KEY`），同时输出 7 组配置的消融表。未经过真跑的数字不作为已验证结果引用。
+以上为设计目标。实测数据分两条产出路径：**离线纯规则基线**由 `python -m bench.run --projects ... --goldset bench/datasets/goldset.jsonl --ablation` 产出（零 Key 可跑，即下方引用的基线记录）；**含 LLM 通道的真跑指标**由 `python -m bench.real_run --projects ... --goldset bench/datasets/goldset.jsonl --ablation --out bench/results/run_<日期>.md` 产出（需配置 `GLM_API_KEY`，未配置时打印中文提示并以退出码 2 退出）。两者均输出 7 组配置的消融表。未经过真跑的数字不作为已验证结果引用。
 
 已完成的**离线纯规则基线**真跑（2026-09-11，240 条金标 / 10 个项目集）：Precision(critical+high) 1.000、Recall 0.844、P50 5.0 s/KLOC，详见 [bench/results/run_20260911_offline.md](bench/results/run_20260911_offline.md)；LLM 通道相关指标（精确率 85% 目标、tokens/KLOC）待配置 Key 真跑后引用。
+
+## W5 质量攻坚（0.2.1）
+
+0.2.1 为质量攻坚版本：三路只读审查 + 用本工具审计自身的 Dogfood 自审计共产出 **68 项发现**（代码质量 30 / 测试缺口 22 / 文档一致性 13 / 自审计 6），本版修复其中 **25 项**核心问题——含 simple 模式 LLM 审查失效的 critical 缺陷、ingest 失败门控、LLM 客户端与索引连接的资源收口、zip 炸弹与测试目标注入防护等（逐条见 [CHANGELOG](CHANGELOG.md)）；新增 **34 个**跨阶段联调用例（`tests/integration/`，全离线 < 5 分钟）；`bench/stress/` 一键产出 2000 文件级合成项目的吞吐、并发与内存压测基线（2000 文件档纯规则审计 0.245 s/KLOC，远优于 30 s/KLOC 目标），数据见 [bench/results/stress_20260912.md](bench/results/stress_20260912.md)。总体方案与验收口径见 [docs/10](docs/10-Wave5总体方案-质量攻坚.md)。
 
 ## Roadmap
 
@@ -295,14 +305,15 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 ├── server/app.py           # FastAPI：异步任务、SSE、报告与仪表盘 API
 ├── web/index.html          # 单文件演示前端（零依赖）
 ├── cli.py                  # 命令行入口：run / index / report / serve
-├── bench/                  # Benchmark：金标构建、匹配、指标、消融、真跑脚本
+├── bench/                  # Benchmark：金标构建、匹配、指标、消融、真跑（bench/run.py）与压测（bench/stress/）
+├── scripts/                # 构建与 CI 辅助脚本（打包就绪自检 check_build.py 等）
 ├── demo/                   # 离线全闭环演示：run_demo.py + mini_app 靶项目（见 demo/README.md）
-├── tests/                  # 单元测试（tests/unit/**）与样例工程（tests/samples/demo_proj）
+├── tests/                  # 单元测试（tests/unit/**）、联调测试（tests/integration/**）与样例工程（tests/samples/demo_proj）
 ├── docs/                   # 设计文档 00~09
 ├── docs-site/              # 文档站自有页面：首页 / CLI 速查 / SARIF / PR 实践 / Roadmap（+ 构建镜像脚本）
 ├── mkdocs.yml              # 文档站配置（mkdocs-material，见 requirements-docs.txt）
 ├── .github/                # CI / Release / Docs 工作流、issue 与 PR 模板、CODEOWNERS、Dependabot
-├── Makefile                # install / test / lint / demo / serve
+├── Makefile                # install / test / lint / demo / serve / clean
 ├── .env.example            # GLM_API_KEY / GLM_BASE_URL / GLM_MODEL 示例
 ├── CONTRIBUTING.md         # 贡献指南：环境、Makefile、提交规范、并行契约流程、PR 清单
 ├── SECURITY.md             # 安全政策：漏洞报告渠道、支持版本
