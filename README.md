@@ -1,6 +1,8 @@
 # CodeAudit Agent —— 代码库级智能审计与重构 Agent
 
 [![CI](https://github.com/mingkiiiiing/codeaudit-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mingkiiiiing/codeaudit-agent/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/Release-v0.2.0-blue.svg)](https://github.com/mingkiiiiing/codeaudit-agent/releases)
+[![Docs](https://img.shields.io/badge/Docs-mkdocs--material-informational.svg)](https://mingkiiiiing.github.io/codeaudit-agent/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -24,6 +26,7 @@ python demo/run_demo.py          # 或 make demo
 - **修复闭环**：对 critical / high 问题生成 unified diff，`git apply --check` 后在沙箱中重解析语法、运行项目现有测试，只有验证通过的 Patch 才标记 `verified`，其余回退 `needs-review`，不阻断流程。
 - **单测生成**：对已验证 Patch 涉及的目标函数生成 pytest 用例，沙箱运行，失败带 traceback 重试（≤2 次），仍失败则剔除；生成文件只写入 `<src>/tests/generated/`，可整目录删除。
 - **三端入口**：CLI（`run / index / report / serve`）、REST API（异步任务 + SSE 进度）、单文件 Web 演示页（任务创建、阶段进度、健康分仪表盘、问题过滤与详情、Patch diff 视图）。输出 JSON + Markdown + HTML 三种报告。
+- **CI 集成**（0.2.0）：`--format sarif` 生成 SARIF 2.1.0 报告，可上传 GitHub Security tab；`--check --fail-on` 把审计结果变成 PR 硬门禁；`--diff` 增量审计 + 基线抑制，实现「存量豁免、增量把关」。
 - **工程约束**：文件级并发、token 预算熔断、增量缓存；单阶段失败只记入报告不中断审计；支持 Python / JavaScript / TypeScript。
 
 ## 架构
@@ -83,6 +86,14 @@ flowchart TB
 pip install -e ".[dev]"    # 或 make install
 ```
 
+0.2.0 起 `pip install -e .` 后提供 `codeaudit` 命令（版本号单源，`python cli.py` 仍完全等价）：
+
+```bash
+pip install -e .           # 只装运行时依赖；开发环境另加 .[dev]
+codeaudit --version        # 查看版本
+codeaudit run ./my-project # 与 python cli.py run 等价
+```
+
 ### 配置 GLM_API_KEY（可选）
 
 ```bash
@@ -133,6 +144,16 @@ python cli.py report ./reports/report.json --format html --out ./reports/report.
 | `--fix-max N` / `--testgen-max N` | 单次审计最多生成的 Patch 数 / 单测目标函数数（默认 50 / 30） |
 | `--json` | 以 JSON 输出完整报告 |
 
+0.2.0 新增参数（CI 门禁向，全参数速查与退出码约定见 [docs-site/cli.md](docs-site/cli.md)）：
+
+| 参数 | 说明 |
+|---|---|
+| `--check --fail-on <sev>` | CI 门禁：问题达到阈值时退出码 3（约定：0 完成 / 1 运行错误 / 2 bench 缺 key / 3 门禁失败） |
+| `--format sarif` | 生成 SARIF 2.1.0 报告 `report.sarif`，可上传 GitHub Security tab |
+| `--diff <ref>` | 只审相对 git ref（如 `origin/main`）变更的文件（PR 增量审计） |
+| `--baseline <file>` / `--report-baseline <file>` | 加载 / 生成存量问题基线，命中指纹的问题被抑制并计入 `stats.suppressed` |
+| `--config <file>` | 显式配置文件；缺省自动发现 `.codeaudit.toml` / `pyproject.toml [tool.codeaudit]` |
+
 ### REST API 与 Web 演示页
 
 ```bash
@@ -176,6 +197,41 @@ curl -s http://127.0.0.1:8000/api/audits/<audit_id>/patches
 
 健康分 `= max(0, 100 − 加权问题密度 × 50)`，权重 critical=10、high=5、medium=2、low=0.5，密度按每千行计算。报告包含：项目概览、健康分、按严重度分组的问题总表、critical/high 详情（描述 / 证据 / 建议 / 代码片段）、架构摘要、Patch 与测试统计、耗时与 token 统计。
 
+## 数据隐私
+
+代码内容**仅发送至用户自行配置的 LLM API 端点**（默认智谱开放平台，可用 `GLM_BASE_URL` 更换）；本项目不设任何服务器、不收集任何代码与遥测数据，`GLM_API_KEY` 只从本地环境读取，不写入报告与日志。检测过程中发现的密钥在报告中**打码**呈现。未配置 API Key 的纯规则离线模式全程零网络请求。
+
+## CI 门禁与增量审计
+
+**门禁**：问题严重度达到阈值即让 CI 失败（退出码 3）：
+
+```bash
+codeaudit run . --no-llm --check --fail-on high
+```
+
+**PR 增量审计 + 存量豁免**（完整工作流见 [docs-site/pr-review.md](docs-site/pr-review.md)）：
+
+```yaml
+- uses: actions/checkout@v4
+  with: { fetch-depth: 0 }     # --diff 需要 git 历史
+- run: pip install -e .
+- run: codeaudit run . --no-llm --diff origin/main --baseline .codeaudit-baseline.json --check --fail-on high
+```
+
+策略是**存量豁免、增量把关**：一次性用 `--report-baseline` 把当前问题记为基线提交入库，之后每个 PR 用 `--baseline` 豁免存量、`--diff` 只审变更文件、`--check` 只对增量问题拦截——存量问题不阻塞新代码，新代码不许引入新债。基线按问题指纹（`sha1(文件|行区间|类别|标题)`）匹配，问题被修复后指纹失效、自动"出账"，基线只会缩小不会积累。`--format sarif` 生成的 SARIF 2.1.0 报告可经 `github/codeql-action/upload-sarif@v3` 上传到 GitHub Security tab（公共仓库免费），工作流示例见 [docs-site/sarif.md](docs-site/sarif.md)。
+
+## 配置文件
+
+CLI 之外的参数可写入配置文件（自动发现项目根的 `.codeaudit.toml` 或 `pyproject.toml` 的 `[tool.codeaudit]` 节，未知键给出警告；合成优先级：CLI > 环境变量 > 配置文件 > 默认值）：
+
+```toml
+[tool.codeaudit]
+languages = ["python"]
+fail_on_severity = "high"                 # 与 --fail-on 对应的门禁阈值
+baseline_path = ".codeaudit-baseline.json" # 存量基线文件
+diff_ref = "origin/main"                  # PR 增量审计的对比 ref
+```
+
 ## 指标
 
 | 指标 | 口径（详见 docs/04） | 目标 | 实测 |
@@ -186,6 +242,19 @@ curl -s http://127.0.0.1:8000/api/audits/<audit_id>/patches
 | 成本 | tokens/KLOC（prompt / completion 分列） | — | 见 `bench/results/` |
 
 以上为设计目标；实测数据由 `python -m bench.run --projects ... --goldset bench/datasets/goldset.jsonl --ablation` 产出（需配置 `GLM_API_KEY`），同时输出 7 组配置的消融表。未经过真跑的数字不作为已验证结果引用。
+
+已完成的**离线纯规则基线**真跑（2026-09-11，240 条金标 / 10 个项目集）：Precision(critical+high) 1.000、Recall 0.844、P50 5.0 s/KLOC，详见 [bench/results/run_20260911_offline.md](bench/results/run_20260911_offline.md)；LLM 通道相关指标（精确率 85% 目标、tokens/KLOC）待配置 Key 真跑后引用。
+
+## Roadmap
+
+以下能力明确不在 0.2.0 范围，作为后续版本的演进方向（详见 [docs/09 §6](docs/09-Wave4总体方案-开源生态对标.md) 与 [docs-site/roadmap.md](docs-site/roadmap.md)）：
+
+- [ ] Playground（浏览器在线演示）
+- [ ] 规则市场 / Registry（社区规则包分发与版本管理）
+- [ ] MCP Server（把审计工具暴露给任意 Agent）
+- [ ] 云端 PR 机器人（评论 @bot 触发增量审计并回帖）
+- [ ] Java / Go 语言支持
+- [ ] Docker 沙箱（容器级隔离替代 subprocess 沙箱）
 
 ## 文档索引
 
@@ -200,6 +269,9 @@ curl -s http://127.0.0.1:8000/api/audits/<audit_id>/patches
 | [06-多任务并行开发计划](docs/06-多任务并行开发计划.md) | Wave 1 任务分解、契约与协作规约 |
 | [07-Wave2总体方案与任务分解](docs/07-Wave2总体方案与任务分解.md) | Wave 2 目标、契约 v1.2、任务分解与真实指标实测流程 |
 | [08-Wave3总体方案与GitHub发布](docs/08-Wave3总体方案与GitHub发布.md) | Wave 3 目标（金标扩充 / 消融开关 / 演示与发布 / CI）、契约 v1.3、GitHub 提交方案 |
+| [09-Wave4总体方案-开源生态对标](docs/09-Wave4总体方案-开源生态对标.md) | Wave 4 对标结论（ruff / semgrep / pr-agent）、契约 v1.4（SARIF / 门禁 / 增量 / 基线 / 配置）、Roadmap |
+
+以上设计文档已收录进 [在线文档站](https://mingkiiiiing.github.io/codeaudit-agent/)（mkdocs-material，源文件 `docs-site/` 与 `docs/`，由 `.github/workflows/docs.yml` 自动构建发布）。
 
 ## 目录结构
 
@@ -226,9 +298,15 @@ curl -s http://127.0.0.1:8000/api/audits/<audit_id>/patches
 ├── bench/                  # Benchmark：金标构建、匹配、指标、消融、真跑脚本
 ├── demo/                   # 离线全闭环演示：run_demo.py + mini_app 靶项目（见 demo/README.md）
 ├── tests/                  # 单元测试（tests/unit/**）与样例工程（tests/samples/demo_proj）
-├── docs/                   # 设计文档 00~08
+├── docs/                   # 设计文档 00~09
+├── docs-site/              # 文档站自有页面：首页 / CLI 速查 / SARIF / PR 实践 / Roadmap（+ 构建镜像脚本）
+├── mkdocs.yml              # 文档站配置（mkdocs-material，见 requirements-docs.txt）
+├── .github/                # CI / Release / Docs 工作流、issue 与 PR 模板、CODEOWNERS、Dependabot
 ├── Makefile                # install / test / lint / demo / serve
 ├── .env.example            # GLM_API_KEY / GLM_BASE_URL / GLM_MODEL 示例
+├── CONTRIBUTING.md         # 贡献指南：环境、Makefile、提交规范、并行契约流程、PR 清单
+├── SECURITY.md             # 安全政策：漏洞报告渠道、支持版本
+├── CHANGELOG.md            # 更新日志（Keep a Changelog）
 └── LICENSE                 # MIT
 ```
 

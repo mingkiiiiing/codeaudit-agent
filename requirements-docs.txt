@@ -1,0 +1,4 @@
+# 文档站构建依赖（mkdocs.yml / .github/workflows/docs.yml 专用，与运行时依赖隔离）。
+# 版本基线：mkdocs-material 9.6.23 / mkdocs-gen-files 0.5.0（2026-09-11 实测构建通过）。
+mkdocs-material==9.6.*
+mkdocs-gen-files==0.5.*

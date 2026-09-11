@@ -1,0 +1,80 @@
+# CodeAudit Agent 文档站配置（mkdocs-material，W4-A3）。
+#
+# 结构说明：
+#   - docs_dir 取 docs-site/（站点自有页面：首页、CLI 速查、SARIF、PR 实践、Roadmap）；
+#   - docs/00~09 设计文档不复制进仓库第二份，由 gen-files 插件在构建期镜像为 design/<同名文件>，
+#     源文件保持兄弟相对关系，文档互链不受影响；nav 中 design/ 前缀的路径即来源于此；
+#   - `mkdocs build --strict`：失效链接、缺失 nav 文件、配置告警一律判为构建失败（docs.yml 已启用）。
+site_name: CodeAudit Agent
+site_description: 代码库级智能审计与重构 Agent——七阶段流水线、双通道检测、修复与单测闭环、SARIF 与 CI 增量门禁
+site_url: https://mingkiiiiing.github.io/codeaudit-agent/
+repo_url: https://github.com/mingkiiiiing/codeaudit-agent
+repo_name: mingkiiiiing/codeaudit-agent
+edit_uri: ""          # 镜像页与源文件路径不一致，编辑入口统一走仓库页面，禁用"编辑此页"按钮
+
+docs_dir: docs-site
+site_dir: site
+
+theme:
+  name: material
+  language: zh
+  font: false         # 不加载 Google Fonts，国内外访问体验一致
+  features:
+    - content.code.copy
+    - navigation.footer
+    - navigation.top
+    - search.highlight
+    - search.suggest
+    - toc.follow
+  palette:
+    # 跟随系统深浅色，并提供手动切换按钮
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到深色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      toggle:
+        icon: material/weather-night
+        name: 切换到浅色模式
+
+plugins:
+  - search
+  - gen-files:
+      scripts:
+        - docs-site/gen_design_pages.py   # 构建期把 docs/01~09 镜像为 design/<同名文件>
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - toc:
+      permalink: true
+
+nav:
+  - 首页: index.md
+  - 使用文档:
+      - 01 需求规格说明书: design/01-需求规格说明书.md
+      - 02 系统架构设计: design/02-系统架构设计.md
+      - 03 Agent工具集与Prompt设计: design/03-Agent工具集与Prompt设计.md
+      - 04 评估与指标验证方案: design/04-评估与指标验证方案.md
+      - 05 开发计划-风险-面试准备: design/05-开发计划-风险-面试准备.md
+      - 06 多任务并行开发计划: design/06-多任务并行开发计划.md
+      - 07 Wave2总体方案与任务分解: design/07-Wave2总体方案与任务分解.md
+      - 08 Wave3总体方案与GitHub发布: design/08-Wave3总体方案与GitHub发布.md
+      - 09 Wave4总体方案-开源生态对标: design/09-Wave4总体方案-开源生态对标.md
+  - CLI 速查: cli.md
+  - CI 集成:
+      - SARIF 上传 Security: sarif.md
+      - PR 增量审计实践: pr-review.md
+  - Roadmap: roadmap.md

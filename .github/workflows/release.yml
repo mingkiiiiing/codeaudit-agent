@@ -1,0 +1,29 @@
+# Release：push v* tag 时自动创建 GitHub Release。
+#
+# 设计（W4-A3）：
+#   - 仅由 tag 推送触发，不做构建产物上传；Release Notes 由 GitHub 按 PR / commit 自动生成
+#     （generate_release_notes: true），与 CHANGELOG.md 互为补充；
+#   - PyPI 发布后续接入：待 W4-A4 打包工程交付后，在本工作流追加
+#     `python -m build` + `pypa/gh-action-pypi-publish@release/v1` 两步即可，届时无需改触发条件。
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"          # 匹配 v0.2.0、v1.0.0 等语义化版本 tag
+
+permissions:
+  contents: write     # softprops/action-gh-release 创建 Release 需要 contents 写权限
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Release（自动生成 Release Notes）
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

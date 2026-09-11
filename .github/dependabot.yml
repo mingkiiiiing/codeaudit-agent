@@ -1,0 +1,19 @@
+# Dependabot：每周检查 pip 依赖与 GitHub Actions 版本更新，产生依赖升级 PR。
+version: 2
+updates:
+  # 运行时 / 文档站依赖（pyproject.toml、requirements-docs.txt）
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+
+  # 工作流内引用的 actions 版本（checkout / setup-python / peaceiris / softprops 等）
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"

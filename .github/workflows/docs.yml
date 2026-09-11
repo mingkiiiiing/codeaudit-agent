@@ -1,0 +1,51 @@
+# Docs：文档内容变更时构建 mkdocs-material 站点并发布到 gh-pages 分支。
+#
+# 触发：push main 且路径过滤——docs/**（设计文档）、docs-site/**（站点自有页面与构建脚本）、
+#       mkdocs.yml、requirements-docs.txt 任一变化才运行，避免无关提交空转。
+# 构建：mkdocs build --strict（任何失效链接 / 缺失 nav 文件 / 配置告警都会导致失败）。
+# 发布：peaceiris/actions-gh-pages 把 ./site 推送到 gh-pages 分支；
+#       首次使用需在仓库 Settings → Pages 把 Source 设为 gh-pages 分支（root），此后自动更新。
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "docs-site/**"
+      - "mkdocs.yml"
+      - "requirements-docs.txt"
+
+permissions:
+  contents: write     # peaceiris 需要 contents 写权限以推送 gh-pages 分支
+
+concurrency:
+  group: docs-deploy  # 连续推送只保留最后一次部署，避免 gh-pages 互相覆盖
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    name: Build & Publish docs site
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install docs dependencies
+        # 文档站依赖与运行时依赖隔离，见 requirements-docs.txt
+        run: pip install -r requirements-docs.txt
+
+      - name: Build site (strict)
+        run: mkdocs build --strict
+
+      - name: Publish to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./site
