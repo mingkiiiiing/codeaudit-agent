@@ -349,8 +349,53 @@ def _decode_output(data: bytes | None) -> str:
     return data.decode("utf-8", errors="replace")
 
 
+def _diff_targets(diff: str) -> list[str]:
+    """从 unified diff 提取目标文件路径（+++ b/<path>，跳过 /dev/null）。"""
+    targets: list[str] = []
+    for line in diff.splitlines():
+        if line.startswith("+++ b/"):
+            targets.append(line[len("+++ b/"):].strip())
+    return targets
+
+
+def _read_snapshot(path: Path) -> bytes | None:
+    """读文件字节快照；不存在返回 None（用于新建/删除文件的变更判定）。"""
+    try:
+        return path.read_bytes()
+    except OSError:
+        return None
+
+
+def _ensure_standalone_repo(cwd: Path) -> None:
+    """把工作副本幂等初始化为独立 git 仓库。
+
+    背景：`git apply` 在仓库子目录内运行时按**外层仓库根**解析补丁路径，
+    cwd 之外的目标被静默跳过（"Skipped patch"，exit 0）——工作副本常位于
+    用户仓库内（如 <项目>/.codeaudit/<id>/src），必须让副本自身成为仓库根。
+    """
+    if (cwd / ".git").exists():
+        return
+    try:
+        subprocess.run(  # noqa: S603 —— 固定命令列表，无 shell
+            ["git", "init", "-q"],
+            cwd=str(cwd),
+            capture_output=True,
+            timeout=30,
+        )
+        # 隔离全局 autocrlf（Windows 常为 true，会把文件重写为 CRLF，
+        # 既破坏字节稳定性又干扰生效性校验）
+        subprocess.run(  # noqa: S603
+            ["git", "config", "core.autocrlf", "false"],
+            cwd=str(cwd),
+            capture_output=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        pass  # init 失败退回原行为，由下方生效性校验兜底
+
+
 def apply_diff(workspace: WorkspaceContext, diff: str, check_only: bool = False) -> tuple[bool, str]:
-    """用 git CLI 应用 unified diff（cwd=workspace.src_root，git 支持 repo 外 apply）。
+    """用 git CLI 应用 unified diff（cwd=workspace.src_root）。
 
     Args:
         workspace: 工作副本上下文。
@@ -358,9 +403,13 @@ def apply_diff(workspace: WorkspaceContext, diff: str, check_only: bool = False)
         check_only: True 时只做 `git apply --check` 干跑校验，不落盘。
 
     Returns:
-        (是否成功, 失败原因)。git 不可用/超时/退出码非 0 均以 (False, 原因) 返回，
-        不抛异常。
+        (是否成功, 失败原因)。git 不可用/超时/退出码非 0，或 apply 声称成功但
+        内容未生效（外层仓库路径跳过），均以 (False, 原因) 返回，不抛异常。
     """
+    cwd = Path(workspace.src_root)
+    _ensure_standalone_repo(cwd)
+    targets = [t for t in _diff_targets(diff) if not t.startswith("../")]
+    before = {t: _read_snapshot(cwd / t) for t in targets}
     command = ["git", "apply"]
     if check_only:
         command.append("--check")
@@ -383,4 +432,12 @@ def apply_diff(workspace: WorkspaceContext, diff: str, check_only: bool = False)
     if proc.returncode != 0:
         stderr = _decode_output(proc.stderr)
         return False, f"git apply 失败（exit={proc.returncode}）: {truncate(stderr, 500)}"
+    if not check_only:
+        # 生效性校验：git apply 在仓库子目录内可能静默跳过（exit 0 但无变更）
+        for t, old_bytes in before.items():
+            if _read_snapshot(cwd / t) == old_bytes:
+                return False, (
+                    f"git apply 未产生任何变更（目标 {t} 内容与补丁前一致）："
+                    "补丁可能被 git 仓库路径解析静默跳过"
+                )
     return True, ""
