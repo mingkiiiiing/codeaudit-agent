@@ -68,3 +68,16 @@ jobs:
         # 后续如需上传 Coveralls/Codecov 或生成徽章，可在此追加步骤。
         if: matrix.with-cov == 'true'
         run: pytest -q --tb=short --cov=audit --cov-report=term
+
+      - name: Debug summary on failure (temporary)
+        # 临时调试步骤：失败时把 pytest 完整尾部写入 run summary（公开页可读），
+        # 定位平台差异后移除。
+        if: failure()
+        run: |
+          python -m pytest -q --tb=long -x 2>&1 | tail -n 250 > /tmp/pytest_dbg.txt || true
+          {
+            echo "### pytest debug (py${{ matrix.python-version }} / ${{ matrix.os }})"
+            echo '```text'
+            cat /tmp/pytest_dbg.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
