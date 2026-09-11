@@ -13,3 +13,4 @@ node_modules/
 demo/.demo_work/
 .ruff_cache/
 .demo_probe*/
+.coverage
