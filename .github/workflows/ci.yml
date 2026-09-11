@@ -64,23 +64,10 @@ jobs:
       - name: Run tests
         # 常规条目：安静模式 + 短回溯，失败时输出可读；tee 落盘供失败上传
         if: matrix.with-cov != 'true'
-        run: |
-          set -o pipefail
-          pytest -q --tb=short 2>&1 | tee pytest-out.txt | tail -n 5
+        run: pytest -q --tb=short
 
       - name: Run tests with coverage (py3.13 / ubuntu)
         # 覆盖率条目：仅统计 audit 包，输出终端报表；
         # 后续如需上传 Coveralls/Codecov 或生成徽章，可在此追加步骤。
         if: matrix.with-cov == 'true'
-        run: |
-          set -o pipefail
-          pytest -q --tb=short --cov=audit --cov-report=term 2>&1 | tee pytest-out.txt | tail -n 5
-
-      - name: Upload pytest output on failure (temporary)
-        # 临时调试：失败时上传 pytest 完整输出，公开仓库可匿名下载定位平台差异。
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pytest-debug-${{ matrix.python-version }}-${{ matrix.os }}
-          path: pytest-out.txt
-          if-no-files-found: warn
+        run: pytest -q --tb=short --cov=audit --cov-report=term

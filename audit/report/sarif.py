@@ -109,7 +109,9 @@ def _result(issue: Issue) -> dict[str, Any]:
             {
                 "physicalLocation": {
                     "artifactLocation": {
-                        "uri": Path(issue.file).as_posix() if issue.file else "-",
+                        # 显式替换反斜杠：Linux 上 Path 不把 \ 当分隔符，
+                        # as_posix() 不会转换（CI 曾因此挂掉）
+                        "uri": issue.file.replace("\\", "/") if issue.file else "-",
                         "uriBaseId": _URI_BASE_ID,
                     },
                     "region": _region(issue),
