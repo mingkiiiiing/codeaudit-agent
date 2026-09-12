@@ -657,6 +657,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/12-Wave7%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B5%9B%E9%A2%98%E5%90%88%E8%A7%84%E4%B8%8E%E6%8F%90%E9%80%9F/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    12 Wave7 方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -979,7 +1007,8 @@
 </ul>
 <h2 id="_1">已交付<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>0.3.0</strong>（本轮）：Wave 5 质量攻坚 + Wave 6 健壮性清偿与发布——68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC；R4 复核清偿 4 项必修（密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚、understand 未随 ingest 门控）；静态规则库 49 → 63 条并上线<a href="../rules/">内置规则手册</a>；依赖约束治理——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
+<li><strong>0.4.0</strong>（本轮）：Wave 7 赛题合规收口——<strong>重构方案生成器</strong>（确定性启发式 + LLM 增强，报告新增「重构方案」章节，契约 v1.7 <code>RefactorProposal</code>）；<strong>JS/TS 修复与单测验证闭环</strong>（<code>node --check</code> 语法验证 + <code>node --test</code> 单测验证，node 不可用诚实降级）；<strong>性能实验与开关化</strong>——规则多进程并行 / ingest 硬链接作为可选开关交付（默认串行 / 复制，本机 2000 文件档实测负收益诚实回退，命中集合指纹一致，对比数据见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/bench/results/stress_w7_clean.md">bench/results/stress_w7_clean.md</a>）；赛题合规矩阵 10 项最终状态落定——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
+<li><strong>0.3.0</strong>：Wave 5 质量攻坚 + Wave 6 健壮性清偿与发布——68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC；R4 复核清偿 4 项必修（密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚、understand 未随 ingest 门控）；静态规则库 49 → 63 条并上线<a href="../rules/">内置规则手册</a>；依赖约束治理——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
 <li><strong>0.2.0</strong>：SARIF 输出、CI 门禁（<code>--check --fail-on</code>）、PR 增量审计（<code>--diff</code>）、基线抑制、配置文件、<code>codeaudit</code> 入口、GitHub 协作设施与文档站——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
 <li><strong>0.1.0</strong>：七阶段流水线、双通道检测（静态规则 + LLM Agent）、修复与单测闭环、三端入口（CLI / API / Web）、240 条金标的评估基准</li>
 </ul>
