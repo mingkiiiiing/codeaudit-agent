@@ -31,6 +31,7 @@ __all__ = [
     "READ_WINDOW_LINES",
     "SEARCH_MAX_RESULTS",
     "SEARCH_MAX_PATTERN_LEN",
+    "SEARCH_MAX_LINE_CHARS",
     "LIST_MAX_RESULTS",
     "VALID_CATEGORIES",
     "VALID_SEVERITIES",
@@ -40,6 +41,7 @@ __all__ = [
 READ_WINDOW_LINES = 200  # 单次返回最大行数
 SEARCH_MAX_RESULTS = 50  # 搜索最多返回条数
 SEARCH_MAX_PATTERN_LEN = 500  # 正则长度上限（R1-12：防灾难性回溯的超大模式）
+SEARCH_MAX_LINE_CHARS = 65_536  # 超 64KB 的单行不跑正则（R4-8），降级字面量子串匹配
 LIST_MAX_RESULTS = 500  # 列目录最多返回条数
 MAX_SEARCH_FILE_BYTES = 1_000_000  # 搜索时跳过超 1MB 的文件
 
@@ -370,7 +372,13 @@ def _search_code_tool(workspace: WorkspaceContext) -> ToolSpec:
             except OSError:
                 continue
             for i, line in enumerate(text.splitlines(), start=1):
-                if pattern.search(line):
+                if len(line) > SEARCH_MAX_LINE_CHARS:
+                    # R4-8：超长单行（如 minified 产物）不跑正则——复杂模式在其上
+                    # 可能灾难性回溯拖死工具循环；降级为原始 query 的字面量子串匹配。
+                    hit = str(query) in line
+                else:
+                    hit = bool(pattern.search(line))
+                if hit:
                     matches.append(f"{rel}:{i}: {line.strip()[:300]}")
                     if len(matches) >= SEARCH_MAX_RESULTS:
                         truncated = True

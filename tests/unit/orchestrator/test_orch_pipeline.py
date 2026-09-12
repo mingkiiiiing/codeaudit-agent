@@ -74,19 +74,23 @@ async def test_all_modules_missing_produces_empty_report(fake_emitter, tmp_path:
 
     assert report.project_name == "proj"
     assert report.issues == []
-    assert report.loc == 1
-    assert report.languages == {"python": 100.0}
+    # R4-4：ingest 未成功 → 报告统计走空 manifests，不回扫用户原始目录
+    assert report.loc == 0
+    assert report.languages == {}
     assert report.stats.duration_sec > 0
     assert report.created_at
 
     events = fake_emitter.events
     skips = _skip_messages(events)
-    # ingest / understand 因模块未集成被跳过
-    assert len(skips) >= 2
-    assert all("module not integrated" in m for m in skips)
-    # R1-2 门控：index / detect 因 ingest 未成功被明确跳过（事件含「跳过」与原因）
+    # ingest 因模块未集成被跳过（占位文案）；understand 现随 ingest_ok 门控（R4-4）
+    assert len(skips) == 1
+    assert "module not integrated" in skips[0]
+    # R1-2/R4-4 门控：index / understand / detect 因 ingest 未成功被明确跳过
     gated = [e for e in events if "ingest 未成功" in str(e.get("message", ""))]
-    assert {e["stage"] for e in gated} >= {"index", "detect"}
+    assert {e["stage"] for e in gated} >= {"index", "understand", "detect"}
+    # R4-10：ingest 失败（降级）时 done 事件带 degraded 标志
+    done_events = [e for e in events if e.get("stage") == "done"]
+    assert done_events and done_events[-1].get("degraded") is True
     # 报告阶段真实产出
     assert any(e["stage"] == "report" and "报告已生成" in e["message"] for e in events)
     assert (tmp_path / "out" / "report.json").exists()
@@ -117,11 +121,47 @@ async def test_ingest_failure_gates_index_detect_fix(fake_emitter, tmp_path: Pat
 
     assert report.issues == []
     gated = [e for e in fake_emitter.events if "ingest 未成功" in str(e.get("message", ""))]
-    assert {e["stage"] for e in gated} == {"index", "detect", "fix"}
+    assert {e["stage"] for e in gated} == {"index", "understand", "detect", "fix"}
     # ingest 失败被记入 stage_errors 而非中断流水线
     assert any(e.get("stage") == "ingest" and e.get("error") for e in fake_emitter.events)
     # 原始目录未被触碰
     assert (src / "secret_impl.py").read_text(encoding="utf-8") == "KEY = 'x'\n"
+
+
+async def test_ingest_failure_report_stats_use_empty_manifests(fake_emitter, tmp_path: Path, monkeypatch):
+    """R4-4：ingest 失败时报告统计不回扫原始目录（files_total=0 / loc=0 / languages 空）。"""
+    _block_modules(monkeypatch, "audit.indexer")
+
+    def broken_ingest(source, work_root, audit_id=None):
+        raise RuntimeError("unzip failed")
+
+    monkeypatch.setitem(
+        sys.modules, "audit.ingest", _fake_module("audit.ingest", ingest=broken_ingest)
+    )
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "app.py").write_text("x = 1\n" * 30, encoding="utf-8")
+    config = AuditConfig(
+        source_path=str(src), work_root=str(tmp_path / "work"), out_dir=str(tmp_path / "out")
+    )
+    report = await run_audit(config, fake_emitter)
+
+    assert report.stats.files_total == 0
+    assert report.loc == 0
+    assert report.languages == {}
+    # 降级标志贯通到 done 事件（R4-10）
+    done = [e for e in fake_emitter.events if e.get("stage") == "done"]
+    assert done and done[-1].get("degraded") is True
+
+
+async def test_ingest_success_done_event_has_no_degraded_flag(demo_proj_path: Path, tmp_path: Path, fake_emitter):
+    """R4-10 对照：ingest 成功时 done 事件不带 degraded 字段。"""
+    config = AuditConfig(
+        source_path=str(demo_proj_path), work_root=str(tmp_path / "w"), out_dir=str(tmp_path / "out")
+    )
+    await run_audit(config, fake_emitter)
+    done = [e for e in fake_emitter.events if e.get("stage") == "done"]
+    assert done and "degraded" not in done[-1]
 
 
 async def test_llm_not_configured_emits_warning(fake_emitter, tmp_path: Path):

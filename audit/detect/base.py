@@ -35,6 +35,10 @@ class Rule(ABC):
     severity: Severity = Severity.LOW
     languages: tuple[str, ...] = ()
     description: str = ""
+    # 契约 v1.6（W6-A3）追加：可选的正/反示例代码片段，供规则手册文档生成器
+    # （scripts/gen_rule_docs.py）渲染"正反示例"小节；空串表示无示例（存量规则缺省）。
+    good_example: str = ""
+    bad_example: str = ""
 
     @abstractmethod
     def check(self, ctx: RuleContext) -> list[RuleHit]:

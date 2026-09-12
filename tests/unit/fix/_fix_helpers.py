@@ -115,6 +115,30 @@ SQL_DIFF = (
     "     return name, cur.fetchall()\n"
 )
 
+# R4-3：删除型补丁（+++ /dev/null）——victim.py 整文件删除
+VICTIM_PY = "VALUE = 42\n"
+
+DELETE_VICTIM_DIFF = (
+    "diff --git a/victim.py b/victim.py\n"
+    "--- a/victim.py\n"
+    "+++ /dev/null\n"
+    "@@ -1,1 +0,0 @@\n"
+    "-VALUE = 42\n"
+)
+
+# 删除 victim.py 后必然失败的现有测试（import 报错）——触发回滚路径
+TEST_VICTIM_PY = """import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from victim import VALUE
+
+
+def test_value():
+    assert VALUE == 42
+"""
+
 
 # ---------------------------------------------------------------- 工厂函数
 

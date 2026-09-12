@@ -8,10 +8,15 @@ from audit.detect.rules import (
     build_python_rules,
     build_typescript_rules,
 )
+from audit.detect.rules.js.js_ext import build_js_ext_rules
+from audit.detect.rules.python_ext import build_python_ext_rules
 
 DEFAULT_REGISTRY: RuleRegistry = RuleRegistry()
 DEFAULT_REGISTRY.register_all(build_python_rules())
 DEFAULT_REGISTRY.register_all(build_javascript_rules() + build_typescript_rules())
+# 扩充第二期（W6-A3）：新规则一律收敛在 *_ext.py，追加注册、不动上面既有 49 条
+DEFAULT_REGISTRY.register_all(build_python_ext_rules())
+DEFAULT_REGISTRY.register_all(build_js_ext_rules())
 
 
 def get_registry() -> RuleRegistry:

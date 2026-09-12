@@ -404,3 +404,31 @@ async def test_rollback_removes_newly_created_file_on_failure(tmp_path: Path, fa
     assert ctx.patches[0].apply_status == "needs-review"
     assert not (ws.abs_path("created.py")).exists()
     assert ws.abs_path("app.py").read_bytes() == H.APP_PY.encode("utf-8")
+
+
+# ---------------------------------------------------------------- R4-3 回归：删除型补丁
+
+
+async def test_delete_patch_rollback_restores_deleted_file(tmp_path: Path, fake_emitter):
+    """R4-3：删除型补丁（+++ /dev/null）应用后触发回滚时，被删文件必须被恢复。
+
+    修复前备份集合只含 +++ 侧（/dev/null 被跳过 → 集合为空），
+    回滚 no-op，被删文件残留为"部分回滚"。
+    """
+    ws = H.make_workspace(
+        tmp_path,
+        {"victim.py": H.VICTIM_PY, "tests/test_victim.py": H.TEST_VICTIM_PY},
+    )
+    fake = FakeLLMClient([H.llm_json(H.DELETE_VICTIM_DIFF, "该文件整体为缺陷实现，直接删除")])
+    ctx = H.make_ctx(ws, fake, fake_emitter)
+    ctx.issues = [_issue("ISS-0001", "victim.py", Severity.CRITICAL, 0.9)]
+
+    await run_fix_stage(ctx)
+
+    # 现有测试因 import 失败 → needs-review + 回滚
+    assert ctx.patches[0].apply_status == "needs-review"
+    # 被删文件已从备份恢复（修复前：文件保持删除状态）
+    assert ws.abs_path("victim.py").exists()
+    assert ws.abs_path("victim.py").read_bytes() == H.VICTIM_PY.encode("utf-8")
+    stats = ctx.extra["fix_stats"]
+    assert stats["needs_review"] == 1 and stats["applied"] == 0

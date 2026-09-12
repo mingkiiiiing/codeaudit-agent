@@ -399,3 +399,39 @@ async def test_runtime_abnormal_end_raises_and_lands_in_review_errors(tmp_path: 
     assert results == {}  # 该文件无产出
     assert "e9.py" in ctx.extra["review_errors"]
     assert "record_issues" in ctx.extra["review_errors"]["e9.py"]
+
+
+# ---------------------------------------------------------------- R4-6 回归
+
+
+async def test_slice_without_record_issues_lands_in_review_errors(tmp_path: Path):
+    """R4-6：>400 行文件某切片 runtime 未调用 record_issues → 记入 review_errors，不静默当无问题。"""
+    files = {"big.py": _big_source(40)}  # ≈600 行 → 至少 2 个切片
+    llm = FakeLLMClient()
+    ctx = _make_ctx(tmp_path, files, llm)
+    store = create_index(ctx.workspace)
+    store.build()
+    ctx.index = store
+    slices = store.grouped_slices("big.py", 400)
+    assert len(slices) >= 2
+
+    # 切片 1：只有文字回复（无任何工具调用，非正常结束）；切片 2：正常收口 1 条 issue
+    llm._script = [
+        _normalize_script_item({"content": "切片 1 我看过了，没有问题。"}, 0),
+        _normalize_script_item(
+            {
+                "tool_calls": [
+                    {"name": "record_issues", "arguments": {"issues": [_payload(file="big.py", line=slices[-1].line_start + 1)]}}
+                ]
+            },
+            1,
+        ),
+    ]
+    llm._cursor = 0  # type: ignore[attr-defined]
+
+    issues = await make_tools_review_fn(ctx)(ctx.workspace, "big.py", [])
+    # 切片 2 的正常产出保留；切片 1 未静默当作"无问题"
+    assert len(issues) == 1
+    slice_errors = {k: v for k, v in ctx.extra["review_errors"].items() if k.startswith("big.py#slice-")}
+    assert len(slice_errors) == 1
+    assert "record_issues" in next(iter(slice_errors.values()))

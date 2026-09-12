@@ -85,6 +85,9 @@ CREATE INDEX IF NOT EXISTS ix_slices_file ON slices(file);
 _JS_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 _JS_INDEX_BASENAMES = tuple(f"index{ext}" for ext in _JS_EXTS)
 
+# 派生表清单（_clear_derived / _clear_derived_many 共用；顺序无语义）
+_DERIVED_TABLES = ("symbols", "imports", "calls", "slices")
+
 
 @dataclass
 class _Target:
@@ -137,6 +140,8 @@ class SqliteIndexStore(IndexStore):
         # 消除 _resolve_edges 对每行调用边的 2 次 SQL（压测实测 build 省 10.2%）
         self._lang_map: dict[str, str] = {}
         self._alias_cache: dict[str, dict[str, "_AliasEntry"]] = {}
+        # R4-5：close 幂等守卫标记
+        self._closed = False
 
     # ---------------------------------------------------------------- build
 
@@ -144,6 +149,14 @@ class SqliteIndexStore(IndexStore):
         """扫描 workspace 构建索引（幂等、增量）。"""
         self._parses_this_build = 0
         seen: set[str] = set()
+        # Dogfood（PY-IO-IN-LOOP 清偿）：既有 sha 映射一次性预取，
+        # 消除 build 循环内逐文件的 SELECT（行为等价：循环期间文件表不再变化）
+        existing = {
+            row["path"]: (row["sha256"], row["language"])
+            for row in self._conn.execute("SELECT path, sha256, language FROM files")
+        }
+        failed_rows: list[tuple[str, str, int, str]] = []
+        failed_rels: list[str] = []
         for path in self._ws.source_files():
             rel = self._ws.rel(path)
             language = guess_language(rel)
@@ -155,16 +168,14 @@ class SqliteIndexStore(IndexStore):
                 data = path.read_bytes()
             except OSError:
                 continue
-            row = self._conn.execute("SELECT sha256, language FROM files WHERE path = ?", (rel,)).fetchone()
-            if row is not None and row["sha256"] == sha and row["language"] == language:
+            if existing.get(rel) == (sha, language):
                 continue  # 增量：文件未变，跳过重解析
             self._parses_this_build += 1
             tree, parsed_ok = parse_source(language, data)
             if tree is None:
-                self._clear_derived(rel)
-                self._conn.execute(
-                    "INSERT OR REPLACE INTO files(path, language, loc, sha256, parsed_ok) VALUES(?,?,?,?,0)",
-                    (rel, language, count_lines(data.decode("utf-8", errors="replace")), sha),
+                failed_rels.append(rel)
+                failed_rows.append(
+                    (rel, language, count_lines(data.decode("utf-8", errors="replace")), sha)
                 )
                 continue
             if language == "python":
@@ -173,13 +184,28 @@ class SqliteIndexStore(IndexStore):
                 js_lang = "typescript" if language == "typescript" else "javascript"
                 fx = extract_js_ts(data, rel, language=js_lang)
             self._write_file_index(rel, language, count_lines(data.decode("utf-8", errors="replace")), sha, parsed_ok, fx)
+        # 解析失败的文件：派生行清理 + files 行落盘批量写（Dogfood：移出扫描循环）
+        if failed_rels:
+            self._clear_derived_many(failed_rels)
+            self._conn.executemany(
+                "INSERT OR REPLACE INTO files(path, language, loc, sha256, parsed_ok) VALUES(?,?,?,?,0)",
+                failed_rows,
+            )
         self._delete_stale(seen)
         self._resolve_edges()
         self._conn.commit()
 
     def _clear_derived(self, rel: str) -> None:
-        for table in ("symbols", "imports", "calls", "slices"):
-            self._conn.execute(f"DELETE FROM {table} WHERE file = ?", (rel,))
+        self._clear_derived_many([rel])
+
+    def _clear_derived_many(self, rels: list[str]) -> None:
+        """批量清理 rels 的派生行（Dogfood：executemany 化，消除逐行 DELETE 循环）。"""
+        if not rels:
+            return
+        params = [(rel,) for rel in rels]
+        for table in _DERIVED_TABLES:
+            # 标识符 table 来自模块级内部常量白名单 _DERIVED_TABLES，非外部输入
+            self._conn.executemany(f"DELETE FROM {table} WHERE file = ?", params)  # codeaudit: ignore[PY-SQL-INJECTION]  # 标识符为内部常量白名单
 
     def _write_file_index(self, rel: str, language: str, loc: int, sha: str, parsed_ok: bool, fx: FileIndex) -> None:
         self._clear_derived(rel)
@@ -214,9 +240,10 @@ class SqliteIndexStore(IndexStore):
 
     def _delete_stale(self, seen: set[str]) -> None:
         stale = [r["path"] for r in self._conn.execute("SELECT path FROM files") if r["path"] not in seen]
-        for rel in stale:
-            self._conn.execute("DELETE FROM files WHERE path = ?", (rel,))
-            self._clear_derived(rel)
+        if not stale:
+            return
+        self._conn.executemany("DELETE FROM files WHERE path = ?", [(rel,) for rel in stale])
+        self._clear_derived_many(stale)
 
     # ---------------------------------------------------------------- 跨文件解析
 
@@ -403,6 +430,10 @@ class SqliteIndexStore(IndexStore):
 
     def _resolve_edges(self) -> None:
         """基于全量 calls 表重建 call_edges（增量安全：未变文件行保留）。"""
+        # R4-2：_lang_map / _alias_cache 是 build 期预取缓存，跨 build 必须重置，
+        # 否则增量 build 会拿上一轮的 imports 别名表解析调用边（陈旧 imports）。
+        self._lang_map.clear()
+        self._alias_cache.clear()
         self._py_files_by_module = {}
         self._symbols_by_file: dict[str, set[str]] = {}
         self._js_files: set[str] = set()
@@ -449,6 +480,10 @@ class SqliteIndexStore(IndexStore):
     # ---------------------------------------------------------------- 查询
 
     def close(self) -> None:
+        """提交并关闭连接（R4-5：幂等——重复调用不再抛 sqlite3.ProgrammingError）。"""
+        if self._closed:
+            return
+        self._closed = True
         try:
             self._conn.commit()
         finally:

@@ -137,7 +137,15 @@ def cmd_run(args: argparse.Namespace) -> int:
     config = _build_run_config(args)
     for warning in config.config_warnings:
         print(f"[配置警告] {warning}", file=sys.stderr)
-    report = asyncio.run(run_audit_simple(config))
+    # R4-10：收集事件流，ingest 失败（降级运行）时在 stderr 打一行降级警告
+    events: list[dict[str, object]] = []
+    report = asyncio.run(run_audit_simple(config, events=events))
+    if any(event.get("degraded") for event in events):
+        print(
+            "[警告] ingest 未成功：本次审计为降级运行（无可用工作副本，"
+            "index/detect/understand 已跳过，报告不含代码统计）",
+            file=sys.stderr,
+        )
     sarif_path: Path | None = None
     if args.format == "sarif":  # json/md/html 由流水线照旧落盘，这里只追加 SARIF
         from audit.report.sarif import write_sarif

@@ -2,7 +2,7 @@
 
 覆盖四类断言：
 
-1. 版本单源：``audit.__version__`` 为合法 semver 且为 0.2.0；
+1. 版本单源：``audit.__version__`` 为合法 semver 且为 0.3.0；
 2. pyproject 文本断言：dynamic version / console script / py-modules / package-data
    四项存在且指向正确；
 3. 包数据：报告模板目录下 .j2 文件在磁盘真实存在；
@@ -51,11 +51,11 @@ def test_version_is_valid_semver() -> None:
     assert SEMVER_RE.match(audit.__version__), f"非法 semver：{audit.__version__!r}"
 
 
-def test_version_is_0_2_0() -> None:
-    """Wave 4 版本单源约定值：0.2.0。"""
+def test_version_is_0_3_0() -> None:
+    """W6 发布版本单源约定值：0.3.0。"""
     import audit
 
-    assert audit.__version__ == "0.2.0"
+    assert audit.__version__ == "0.3.0"
 
 
 def test_pyproject_dynamic_version_single_source() -> None:
@@ -160,7 +160,7 @@ def test_cli_main_signature() -> None:
 def test_console_script_smoke(capsys: pytest.CaptureFixture[str]) -> None:
     """cli.main 冒烟：--version 可用则断言版本输出；未合入则降级为调度冒烟。
 
-    - A1 已合入 --version：返回/退出 0，且输出含 0.2.0（argparse action="version"
+    - A1 已合入 --version：返回/退出 0，且输出含 0.3.0（argparse action="version"
       的实现会以 SystemExit(0) 结束，同样视为通过）；
     - A1 尚未合入：argparse 以 SystemExit(2) 拒绝未知参数，此时降级调用
       report 子命令的不存在路径分支，断言 main 顶层兜底返回退出码 1。
@@ -178,4 +178,4 @@ def test_console_script_smoke(capsys: pytest.CaptureFixture[str]) -> None:
     else:
         assert rc in (0, None)
         captured = capsys.readouterr()
-        assert "0.2.0" in captured.out
+        assert "0.3.0" in captured.out

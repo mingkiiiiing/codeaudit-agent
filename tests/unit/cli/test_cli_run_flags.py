@@ -15,7 +15,7 @@ from audit.models import AuditReport
 def fake_run_simple(monkeypatch):
     calls: list = []
 
-    async def fake_run_audit_simple(config):
+    async def fake_run_audit_simple(config, events=None):
         calls.append(config)
         return AuditReport(audit_id="flagtest1", project_name="demo_proj", health_score=90.0)
 

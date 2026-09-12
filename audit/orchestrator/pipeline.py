@@ -203,8 +203,9 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
     总耗时写入 ctx.stats.duration_sec（time.monotonic）。
 
     资源收口（R1-3/R1-4）：无论正常结束还是异常，finally 中统一关闭 LLM 客户端
-    （aclose）与索引连接（store.close）；ingest 未成功时 index/detect/fix 全部
-    门控跳过（R1-2），不会触碰用户原始输入目录。
+    （aclose）与索引连接（store.close）；ingest 未成功时 index/understand/detect/
+    fix 全部门控跳过（R1-2/R4-4），不会触碰用户原始输入目录；报告统计走空
+    manifests（R4-4），done 事件携带 degraded 标志（R4-10）。
     """
     started = time.monotonic()
     audit_id = new_audit_id()
@@ -297,7 +298,8 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
     else:
         await _skip_gated_stage(ctx, "index", "无工作副本可索引")
 
-    # -------- Stage 3: understand
+    # -------- Stage 3: understand（R4-4：随 ingest_ok 门控——ingest 失败时
+    # workspace 仍指向用户原始目录，架构理解不得回扫用户输入）
     async def _do_understand() -> None:
         from audit.understand.architecture import build_architecture
 
@@ -305,7 +307,10 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
         ctx.architecture = card
         await ctx.emit("understand", "架构理解完成")
 
-    await _run_stage(ctx, "understand", _do_understand)
+    if ingest_ok:
+        await _run_stage(ctx, "understand", _do_understand)
+    else:
+        await _skip_gated_stage(ctx, "understand", "不执行架构理解")
 
     # -------- Stage 4: detect（契约 v1.2：review_mode 双模式 + verify_fn 复核）
     async def _do_detect() -> None:
@@ -408,19 +413,29 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
 
         report = build_report(ctx)
 
+    # done 事件（R4-10）：ingest 失败（降级运行）时携带 degraded 标志，
+    # 供 CLI / Web 端明确提示"本次为降级审计"，而不是把空报告当成正常结果。
+    degraded: dict[str, Any] = {} if ingest_ok else {"degraded": True}
     await ctx.emit(
         "done",
         f"审计完成：summary={count_by_severity(ctx.issues)} issues={len(ctx.issues)}",
         duration_sec=round(ctx.stats.duration_sec, 2),
+        **degraded,
     )
     return report
 
 
-async def run_audit_simple(config: AuditConfig) -> AuditReport:
-    """便捷入口：事件收集到内部 list（no-op emitter），供 CLI / 测试使用。"""
-    events: list[dict[str, Any]] = []
+async def run_audit_simple(
+    config: AuditConfig, events: list[dict[str, Any]] | None = None
+) -> AuditReport:
+    """便捷入口：事件收集到内部 list（no-op emitter），供 CLI / 测试使用。
+
+    events 参数（R4-10）：调用方可传入列表原地收集事件流（如 CLI 据此
+    判断 degraded 降级标志）；None 时行为与旧版完全一致。
+    """
+    collected = events if events is not None else []
 
     async def collector(event: dict[str, Any]) -> None:
-        events.append(event)
+        collected.append(event)
 
     return await run_audit(config, collector)

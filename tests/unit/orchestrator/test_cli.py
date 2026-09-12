@@ -14,7 +14,7 @@ from audit.models import AuditReport
 def fake_run_simple(monkeypatch):
     calls: list = []
 
-    async def fake_run_audit_simple(config):
+    async def fake_run_audit_simple(config, events=None):
         calls.append(config)
         return AuditReport(
             audit_id="clitest01",
@@ -64,3 +64,28 @@ def test_index_without_ingest_module_exits_1(capsys, tmp_path, monkeypatch):
     rc = cli.main(["index", str(tmp_path)])
     assert rc == 1
     assert "[错误]" in capsys.readouterr().err
+
+
+def test_run_warns_on_degraded_ingest(capsys, tmp_path, monkeypatch):
+    """R4-10：ingest 失败（降级运行）时 CLI 在 stderr 打一行降级警告。"""
+    import sys
+    import types
+
+    def broken_ingest(source, work_root, audit_id=None):
+        raise RuntimeError("unzip failed")
+
+    monkeypatch.setitem(
+        sys.modules, "audit.ingest", _fake_ingest_module(broken_ingest)
+    )
+    rc = cli.main(["run", str(tmp_path), "--no-llm", "--out", str(tmp_path / "out")])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "[警告]" in err and "降级" in err
+
+
+def _fake_ingest_module(broken_ingest):
+    import types
+
+    mod = types.ModuleType("audit.ingest")
+    mod.ingest = broken_ingest
+    return mod

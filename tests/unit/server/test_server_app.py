@@ -236,3 +236,24 @@ def test_report_out_dir_isolated_per_audit(fake_pipeline, tmp_path):
     out2 = fake_pipeline[1].out_dir
     assert id1 in out1 and id2 in out2
     assert out1 != out2
+
+
+# ---------------------------------------------------------------- R4-9 回归
+
+
+async def test_run_audit_task_cancelled_lands_failed(monkeypatch):
+    """R4-9：CancelledError 等异常路径也落终态 failed（任务表不残留 running 僵尸项）。"""
+    import asyncio
+
+    async def cancelled(config, emitter):
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(server_app, "run_audit", cancelled)
+    server_app.AUDITS["cancel01"] = {
+        "status": "queued", "report": None, "events": [], "error": None, "config": None,
+    }
+    with pytest.raises(asyncio.CancelledError):
+        await server_app._run_audit_task("cancel01", None)
+    entry = server_app.AUDITS["cancel01"]
+    assert entry["status"] == "failed"
+    assert "CancelledError" in entry["error"]

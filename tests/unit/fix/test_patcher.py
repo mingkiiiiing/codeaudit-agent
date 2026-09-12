@@ -239,6 +239,40 @@ def test_apply_diff_reports_timeout(tmp_path: Path, monkeypatch):
     assert "超时" in msg
 
 
+# ---------------------------------------------------------------- R4-3 回归：删除型补丁
+
+
+def test_apply_diff_applies_delete_patch(tmp_path: Path):
+    """R4-3 前置：删除型补丁（+++ /dev/null）可正常应用，目标文件被删除。"""
+    ws = H.make_workspace(tmp_path, {"victim.py": H.VICTIM_PY})
+    ok, msg = apply_diff(ws, H.DELETE_VICTIM_DIFF)
+    assert ok, msg
+    assert not ws.abs_path("victim.py").exists()
+
+
+def test_apply_diff_detects_silently_skipped_delete(tmp_path: Path, monkeypatch):
+    """R4-3：删除型补丁被 git 静默跳过（exit 0 无变更）时生效性校验必须报错。
+
+    修复前 _diff_targets 只解析 +++ 侧，删除补丁目标集合为空，
+    before 快照为空 → 校验形同虚设，静默跳过被误判为成功。
+    """
+
+    class _FakeProc:
+        returncode = 0
+        stdout = b""
+        stderr = b""
+
+    def _fake_run(*args: object, **kwargs: object) -> _FakeProc:
+        return _FakeProc()  # git 声称成功，但什么都没做
+
+    monkeypatch.setattr("audit.fix.patcher.subprocess.run", _fake_run)
+    ws = H.make_workspace(tmp_path, {"victim.py": H.VICTIM_PY})
+    ok, msg = apply_diff(ws, H.DELETE_VICTIM_DIFF)
+    assert ok is False
+    assert "未产生任何变更" in msg
+    assert ws.abs_path("victim.py").read_bytes() == H.VICTIM_PY.encode("utf-8")
+
+
 # ---------------------------------------------------------------- R1-11 回归
 
 

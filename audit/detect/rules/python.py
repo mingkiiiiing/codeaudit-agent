@@ -991,18 +991,37 @@ class CommandInjectionRule(_PyRule):
         return hits
 
 
-# 敏感词精确匹配集（R1-9）：标识符按 _/驼峰分词后，token 必须**精确**命中其一
-# （历史上用子串包含，导致 _FINGERPRINT_KEY 之类的普通常量误报 critical）。
+# 敏感词精确匹配集（R1-9）：标识符按 _/驼峰分词并做单数归一（R4-1）后，token 必须
+# **精确**命中其一（历史上用子串包含，导致 _FINGERPRINT_KEY 之类的普通常量误报 critical）。
 _SECRET_NAME_TOKENS = frozenset(
     {"key", "secret", "password", "passwd", "pwd", "token", "credential", "apikey"}
 )
+
+# password 家族（R4-7）：真实口令常是低熵自然词组合（如 mysupersecretkey），
+# 高熵闸门会漏报，故对该家族放低随机性闸门（熵 ≥3.0 或字符集 ≥2 类）。
+_PASSWORD_FAMILY_TOKENS = frozenset({"password", "passwd", "pwd"})
 
 # 标识符分词：先按下划线切，再对每段按驼峰切（API_KEY → api/key；dbPassword → db/password）
 _SECRET_TOKEN_SPLIT_RE = re.compile(r"[A-Z]+(?![a-z])|[A-Z][a-z]*|[a-z]+")
 
 
+def _singular(token: str) -> str:
+    """复数形态归一（R4-1）：剥离常见英文复数后缀（…ies→y / …es / …s）。
+
+    归一发生在分词之后、比对之前：API_KEYS → api/key、dbPasswords → db/password、
+    credentials → credential。仅做后缀剥离，不引入词典，保证确定性。
+    """
+    if len(token) > 3 and token.endswith("ies"):
+        return token[:-3] + "y"
+    if len(token) > 4 and token.endswith("es"):
+        return token[:-2]
+    if len(token) > 3 and token.endswith("s"):
+        return token[:-1]
+    return token
+
+
 def _secret_name_tokens(name: str) -> set[str]:
-    return {t.lower() for t in _SECRET_TOKEN_SPLIT_RE.findall(name)}
+    return {_singular(t.lower()) for t in _SECRET_TOKEN_SPLIT_RE.findall(name)}
 
 
 def _shannon_entropy(text: str) -> float:
@@ -1029,9 +1048,12 @@ class HardcodedSecretRule(_PyRule):
     """硬编码密钥/口令（对应金标 G10）。
 
     R1-9 判定口径：
-    - 标识符按 _/驼峰分词后精确命中敏感词（key/secret/password/token/passwd/pwd/
+    - 标识符按 _/驼峰分词并做单数归一（R4-1：API_KEYS/dbPasswords/credentials 等
+      复数形态不再漏报）后精确命中敏感词（key/secret/password/token/passwd/pwd/
       credential/apikey），且值满足随机性校验：ASCII、长度足够、
       Shannon 熵 ≥ 3.5 或字符集多样性 ≥ 3 类；
+    - password/passwd/pwd 家族放低闸门（R4-7）：熵 ≥ 3.0 或字符集多样性 ≥ 2 类
+      即命中——真实口令常是低熵自然词组合（mysupersecretkey），高熵闸门漏报；
     - 或值为 sk- 前缀的 API key 形态（同样要求随机性校验）。
     低熵占位串（"changeme"、"sk-aaaa..."）与中文提示文案不再误报。
     """
@@ -1054,11 +1076,15 @@ class HardcodedSecretRule(_PyRule):
             if value is None:
                 continue
             name = m.group("name")
-            name_hit = (
-                bool(_secret_name_tokens(name) & _SECRET_NAME_TOKENS)
-                and len(value) >= 16
-                and self._looks_secretish(value)
-            )
+            name_tokens = _secret_name_tokens(name) & _SECRET_NAME_TOKENS
+            if name_tokens:
+                if name_tokens & _PASSWORD_FAMILY_TOKENS:
+                    secretish = self._looks_secretish_relaxed(value)  # R4-7：口令家族放低闸门
+                else:
+                    secretish = self._looks_secretish(value)
+                name_hit = len(value) >= 16 and secretish
+            else:
+                name_hit = False
             sk_hit = value.startswith("sk-") and len(value) >= 20 and self._looks_secretish(value)
             if name_hit or sk_hit:
                 hits.append(
@@ -1082,6 +1108,18 @@ class HardcodedSecretRule(_PyRule):
         if _shannon_entropy(value) >= 3.5:
             return True
         return _charset_diversity(value) >= 3
+
+    @staticmethod
+    def _looks_secretish_relaxed(value: str) -> bool:
+        """R4-7：password 家族的放宽随机性闸门——熵 ≥3.0 或字符集多样性 ≥2 类。
+
+        仍要求 ASCII：自然语言提示文案（含中文）不算口令凭据。
+        """
+        if not value.isascii():
+            return False
+        if _shannon_entropy(value) >= 3.0:
+            return True
+        return _charset_diversity(value) >= 2
 
     @staticmethod
     def _string_value(raw: str, quote_col: int) -> str | None:

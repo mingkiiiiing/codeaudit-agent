@@ -523,3 +523,25 @@ async def test_search_code_rejects_overlong_regex(sample_workspace):
 
     res = await specs["search_code"].handler(query="a" * (SEARCH_MAX_PATTERN_LEN + 1))
     assert "error" in res and "过长" in res["error"]
+
+
+# ---------------------------------------------------------------------- R4-8：超长单行降级
+
+
+async def test_search_code_giant_line_falls_back_to_literal(sample_workspace, tools):
+    """R4-8：超 64KB 单行不跑正则，降级为原始 query 的字面量子串匹配。"""
+    giant = "x = '" + "a" * 70_000 + "NEEDLE_MARKER_9f8a7b';\n"
+    src = sample_workspace.src_root
+    (src / "giant_blob.py").write_text(giant, encoding="utf-8", newline="\n")
+
+    # 字面量子串在超长行上仍可命中（该 query 作为正则同样合法，但超长行走降级路径）
+    res = await tools["search_code"].handler(query="NEEDLE_MARKER_9f8a7b")
+    assert any(m.startswith("giant_blob.py:1:") for m in res["matches"])
+
+    # 正则语义在超长行上被放弃：query 只按字面量匹配，正则专属构造不命中
+    res = await tools["search_code"].handler(query=r"N[EED]{2}LE")  # 字面量不在行内
+    assert all(not m.startswith("giant_blob.py:") for m in res["matches"])
+
+    # 短行不受影响：正则语义照常生效
+    res = await tools["search_code"].handler(query=r"def get_user\(")
+    assert res["count"] >= 1

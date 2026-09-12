@@ -459,13 +459,17 @@ async def _review_slice(
     architecture_summary: str,
     limits: AgentLimits,
     include_symbols: bool = True,
+    state: dict[str, bool] | None = None,
 ) -> list[dict[str, Any]]:
     """审查单个函数分组切片，返回收集到的 issue 载荷（行号为全文件绝对行号）。
 
     include_symbols=False（消融 −symbol_context）时组包不附符号上下文块。
+    state 非空（R4-6）时跟踪 record_issues 收口：runtime 结束却从未调用
+    record_issues 时抛 RuntimeError，由调用方记入 review_errors，
+    而不是把该切片静默当作"无问题"。
     """
     collected: list[dict[str, Any]] = []
-    _ensure_review_tools(runtime, workspace, index, collected)
+    _ensure_review_tools(runtime, workspace, index, collected, state)
     lines = workspace.read_lines(file_path, start, end)
     source_text = (
         f"[切片 {slice_index}/{slice_total}] 以下为该文件第 {start}-{end} 行"
@@ -489,6 +493,12 @@ async def _review_slice(
         "报告行号必须使用上面展示的全文件绝对行号。"
     )
     await runtime.run(system_prompt, [{"role": "user", "content": task}], limits=limits)
+    if state is not None and not state["record_issues_called"]:
+        # R4-6：与单文件路径的 R1-26 同口径——切片 runtime 非正常结束必须显式失败
+        raise RuntimeError(
+            f"Review Agent 非正常结束：{file_path} 第 {start}-{end} 行切片"
+            f"（{slice_index}/{slice_total}）未调用 record_issues 收口"
+        )
     return collected
 
 
@@ -586,20 +596,27 @@ def make_tools_review_fn(ctx: PipelineContext) -> IssueReviewFnLike:
             merged: list[Issue] = []
             for i, sl in enumerate(slices, 1):
                 runtime = _tools_runtime(workspace, ctx.index, ctx.llm)
-                collected = await _review_slice(
-                    runtime,
-                    workspace,
-                    ctx.index,
-                    file_path,
-                    int(getattr(sl, "line_start", 1) or 1),
-                    int(getattr(sl, "line_end", loc) or loc),
-                    i,
-                    len(slices),
-                    hint_list,
-                    architecture_summary,
-                    limits,
-                    include_symbols=include_symbols,
-                )
+                state: dict[str, bool] = {"record_issues_called": False}
+                try:
+                    collected = await _review_slice(
+                        runtime,
+                        workspace,
+                        ctx.index,
+                        file_path,
+                        int(getattr(sl, "line_start", 1) or 1),
+                        int(getattr(sl, "line_end", loc) or loc),
+                        i,
+                        len(slices),
+                        hint_list,
+                        architecture_summary,
+                        limits,
+                        include_symbols=include_symbols,
+                        state=state,
+                    )
+                except Exception as exc:  # noqa: BLE001 —— R4-6：单切片非正常结束不静默
+                    # 记入 review_errors（键带切片序号），继续审查其余切片
+                    ctx.extra.setdefault("review_errors", {})[f"{file_path}#slice-{i}"] = repr(exc)
+                    continue
                 merged.extend(issues_from_payloads(collected, workspace))
             return _merge_slice_issues(merged)
 

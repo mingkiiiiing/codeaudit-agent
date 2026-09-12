@@ -68,7 +68,7 @@ def fake_run(monkeypatch: pytest.MonkeyPatch) -> list[AuditConfig]:
     """注入假流水线：捕获 AuditConfig 并返回 1 high / 2 low 的预填报告。"""
     calls: list[AuditConfig] = []
 
-    async def fake_run_audit_simple(config: AuditConfig) -> AuditReport:
+    async def fake_run_audit_simple(config: AuditConfig, events=None) -> AuditReport:
         calls.append(config)
         return make_report()
 
@@ -115,7 +115,7 @@ def test_gate_fail_message_reports_counts_and_suppressed(
     """失败信息包含阈值、各级计数、问题总数与 stats.suppressed。"""
     report = make_report(suppressed=4)
 
-    async def fake(config: AuditConfig) -> AuditReport:
+    async def fake(config: AuditConfig, events=None) -> AuditReport:
         return report
 
     monkeypatch.setattr(cli, "run_audit_simple", fake)
@@ -221,9 +221,9 @@ def test_implicit_flags_keep_defaults(fake_run, tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("argv", [["--version"], ["run", "--version"]])
 def test_version_prints_and_exits_0(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
-    """顶层与 run 子命令的 --version：打印 codeaudit-agent 0.2.0 并返回 0。"""
+    """顶层与 run 子命令的 --version：打印 codeaudit-agent 0.3.0 并返回 0。"""
     assert cli.main(argv) == 0
-    assert "codeaudit-agent 0.2.0" in capsys.readouterr().out
+    assert "codeaudit-agent 0.3.0" in capsys.readouterr().out
 
 
 def test_run_help_documents_new_flags(capsys: pytest.CaptureFixture[str]) -> None:

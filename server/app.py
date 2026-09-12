@@ -38,7 +38,7 @@ AUDITS: dict[str, dict[str, Any]] = {}
 
 _TERMINAL_STATUSES = ("done", "failed")
 
-# 任务表上限（R1-6）：超过时在新建任务后淘汰最旧的 done/failed 项（简单 LRU）
+# 任务表上限（R1-6）：超过时在新建任务后按插入序淘汰最旧的终态项（FIFO 容量淘汰）
 _AUDITS_MAX = 50
 
 # 后台任务引用（R1-7）：create_task 只返回弱引用，必须由本集合持有，
@@ -88,16 +88,24 @@ def _emitter_for(events: list[dict[str, Any]]):
 
 
 async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
-    """后台执行审计任务：更新 AUDITS[audit_id] 的状态与产物。"""
+    """后台执行审计任务：更新 AUDITS[audit_id] 的状态与产物。
+
+    R4-9：finally 兜底保证任何异常路径（含 asyncio.CancelledError 等
+    BaseException）都落终态 failed，任务表不残留 running 僵尸项；
+    取消异常记录后原样向外传播（保持取消语义）。
+    """
     entry = AUDITS[audit_id]
     entry["status"] = "running"
     try:
         report = await run_audit(config, _emitter_for(entry["events"]))
         entry["report"] = report
         entry["status"] = "done"
-    except Exception as exc:  # noqa: BLE001 —— 后台任务兜底
+    except BaseException as exc:  # noqa: BLE001 —— CancelledError 等异常路径也必须落终态
         entry["error"] = f"{type(exc).__name__}: {exc}"
-        entry["status"] = "failed"
+        raise
+    finally:
+        if entry["status"] not in _TERMINAL_STATUSES:
+            entry["status"] = "failed"
 
 
 def _prune_audits() -> None:

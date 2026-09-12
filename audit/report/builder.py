@@ -27,7 +27,12 @@ def _collect_language_stats(ctx: PipelineContext) -> tuple[dict[str, float], int
       - languages: 语言 -> 文件数占比（百分比，保留 1 位小数，未知语言不计入）
       - loc: 全部源文件行数合计
       - files_total: 源文件总数
+
+    R4-4：ingest 未成功时 ctx.workspace 仍指向用户原始输入目录，
+    统计走空 manifests（files_total=0），绝不回扫用户目录。
     """
+    if not ctx.extra.get("ingest_ok", True):
+        return {}, 0, 0
     lang_files: dict[str, int] = {}
     files_total = 0
     loc = 0

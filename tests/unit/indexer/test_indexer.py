@@ -292,3 +292,53 @@ def test_like_wildcards_in_symbol_names_are_escaped(tmp_path: Path):
         assert all("fooXbar" not in r.file for r in refs)
     finally:
         s.close()
+
+
+# ---------------------------------------------------------------- R4-2 / R4-5 回归
+
+
+def test_rebuild_after_import_change_resolves_to_new_target(tmp_path: Path):
+    """R4-2：改 imports 后二次 build，调用边按新 import 解析（修复前用陈旧别名缓存）。"""
+    src = tmp_path / "src"
+    src.mkdir(parents=True)
+    (src / "helpers.py").write_text(
+        "def get_user(uid):\n    return {'id': uid}\n", encoding="utf-8", newline="\n"
+    )
+    (src / "admin.py").write_text(
+        "def get_user(uid):\n    return {'id': uid, 'admin': True}\n", encoding="utf-8", newline="\n"
+    )
+    (src / "users.py").write_text(
+        "from helpers import get_user\n\n\ndef load(uid):\n    return get_user(uid)\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    ws = WorkspaceContext(audit_id="r42", src_root=src, work_root=tmp_path, db_path=tmp_path / "i.db")
+    s = create_index(ws)
+    try:
+        s.build()
+        row = s._conn.execute(
+            "SELECT callee_file FROM call_edges WHERE caller_file = 'users.py' AND resolved = 1"
+        ).fetchone()
+        assert row is not None and row["callee_file"] == "helpers.py"
+
+        # 改 imports 后增量重建：别名缓存已随 build 重置，边指向新目标
+        (src / "users.py").write_text(
+            "from admin import get_user\n\n\ndef load(uid):\n    return get_user(uid)\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        s.build()
+        row = s._conn.execute(
+            "SELECT callee_file FROM call_edges WHERE caller_file = 'users.py' AND resolved = 1"
+        ).fetchone()
+        assert row is not None and row["callee_file"] == "admin.py"
+    finally:
+        s.close()
+
+
+def test_close_is_idempotent(sample_workspace: WorkspaceContext):
+    """R4-5：close() 重复调用不抛 sqlite3.ProgrammingError。"""
+    s = create_index(sample_workspace)
+    s.build()
+    s.close()
+    s.close()  # 第二次 close 不应抛异常

@@ -351,11 +351,25 @@ def _decode_output(data: bytes | None) -> str:
 
 
 def _diff_targets(diff: str) -> list[str]:
-    """从 unified diff 提取目标文件路径（+++ b/<path>，跳过 /dev/null）。"""
+    """从 unified diff 提取目标文件路径（--- a/ 与 +++ b/ 两侧并集，跳过 /dev/null）。
+
+    R4-3：删除型补丁（+++ /dev/null）与重命名的旧文件只出现在 --- 侧，
+    只解析 +++ 会漏掉它们，导致 stage 备份/回滚集合与 apply 生效性校验集合不完整。
+    """
     targets: list[str] = []
+    seen: set[str] = set()
     for line in diff.splitlines():
-        if line.startswith("+++ b/"):
-            targets.append(line[len("+++ b/"):].strip())
+        for prefix in ("--- ", "+++ "):
+            if not line.startswith(prefix):
+                continue
+            raw = _header_path(line)
+            if raw is None or raw == "/dev/null":
+                break
+            rel = _strip_ab_prefix(raw)
+            if rel not in seen:
+                seen.add(rel)
+                targets.append(rel)
+            break
     return targets
 
 

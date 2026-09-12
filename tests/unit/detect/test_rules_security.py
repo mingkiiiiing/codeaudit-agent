@@ -138,6 +138,40 @@ class TestHardcodedSecret:
         ctx = make_ctx('password_error_text = "用户密码不能为空，请重新输入后再试"\n')
         assert self.rule.check(ctx) == []
 
+    # ------------------------------------------------- R4-1：复数形态归一回归
+
+    def test_positive_plural_api_keys(self, make_ctx):
+        """R4-1：复数形态 API_KEYS → api/key 归一后命中（修复前 MISS）。"""
+        ctx = make_ctx('API_KEYS = "Zk9#pQ2$vL8@mN4&xR7*Wd3!"\n')
+        assert _lines(self.rule, ctx) == [1]
+
+    def test_positive_plural_credentials(self, make_ctx):
+        """R4-1：credentials → credential 归一后命中（修复前 MISS）。"""
+        ctx = make_ctx('credentials = "9f8a7b6c5d4e3f2a1b0c9d8e"\n')
+        assert _lines(self.rule, ctx) == [1]
+
+    def test_positive_plural_camelcase_db_passwords(self, make_ctx):
+        """R4-1：驼峰复数 dbPasswords → db/password 归一后命中（修复前 MISS）。"""
+        ctx = make_ctx('dbPasswords = "T3st-P4ssw0rd-XYZ-9911"\n')
+        assert _lines(self.rule, ctx) == [1]
+
+    def test_negative_plural_name_with_plain_text_value(self, make_ctx):
+        """R4-1：归一化只放宽名称侧，值侧闸门不降——普通文案值不命中。"""
+        ctx = make_ctx('API_KEYS = "placeholder-value-here"\n')
+        assert self.rule.check(ctx) == []
+
+    # --------------------------------------- R4-7：password 家族放低闸门回归
+
+    def test_positive_password_family_low_entropy(self, make_ctx):
+        """R4-7：password 家族低熵自然词口令命中（旧高熵闸门漏报）。"""
+        ctx = make_ctx('DB_PASSWORD = "mysupersecretkey"\n')
+        assert _lines(self.rule, ctx) == [1]
+
+    def test_negative_password_family_repeated_char_placeholder(self, make_ctx):
+        """R4-7：放宽闸门仍要求最低随机性——单字符重复占位串不报。"""
+        ctx = make_ctx('password = "aaaaaaaaaaaaaaaa"\n')
+        assert self.rule.check(ctx) == []
+
 
 class TestUnsafeDeserialize:
     rule = UnsafeDeserializeRule()
