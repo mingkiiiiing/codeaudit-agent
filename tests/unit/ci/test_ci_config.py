@@ -39,8 +39,8 @@ def test_ci_workflow_contains_key_fields() -> None:
         "3.13",                # 主版本
         "ubuntu-latest",       # 主 runner
         "windows-latest",      # Windows 兼容性实证条目
-        "actions/checkout@v4",
-        "actions/setup-python@v5",
+        "actions/checkout@v7",
+        "actions/setup-python@v7",
         "cache: pip",          # pip 缓存
         'pip install -e ".[dev]"',
         "ruff check .",        # 静态检查步骤
