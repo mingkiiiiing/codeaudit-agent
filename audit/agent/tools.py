@@ -589,7 +589,9 @@ def normalize_test_target(workspace: WorkspaceContext, target: str) -> str | Non
     if text.startswith("-"):
         return None  # 拒绝 pytest/jest 选项注入（如 -p no:cacheprovider / --import-mode）
     path = Path(text)
-    if path.is_absolute():
+    # POSIX 平台上 Path 不识别 Windows 盘符（"C:/..." 是相对路径），
+    # 显式检测盘符前缀，统一走绝对路径归一分支（CI Linux 实证）
+    if path.is_absolute() or re.match(r"^[A-Za-z]:", text):
         try:
             rel = path.resolve().relative_to(Path(workspace.src_root).resolve())
         except ValueError:

@@ -229,7 +229,7 @@ def _prog_name() -> str:
     - 源码直跑 ``python cli.py`` → "cli.py"；
     - console script 安装态（``codeaudit ...``）→ "codeaudit"（Windows 的 .exe 去后缀）。
     """
-    raw = Path(sys.argv[0]).name if sys.argv and sys.argv[0] else ""
+    raw = Path(str(sys.argv[0]).replace("\\", "/")).name if sys.argv and sys.argv[0] else ""
     if raw.endswith(".exe"):
         raw = raw[: -len(".exe")]
     return raw or "cli.py"
