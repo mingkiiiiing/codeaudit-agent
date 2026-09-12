@@ -87,7 +87,40 @@
 本阶段未启用或未产出架构卡片。
 {% endif %}
 
-## 六、Patch 与测试统计
+## 六、重构方案
+
+{% if refactor_total %}
+共生成 **{{ refactor_total }}** 条重构方案（按类型分组；来源「启发式」为确定性规则/索引聚合，「启发式+LLM」经大模型深化理由与步骤）：
+
+{% for g in refactor_groups %}
+### {{ g.label }}（{{ g.kind }}，{{ g.count }} 条）
+
+{% for p in g.proposals %}
+#### {{ p.id }}　{{ p.title | md }}
+
+- **目标**：`{{ p.target | cell }}`
+- **类型**：{{ p.kind_label }}　**来源**：{{ p.source_label }}　**置信度**：{{ p.confidence }}
+
+**理由**：{{ p.rationale | md or "-" }}
+
+**步骤**：
+{% for s in p.steps %}
+{{ loop.index }}. {{ s | md }}
+{% endfor %}
+
+**收益**：{{ p.benefits | md or "-" }}
+{% if p.related_issues %}
+
+**关联问题**：{% for iid in p.related_issues %}{{ iid | cell }}{% if not loop.last %}、{% endif %}{% endfor %}{% if p.related_more %} 等 {{ p.related_more }} 个{% endif %}
+{% endif %}
+
+{% endfor %}
+{% endfor %}
+{% else %}
+本次审计未生成重构方案（可配置启用）。
+{% endif %}
+
+## 七、Patch 与测试统计
 
 {% if patches %}
 共生成 **{{ patches | length }}** 个补丁：
@@ -113,7 +146,7 @@
 未生成测试用例（Wave 2 功能或未启用 `--tests`）。
 {% endif %}
 
-## 七、耗时与 Token 统计
+## 八、耗时与 Token 统计
 
 | 指标 | 值 |
 | --- | --- |

@@ -88,6 +88,7 @@ def build_report(ctx: PipelineContext) -> AuditReport:
         issues=list(ctx.issues),
         patches=list(ctx.patches),
         test_cases=list(ctx.test_cases),
+        refactor_proposals=list(ctx.refactor_proposals),  # 契约 v1.7
         architecture=ctx.architecture,
         stats=_merge_stats(ctx, files_total, loc),
         created_at=now_iso(),

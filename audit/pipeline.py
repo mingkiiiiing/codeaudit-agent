@@ -12,6 +12,7 @@ from audit.models import (
     AuditStats,
     Issue,
     Patch,
+    RefactorProposal,
     RuleHit,
     TestCase,
 )
@@ -29,6 +30,7 @@ class PipelineContext:
       - ingest/index 阶段：workspace（含 index 注入）
       - understand：architecture
       - detect：rule_hits / candidates / issues
+      - refactor（契约 v1.7）：refactor_proposals
       - fix / testgen：patches / test_cases
       - report：读取以上全部
     """
@@ -42,6 +44,7 @@ class PipelineContext:
     rule_hits: list[RuleHit] = field(default_factory=list)
     candidates: list[Issue] = field(default_factory=list)  # 验证前的候选
     issues: list[Issue] = field(default_factory=list)  # 验证后的最终清单
+    refactor_proposals: list[RefactorProposal] = field(default_factory=list)  # 契约 v1.7
     patches: list[Patch] = field(default_factory=list)
     test_cases: list[TestCase] = field(default_factory=list)
     stats: AuditStats = field(default_factory=AuditStats)

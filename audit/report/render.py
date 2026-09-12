@@ -13,7 +13,7 @@ from pygments.formatters.html import HtmlFormatter
 from pygments.lexers import DiffLexer, TextLexer, get_lexer_for_filename
 from pygments.util import ClassNotFound
 
-from audit.models import AuditReport, Issue, Patch, Severity
+from audit.models import AuditReport, Issue, Patch, RefactorProposal, Severity
 from audit.utils import guess_language
 
 _TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -78,6 +78,19 @@ def _fix_status_label(status: str) -> str:
 
 def _source_label(source: str) -> str:
     return {"rule": "规则", "llm": "LLM", "rule+llm": "规则+LLM"}.get(source, source)
+
+
+# 契约 v1.7：重构方案的 kind 分组顺序与中文标签（未知 kind 追加在末尾）
+_REFACTOR_KIND_ORDER = ("decompose", "dedup", "split-module", "simplify", "other")
+_REFACTOR_KIND_LABELS = {
+    "decompose": "长函数分解",
+    "dedup": "重复模式归并",
+    "split-module": "热点模块拆分",
+    "simplify": "简化",
+    "other": "其他",
+}
+_REFACTOR_SOURCE_LABELS = {"heuristic": "启发式", "llm": "LLM", "heuristic+llm": "启发式+LLM"}
+_REFACTOR_MAX_ISSUES_SHOWN = 10  # 单条方案展示的关联问题数上限（超出以计数标注）
 
 
 def _health_level(score: float) -> str:
@@ -152,6 +165,54 @@ def _patch_view(patch: Patch, for_html: bool) -> dict[str, Any]:
     return view
 
 
+def _refactor_view(p: RefactorProposal) -> dict[str, Any]:
+    """单条重构方案的纯文本视图字段（md/html 共用）。
+
+    related_issues 数据保持全量，展示层最多列 10 个（超出部分以 related_more 计数）。
+    """
+    kind = p.kind or "other"
+    source = p.source or "heuristic"
+    related = [str(i) for i in p.related_issues]
+    shown = related[:_REFACTOR_MAX_ISSUES_SHOWN]
+    return {
+        "id": p.id or "-",
+        "title": p.title,
+        "target": p.target or "-",
+        "kind": kind,
+        "kind_label": _REFACTOR_KIND_LABELS.get(kind, kind),
+        "rationale": p.rationale,
+        "steps": [str(s) for s in p.steps],
+        "benefits": p.benefits,
+        "related_issues": shown,
+        "related_more": max(0, len(related) - len(shown)),
+        "source": source,
+        "source_label": _REFACTOR_SOURCE_LABELS.get(source, source),
+        "confidence": f"{p.confidence:.0%}" if p.confidence else "-",
+    }
+
+
+def _refactor_groups(report: AuditReport) -> list[dict[str, Any]]:
+    """重构方案按 kind 分组（组内保持 proposals 原顺序，未知 kind 追加末尾）。"""
+    groups: list[dict[str, Any]] = []
+    kinds: list[str] = [k for k in _REFACTOR_KIND_ORDER if any(p.kind == k for p in report.refactor_proposals)]
+    kinds += [
+        p.kind
+        for p in report.refactor_proposals
+        if p.kind not in kinds and p.kind not in _REFACTOR_KIND_ORDER
+    ]
+    for kind in kinds:
+        proposals = [p for p in report.refactor_proposals if p.kind == kind]
+        groups.append(
+            {
+                "kind": kind,
+                "label": _REFACTOR_KIND_LABELS.get(kind, kind),
+                "count": len(proposals),
+                "proposals": [_refactor_view(p) for p in proposals],
+            }
+        )
+    return groups
+
+
 def _base_view(report: AuditReport, for_html: bool) -> dict[str, Any]:
     """md/html 模板共用的视图模型：全部字段预先拍平为纯文本。"""
     summary = report.summary
@@ -207,6 +268,8 @@ def _base_view(report: AuditReport, for_html: bool) -> dict[str, Any]:
         ],
         "tests_total": len(report.test_cases),
         "tests_passed": tests_passed,
+        "refactor_groups": _refactor_groups(report),
+        "refactor_total": len(report.refactor_proposals),
         "stats": report.stats,
     }
 

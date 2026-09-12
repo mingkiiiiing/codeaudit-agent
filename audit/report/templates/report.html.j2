@@ -118,7 +118,25 @@
   </div>
   {% else %}<p class="muted">本阶段未启用或未产出架构卡片。</p>{% endif %}
 
-  <h2>六、Patch 与测试统计</h2>
+  <h2>六、重构方案</h2>
+  {% if refactor_total %}
+  <p>共生成 <b>{{ refactor_total }}</b> 条重构方案（来源「启发式」为确定性规则/索引聚合，「启发式+LLM」经大模型深化理由与步骤）：</p>
+  {% for g in refactor_groups %}
+  <h3>{{ g.label }}（{{ g.kind }}，{{ g.count }} 条）</h3>
+  {% for p in g.proposals %}
+  <div class="card">
+    <div class="issue-head"><span class="id">{{ p.id }}</span><b>{{ p.title }}</b><span class="pill" style="background:#0f766e">{{ p.kind_label }}</span></div>
+    <div class="kv">目标：<code>{{ p.target }}</code>　来源：{{ p.source_label }}　置信度：{{ p.confidence }}</div>
+    <p><b>理由</b>：{{ p.rationale or "-" }}</p>
+    {% if p.steps %}<b>步骤</b><ol class="evidence">{% for s in p.steps %}<li>{{ s }}</li>{% endfor %}</ol>{% endif %}
+    <p><b>收益</b>：{{ p.benefits or "-" }}</p>
+    {% if p.related_issues %}<div class="kv">关联问题：{% for iid in p.related_issues %}<code>{{ iid }}</code> {% endfor %}{% if p.related_more %}等 {{ p.related_more }} 个{% endif %}</div>{% endif %}
+  </div>
+  {% endfor %}
+  {% endfor %}
+  {% else %}<p class="muted">本次审计未生成重构方案（可配置启用）。</p>{% endif %}
+
+  <h2>七、Patch 与测试统计</h2>
   {% if patches %}
   <table>
     <tr><th>补丁 ID</th><th>关联问题</th><th>应用状态</th><th>测试通过</th><th>说明</th></tr>
@@ -138,7 +156,7 @@
   <p class="muted">生成 {{ tests_total }} 条用例，通过 {{ tests_passed }} 条。</p>
   {% else %}<p class="muted">未生成测试用例（Wave 2 功能或未启用 <code>--tests</code>）。</p>{% endif %}
 
-  <h2>七、耗时与 Token 统计</h2>
+  <h2>八、耗时与 Token 统计</h2>
   <div class="grid">
     <div class="stat"><div class="num">{{ "%.2f" | format(stats.duration_sec) }}s</div><div class="lbl">总耗时</div></div>
     <div class="stat"><div class="num">{{ stats.llm_calls }}</div><div class="lbl">LLM 调用</div></div>

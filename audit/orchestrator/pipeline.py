@@ -199,7 +199,7 @@ async def _export_baseline(ctx: PipelineContext) -> None:
 async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
     """执行七阶段审计流水线，返回最终 AuditReport（审计永不整体失败）。
 
-    阶段：ingest → index → understand → detect → fix(可选) → testgen(可选) → report。
+    阶段：ingest → index → understand → detect → refactor → fix(可选) → testgen(可选) → report。
     总耗时写入 ctx.stats.duration_sec（time.monotonic）。
 
     资源收口（R1-3/R1-4）：无论正常结束还是异常，finally 中统一关闭 LLM 客户端
@@ -359,6 +359,18 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
         except Exception as exc:  # noqa: BLE001 —— 基线故障按零抑制继续
             _record_stage_error(ctx, "detect", exc)
             await ctx.emit("detect", f"stage error: {type(exc).__name__}: {exc}", error=True)
+
+    # -------- Stage 4c: refactor（契约 v1.7：赛题要求 5「自动生成重构方案」；
+    # R1-2：随 ingest 门控——无工作副本时既无索引也无检测结果）
+    async def _do_refactor() -> None:
+        from audit.refactor import run_refactor_stage
+
+        await _maybe_await(run_refactor_stage(ctx))
+
+    if ingest_ok:
+        await _run_stage(ctx, "refactor", _do_refactor)
+    else:
+        await _skip_gated_stage(ctx, "refactor", "无索引与检测结果，不产出重构方案")
 
     # -------- Stage 5: fix（契约 v1.2：模块存在则真实执行；R1-2：未 ingest 成功时门控）
     if not config.do_fix:

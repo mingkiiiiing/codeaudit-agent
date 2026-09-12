@@ -226,6 +226,30 @@ class TestCase(_Model):
     assert_count: int = 0
 
 
+# ---------------------------------------------------------------- 契约 v1.7：重构方案（W7-A2）
+
+
+@dataclass
+class RefactorProposal(_Model):
+    """重构方案（契约 v1.7，赛题要求 5「自动生成重构方案」的结构化产物）。
+
+    由 audit.refactor 阶段（detect 之后、fix 之前）产出：
+    - 确定性启发式层从既有索引与规则命中聚合（source="heuristic"）；
+    - LLM 增强层对 top N 方案深化 rationale/steps（source 升级 "heuristic+llm"）。
+    """
+
+    id: str = ""
+    title: str = ""
+    target: str = ""  # 重构目标（文件/符号/模块），如 "app/services/orders.py::create_order"
+    kind: str = "other"  # dedup | decompose | split-module | simplify | other
+    rationale: str = ""  # 为什么重构
+    steps: list[str] = field(default_factory=list)  # 操作步骤
+    benefits: str = ""  # 收益一句话
+    related_issues: list[str] = field(default_factory=list)  # 关联 Issue id
+    source: str = "heuristic"  # heuristic | llm | heuristic+llm
+    confidence: float = 0.0
+
+
 # ---------------------------------------------------------------- Stage3/7 产物
 
 
@@ -261,6 +285,7 @@ class AuditReport(_Model):
     issues: list[Issue] = field(default_factory=list)
     patches: list[Patch] = field(default_factory=list)
     test_cases: list[TestCase] = field(default_factory=list)
+    refactor_proposals: list[RefactorProposal] = field(default_factory=list)  # 契约 v1.7
     architecture: ArchitectureCard | None = None
     stats: AuditStats = field(default_factory=AuditStats)
     created_at: str = ""
