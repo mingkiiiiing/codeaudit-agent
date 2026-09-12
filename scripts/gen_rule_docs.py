@@ -170,6 +170,11 @@ def build_markdown(registry: RuleRegistry) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Windows runner 的 stdout 可能是 cp1252：中文进度信息强制 UTF-8（CI 实证）
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
     parser = argparse.ArgumentParser(
         description="从 DEFAULT_REGISTRY 生成单页规则手册（默认 docs-site/rules.md）"
     )
