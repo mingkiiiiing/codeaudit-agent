@@ -4,6 +4,20 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-09-12
+
+Wave 7：赛题合规收口与算法提速。补齐赛题要求的最后一块功能拼图（自动生成重构方案），打通 JS/TS 修复与单测验证闭环，并行/硬链接提速以可选开关落地并附诚实压测对比。合规矩阵 10 项对照的最终状态见 [docs/12 §7](docs/12-Wave7总体方案-赛题合规与提速.md)。
+
+### Added
+
+- **重构方案生成器**（`audit/refactor`，W7-A2）：确定性启发式 + LLM 增强双层——确定性层零 LLM 可出（长函数 top-N 分解、重复代码聚类、热点模块拆分、循环依赖提示，全部从已有索引与规则命中聚合），LLM 层深化每条方案的 rationale/steps（未配置 Key 时安全降级为纯启发式）；审计报告新增**「重构方案」章节**（md / html / json 三格式同步，SARIF 不含重构项），报告契约 v1.7 微增 `RefactorProposal`（id/title/target/kind/rationale/steps/related_issues/source）。
+- **JS/TS 修复与单测验证闭环**（`audit/fix` / `audit/testgen`，W7-A3）：JavaScript / TypeScript 问题同样进入修复闭环——语法验证走 tree-sitter 重解析 + `node --check`（探测可用才启用），单测验证走 `node --test`（node 18+ 内置，探测可用才执行，不可用时语法验证结果诚实标注），沙箱白名单相应扩展；CI 的 ubuntu / windows runner 自带 node 实证。
+- **压测对比数据**：W7 vs W6 同负载对拍（串行 vs 并行规则扫描、硬链接 vs 复制物化、命中集合一致性校验），数据见 [bench/results/stress_w7_clean.md](bench/results/stress_w7_clean.md)。
+
+### Changed
+
+- **性能实验与开关化**（W7-A1）：规则扫描多进程并行（`rule_scan_workers`，`0` 自动 / `1` 串行默认 / `>1` 指定并发，文件数 ≥100 才启用进程池）与 ingest 同盘硬链接物化（`link_same_volume`，**默认关闭**走整树复制，跨盘 / 失败自动回退）均作为**可选配置**交付。本机 2000 文件档实测并行仅 -7.1%、硬链接路径相对复制 +70.3%，负收益已诚实回退默认值（规则并行默认串行、ingest 默认复制），设计保留待后续复跑；行为等价有保障——并行与串行的规则命中集合指纹一致（41 = 41）。
+
 ## [0.3.0] - 2026-09-12
 
 Wave 5 + Wave 6：质量攻坚与健壮性清偿、规则库扩充、依赖约束治理。Wave 5 三路只读审查 + Dogfood 自审计共产出 68 项发现，本版修复其中 25 项核心问题，并新增联调测试套件（34 用例）与压力测试基线（2000 文件档纯规则审计 0.245 s/KLOC）；Wave 6 完成 R4 复核清偿（含 4 项必修缺陷）、静态规则库 49 → 63 条并上线内置规则手册、依赖约束治理。
@@ -75,7 +89,8 @@ Wave 1~3：核心流水线、检测与修复能力、产品化入口与评估基
 - **评估基准**：240 条金标（10 个项目集）、匹配与消融脚本、效率对比；离线纯规则基线实测 Precision(critical+high) 1.000 / Recall 0.844 / P50 5.0 s/KLOC（见 `bench/results/`；LLM 通道指标待真跑）。
 - **工程化**：650 项单元测试全绿（Wave 3 收口基线）、GitHub Actions CI（Python 3.11 / 3.13 × ubuntu / windows 矩阵）、离线全闭环演示 `python demo/run_demo.py`。
 
-[Unreleased]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/mingkiiiiing/codeaudit-agent/releases/tag/v0.1.0

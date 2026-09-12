@@ -2,253 +2,21 @@
   "total_count": 3,
   "jobs": [
     {
-      "id": 103460311669,
-      "run_id": 34659991883,
+      "id": 103595987759,
+      "run_id": 34709670934,
       "workflow_name": "CI",
       "head_branch": "main",
-      "run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/runs/34659991883",
+      "run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/runs/34709670934",
       "run_attempt": 1,
-      "node_id": "CR_kwDOUWTOKM8AAAAYFrcSdQ",
-      "head_sha": "b52fde79a96cf4014c146686b6cf929fe12e3c9e",
-      "url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/jobs/103460311669",
-      "html_url": "https://github.com/mingkiiiiing/codeaudit-agent/actions/runs/34659991883/job/103460311669",
-      "status": "completed",
-      "conclusion": "failure",
-      "created_at": "2026-09-11T23:58:13Z",
-      "started_at": "2026-09-11T23:58:14Z",
-      "completed_at": "2026-09-11T23:58:46Z",
-      "name": "test (py3.11 / ubuntu-latest)",
-      "steps": [
-        {
-          "name": "Set up job",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 1,
-          "started_at": "2026-09-11T23:58:15Z",
-          "completed_at": "2026-09-11T23:58:16Z"
-        },
-        {
-          "name": "Checkout",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 2,
-          "started_at": "2026-09-11T23:58:16Z",
-          "completed_at": "2026-09-11T23:58:16Z"
-        },
-        {
-          "name": "Set up Python 3.11",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 3,
-          "started_at": "2026-09-11T23:58:16Z",
-          "completed_at": "2026-09-11T23:58:17Z"
-        },
-        {
-          "name": "Install package with dev dependencies",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 4,
-          "started_at": "2026-09-11T23:58:17Z",
-          "completed_at": "2026-09-11T23:58:23Z"
-        },
-        {
-          "name": "Lint (ruff)",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 5,
-          "started_at": "2026-09-11T23:58:23Z",
-          "completed_at": "2026-09-11T23:58:23Z"
-        },
-        {
-          "name": "Install pytest-cov (coverage entry only)",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 6,
-          "started_at": "2026-09-11T23:58:23Z",
-          "completed_at": "2026-09-11T23:58:23Z"
-        },
-        {
-          "name": "Run tests",
-          "status": "completed",
-          "conclusion": "failure",
-          "number": 7,
-          "started_at": "2026-09-11T23:58:23Z",
-          "completed_at": "2026-09-11T23:58:45Z"
-        },
-        {
-          "name": "Run tests with coverage (py3.13 / ubuntu)",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 8,
-          "started_at": "2026-09-11T23:58:45Z",
-          "completed_at": "2026-09-11T23:58:45Z"
-        },
-        {
-          "name": "Post Set up Python 3.11",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 15,
-          "started_at": "2026-09-11T23:58:45Z",
-          "completed_at": "2026-09-11T23:58:45Z"
-        },
-        {
-          "name": "Post Checkout",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 16,
-          "started_at": "2026-09-11T23:58:45Z",
-          "completed_at": "2026-09-11T23:58:45Z"
-        },
-        {
-          "name": "Complete job",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 17,
-          "started_at": "2026-09-11T23:58:45Z",
-          "completed_at": "2026-09-11T23:58:45Z"
-        }
-      ],
-      "check_run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/check-runs/103460311669",
-      "labels": [
-        "ubuntu-latest"
-      ],
-      "runner_id": 1000000049,
-      "runner_name": "GitHub Actions 1000000049",
-      "runner_group_id": 0,
-      "runner_group_name": "GitHub Actions"
-    },
-    {
-      "id": 103460311735,
-      "run_id": 34659991883,
-      "workflow_name": "CI",
-      "head_branch": "main",
-      "run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/runs/34659991883",
-      "run_attempt": 1,
-      "node_id": "CR_kwDOUWTOKM8AAAAYFrcStw",
-      "head_sha": "b52fde79a96cf4014c146686b6cf929fe12e3c9e",
-      "url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/jobs/103460311735",
-      "html_url": "https://github.com/mingkiiiiing/codeaudit-agent/actions/runs/34659991883/job/103460311735",
+      "node_id": "CR_kwDOUWTOKM8AAAAYHs1TLw",
+      "head_sha": "7d7b297aca33a1979cce7247b9a041a93f2b8779",
+      "url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/jobs/103595987759",
+      "html_url": "https://github.com/mingkiiiiing/codeaudit-agent/actions/runs/34709670934/job/103595987759",
       "status": "completed",
       "conclusion": "success",
-      "created_at": "2026-09-11T23:58:13Z",
-      "started_at": "2026-09-11T23:58:14Z",
-      "completed_at": "2026-09-12T00:00:02Z",
-      "name": "test (py3.13 / windows-latest)",
-      "steps": [
-        {
-          "name": "Set up job",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 1,
-          "started_at": "2026-09-11T23:58:15Z",
-          "completed_at": "2026-09-11T23:58:16Z"
-        },
-        {
-          "name": "Checkout",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 2,
-          "started_at": "2026-09-11T23:58:16Z",
-          "completed_at": "2026-09-11T23:58:20Z"
-        },
-        {
-          "name": "Set up Python 3.13",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 3,
-          "started_at": "2026-09-11T23:58:20Z",
-          "completed_at": "2026-09-11T23:58:24Z"
-        },
-        {
-          "name": "Install package with dev dependencies",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 4,
-          "started_at": "2026-09-11T23:58:24Z",
-          "completed_at": "2026-09-11T23:58:38Z"
-        },
-        {
-          "name": "Lint (ruff)",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 5,
-          "started_at": "2026-09-11T23:58:38Z",
-          "completed_at": "2026-09-11T23:58:38Z"
-        },
-        {
-          "name": "Install pytest-cov (coverage entry only)",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 6,
-          "started_at": "2026-09-11T23:58:38Z",
-          "completed_at": "2026-09-11T23:58:38Z"
-        },
-        {
-          "name": "Run tests",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 7,
-          "started_at": "2026-09-11T23:58:38Z",
-          "completed_at": "2026-09-11T23:59:59Z"
-        },
-        {
-          "name": "Run tests with coverage (py3.13 / ubuntu)",
-          "status": "completed",
-          "conclusion": "skipped",
-          "number": 8,
-          "started_at": "2026-09-11T23:59:59Z",
-          "completed_at": "2026-09-11T23:59:59Z"
-        },
-        {
-          "name": "Post Set up Python 3.13",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 15,
-          "started_at": "2026-09-11T23:59:59Z",
-          "completed_at": "2026-09-12T00:00:00Z"
-        },
-        {
-          "name": "Post Checkout",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 16,
-          "started_at": "2026-09-12T00:00:00Z",
-          "completed_at": "2026-09-12T00:00:01Z"
-        },
-        {
-          "name": "Complete job",
-          "status": "completed",
-          "conclusion": "success",
-          "number": 17,
-          "started_at": "2026-09-12T00:00:01Z",
-          "completed_at": "2026-09-12T00:00:01Z"
-        }
-      ],
-      "check_run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/check-runs/103460311735",
-      "labels": [
-        "windows-latest"
-      ],
-      "runner_id": 1000000052,
-      "runner_name": "GitHub Actions 1000000052",
-      "runner_group_id": 0,
-      "runner_group_name": "GitHub Actions"
-    },
-    {
-      "id": 103460311875,
-      "run_id": 34659991883,
-      "workflow_name": "CI",
-      "head_branch": "main",
-      "run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/runs/34659991883",
-      "run_attempt": 1,
-      "node_id": "CR_kwDOUWTOKM8AAAAYFrcTQw",
-      "head_sha": "b52fde79a96cf4014c146686b6cf929fe12e3c9e",
-      "url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/jobs/103460311875",
-      "html_url": "https://github.com/mingkiiiiing/codeaudit-agent/actions/runs/34659991883/job/103460311875",
-      "status": "completed",
-      "conclusion": "failure",
-      "created_at": "2026-09-11T23:58:13Z",
-      "started_at": "2026-09-11T23:58:15Z",
-      "completed_at": "2026-09-11T23:59:05Z",
+      "created_at": "2026-09-12T17:55:45Z",
+      "started_at": "2026-09-12T17:55:47Z",
+      "completed_at": "2026-09-12T17:56:37Z",
       "name": "test (py3.13 / ubuntu-latest)",
       "steps": [
         {
@@ -256,96 +24,328 @@
           "status": "completed",
           "conclusion": "success",
           "number": 1,
-          "started_at": "2026-09-11T23:58:15Z",
-          "completed_at": "2026-09-11T23:58:16Z"
+          "started_at": "2026-09-12T17:55:48Z",
+          "completed_at": "2026-09-12T17:55:49Z"
         },
         {
           "name": "Checkout",
           "status": "completed",
           "conclusion": "success",
           "number": 2,
-          "started_at": "2026-09-11T23:58:16Z",
-          "completed_at": "2026-09-11T23:58:19Z"
+          "started_at": "2026-09-12T17:55:49Z",
+          "completed_at": "2026-09-12T17:55:50Z"
         },
         {
           "name": "Set up Python 3.13",
           "status": "completed",
           "conclusion": "success",
           "number": 3,
-          "started_at": "2026-09-11T23:58:19Z",
-          "completed_at": "2026-09-11T23:58:22Z"
+          "started_at": "2026-09-12T17:55:50Z",
+          "completed_at": "2026-09-12T17:55:54Z"
         },
         {
           "name": "Install package with dev dependencies",
           "status": "completed",
           "conclusion": "success",
           "number": 4,
-          "started_at": "2026-09-11T23:58:22Z",
-          "completed_at": "2026-09-11T23:58:28Z"
+          "started_at": "2026-09-12T17:55:54Z",
+          "completed_at": "2026-09-12T17:56:01Z"
         },
         {
           "name": "Lint (ruff)",
           "status": "completed",
           "conclusion": "success",
           "number": 5,
-          "started_at": "2026-09-11T23:58:28Z",
-          "completed_at": "2026-09-11T23:58:29Z"
+          "started_at": "2026-09-12T17:56:01Z",
+          "completed_at": "2026-09-12T17:56:02Z"
         },
         {
           "name": "Install pytest-cov (coverage entry only)",
           "status": "completed",
           "conclusion": "success",
           "number": 6,
-          "started_at": "2026-09-11T23:58:29Z",
-          "completed_at": "2026-09-11T23:58:32Z"
+          "started_at": "2026-09-12T17:56:02Z",
+          "completed_at": "2026-09-12T17:56:03Z"
         },
         {
           "name": "Run tests",
           "status": "completed",
           "conclusion": "skipped",
           "number": 7,
-          "started_at": "2026-09-11T23:58:32Z",
-          "completed_at": "2026-09-11T23:58:32Z"
+          "started_at": "2026-09-12T17:56:03Z",
+          "completed_at": "2026-09-12T17:56:03Z"
         },
         {
           "name": "Run tests with coverage (py3.13 / ubuntu)",
           "status": "completed",
-          "conclusion": "failure",
+          "conclusion": "success",
           "number": 8,
-          "started_at": "2026-09-11T23:58:32Z",
-          "completed_at": "2026-09-11T23:59:04Z"
+          "started_at": "2026-09-12T17:56:03Z",
+          "completed_at": "2026-09-12T17:56:34Z"
         },
         {
           "name": "Post Set up Python 3.13",
           "status": "completed",
-          "conclusion": "skipped",
+          "conclusion": "success",
           "number": 15,
-          "started_at": "2026-09-11T23:59:04Z",
-          "completed_at": "2026-09-11T23:59:04Z"
+          "started_at": "2026-09-12T17:56:34Z",
+          "completed_at": "2026-09-12T17:56:34Z"
         },
         {
           "name": "Post Checkout",
           "status": "completed",
           "conclusion": "success",
           "number": 16,
-          "started_at": "2026-09-11T23:59:04Z",
-          "completed_at": "2026-09-11T23:59:04Z"
+          "started_at": "2026-09-12T17:56:34Z",
+          "completed_at": "2026-09-12T17:56:34Z"
         },
         {
           "name": "Complete job",
           "status": "completed",
           "conclusion": "success",
           "number": 17,
-          "started_at": "2026-09-11T23:59:04Z",
-          "completed_at": "2026-09-11T23:59:04Z"
+          "started_at": "2026-09-12T17:56:34Z",
+          "completed_at": "2026-09-12T17:56:34Z"
         }
       ],
-      "check_run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/check-runs/103460311875",
+      "check_run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/check-runs/103595987759",
       "labels": [
         "ubuntu-latest"
       ],
-      "runner_id": 1000000050,
-      "runner_name": "GitHub Actions 1000000050",
+      "runner_id": 1000000067,
+      "runner_name": "GitHub Actions 1000000067",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 103595987865,
+      "run_id": 34709670934,
+      "workflow_name": "CI",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/runs/34709670934",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOUWTOKM8AAAAYHs1TmQ",
+      "head_sha": "7d7b297aca33a1979cce7247b9a041a93f2b8779",
+      "url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/jobs/103595987865",
+      "html_url": "https://github.com/mingkiiiiing/codeaudit-agent/actions/runs/34709670934/job/103595987865",
+      "status": "completed",
+      "conclusion": "failure",
+      "created_at": "2026-09-12T17:55:45Z",
+      "started_at": "2026-09-12T17:55:47Z",
+      "completed_at": "2026-09-12T17:57:26Z",
+      "name": "test (py3.13 / windows-latest)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-12T17:55:48Z",
+          "completed_at": "2026-09-12T17:55:48Z"
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-12T17:55:48Z",
+          "completed_at": "2026-09-12T17:55:53Z"
+        },
+        {
+          "name": "Set up Python 3.13",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-12T17:55:53Z",
+          "completed_at": "2026-09-12T17:55:57Z"
+        },
+        {
+          "name": "Install package with dev dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-12T17:55:57Z",
+          "completed_at": "2026-09-12T17:56:13Z"
+        },
+        {
+          "name": "Lint (ruff)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-09-12T17:56:13Z",
+          "completed_at": "2026-09-12T17:56:13Z"
+        },
+        {
+          "name": "Install pytest-cov (coverage entry only)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-12T17:56:13Z",
+          "completed_at": "2026-09-12T17:56:13Z"
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "failure",
+          "number": 7,
+          "started_at": "2026-09-12T17:56:13Z",
+          "completed_at": "2026-09-12T17:57:22Z"
+        },
+        {
+          "name": "Run tests with coverage (py3.13 / ubuntu)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-12T17:57:22Z",
+          "completed_at": "2026-09-12T17:57:22Z"
+        },
+        {
+          "name": "Post Set up Python 3.13",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 15,
+          "started_at": "2026-09-12T17:57:22Z",
+          "completed_at": "2026-09-12T17:57:22Z"
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-12T17:57:22Z",
+          "completed_at": "2026-09-12T17:57:24Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-12T17:57:24Z",
+          "completed_at": "2026-09-12T17:57:24Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/check-runs/103595987865",
+      "labels": [
+        "windows-latest"
+      ],
+      "runner_id": 1000000068,
+      "runner_name": "GitHub Actions 1000000068",
+      "runner_group_id": 0,
+      "runner_group_name": "GitHub Actions"
+    },
+    {
+      "id": 103595987902,
+      "run_id": 34709670934,
+      "workflow_name": "CI",
+      "head_branch": "main",
+      "run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/runs/34709670934",
+      "run_attempt": 1,
+      "node_id": "CR_kwDOUWTOKM8AAAAYHs1Tvg",
+      "head_sha": "7d7b297aca33a1979cce7247b9a041a93f2b8779",
+      "url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/actions/jobs/103595987902",
+      "html_url": "https://github.com/mingkiiiiing/codeaudit-agent/actions/runs/34709670934/job/103595987902",
+      "status": "completed",
+      "conclusion": "success",
+      "created_at": "2026-09-12T17:55:45Z",
+      "started_at": "2026-09-12T17:55:48Z",
+      "completed_at": "2026-09-12T17:56:30Z",
+      "name": "test (py3.11 / ubuntu-latest)",
+      "steps": [
+        {
+          "name": "Set up job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 1,
+          "started_at": "2026-09-12T17:55:48Z",
+          "completed_at": "2026-09-12T17:55:49Z"
+        },
+        {
+          "name": "Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 2,
+          "started_at": "2026-09-12T17:55:49Z",
+          "completed_at": "2026-09-12T17:55:51Z"
+        },
+        {
+          "name": "Set up Python 3.11",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 3,
+          "started_at": "2026-09-12T17:55:51Z",
+          "completed_at": "2026-09-12T17:55:59Z"
+        },
+        {
+          "name": "Install package with dev dependencies",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 4,
+          "started_at": "2026-09-12T17:55:59Z",
+          "completed_at": "2026-09-12T17:56:05Z"
+        },
+        {
+          "name": "Lint (ruff)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 5,
+          "started_at": "2026-09-12T17:56:05Z",
+          "completed_at": "2026-09-12T17:56:05Z"
+        },
+        {
+          "name": "Install pytest-cov (coverage entry only)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 6,
+          "started_at": "2026-09-12T17:56:05Z",
+          "completed_at": "2026-09-12T17:56:05Z"
+        },
+        {
+          "name": "Run tests",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 7,
+          "started_at": "2026-09-12T17:56:05Z",
+          "completed_at": "2026-09-12T17:56:27Z"
+        },
+        {
+          "name": "Run tests with coverage (py3.13 / ubuntu)",
+          "status": "completed",
+          "conclusion": "skipped",
+          "number": 8,
+          "started_at": "2026-09-12T17:56:27Z",
+          "completed_at": "2026-09-12T17:56:27Z"
+        },
+        {
+          "name": "Post Set up Python 3.11",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 15,
+          "started_at": "2026-09-12T17:56:27Z",
+          "completed_at": "2026-09-12T17:56:28Z"
+        },
+        {
+          "name": "Post Checkout",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 16,
+          "started_at": "2026-09-12T17:56:28Z",
+          "completed_at": "2026-09-12T17:56:28Z"
+        },
+        {
+          "name": "Complete job",
+          "status": "completed",
+          "conclusion": "success",
+          "number": 17,
+          "started_at": "2026-09-12T17:56:28Z",
+          "completed_at": "2026-09-12T17:56:28Z"
+        }
+      ],
+      "check_run_url": "https://api.github.com/repos/mingkiiiiing/codeaudit-agent/check-runs/103595987902",
+      "labels": [
+        "ubuntu-latest"
+      ],
+      "runner_id": 1000000069,
+      "runner_name": "GitHub Actions 1000000069",
       "runner_group_id": 0,
       "runner_group_name": "GitHub Actions"
     }

@@ -1,7 +1,7 @@
 # CodeAudit Agent —— 代码库级智能审计与重构 Agent
 
 [![CI](https://github.com/mingkiiiiing/codeaudit-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mingkiiiiing/codeaudit-agent/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/Release-v0.3.0-blue.svg)](https://github.com/mingkiiiiing/codeaudit-agent/releases)
+[![Release](https://img.shields.io/badge/Release-v0.4.0-blue.svg)](https://github.com/mingkiiiiing/codeaudit-agent/releases)
 [![Docs](https://img.shields.io/badge/Docs-mkdocs--material-informational.svg)](https://mingkiiiiing.github.io/codeaudit-agent/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -24,8 +24,9 @@ python demo/run_demo.py          # 或 make demo
 
 - **双通道检测**：tree-sitter AST + 正则的静态规则通道负责高召回、零成本；LLM Agent 通道以规则命中为线索，注入符号表 / 调用链上下文并可主动调用 `find_references` 等工具跨文件取证，再经 Verify Agent 复核，负责高精确。覆盖 bug / performance / security / style 四类问题，内置静态规则库 **63 条**（Python 35 / JavaScript 21 / TypeScript 专属 7）。
 - **规则手册自动生成**（0.3.0）：规则注册表即文档——`python scripts/gen_rule_docs.py` 从注册表生成规则手册页（含每条规则的判定说明与统计），随[文档站](https://mingkiiiiing.github.io/codeaudit-agent/rules/)发布，规则与文档不再漂移。
-- **修复闭环**：对 critical / high 问题生成 unified diff，`git apply --check` 后在沙箱中重解析语法、运行项目现有测试，只有验证通过的 Patch 才标记 `verified`，其余回退 `needs-review`，不阻断流程。
+- **修复闭环**：对 critical / high 问题生成 unified diff，`git apply --check` 后在沙箱中重解析语法、运行项目现有测试，只有验证通过的 Patch 才标记 `verified`，其余回退 `needs-review`，不阻断流程。0.4.0 起 **JavaScript / TypeScript 同样进入修复与单测验证闭环**（`node --check` 语法验证 + `node --test` 单测验证，node 不可用时诚实降级标注）。
 - **单测生成**：对已验证 Patch 涉及的目标函数生成 pytest 用例，沙箱运行，失败带 traceback 重试（≤2 次），仍失败则剔除；生成文件只写入 `<src>/tests/generated/`，可整目录删除。
+- **重构方案生成器**（0.4.0）：确定性启发式 + LLM 增强双层——确定性层零 LLM 可出（长函数分解、重复代码聚类、热点模块拆分、循环依赖提示，从已有索引与规则命中聚合），LLM 层深化每条方案的理由与步骤（未配置 Key 安全降级）；审计报告新增**「重构方案」章节**，逐条给出目标 / 类型 / 理由 / 落地步骤。
 - **三端入口**：CLI（`run / index / report / serve`）、REST API（异步任务 + SSE 进度）、单文件 Web 演示页（任务创建、阶段进度、健康分仪表盘、问题过滤与详情、Patch diff 视图）。输出 JSON + Markdown + HTML 三种报告。
 - **CI 集成**（0.2.0）：`--format sarif` 生成 SARIF 2.1.0 报告，可上传 GitHub Security tab；`--check --fail-on` 把审计结果变成 PR 硬门禁；`--diff` 增量审计 + 基线抑制，实现「存量豁免、增量把关」。
 - **工程约束**：文件级并发、token 预算熔断、增量缓存；单阶段失败只记入报告不中断审计；支持 Python / JavaScript / TypeScript。
@@ -258,9 +259,28 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 
 **Wave 6 健壮性清偿与发布**：对 W5 修复逐项复核，清偿 4 项必修缺陷——密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚不完整、understand 未随 ingest 门控（另含任务取消终态落盘、沙箱超长行搜索降级等低危项，逐条见 [CHANGELOG](CHANGELOG.md)）；静态规则库 49 → **63 条**并上线[内置规则手册](https://mingkiiiiing.github.io/codeaudit-agent/rules/)；完成依赖约束治理。总体方案见 [docs/10](docs/10-Wave5总体方案-质量攻坚.md) 与 [docs/11](docs/11-Wave6总体方案-依赖治理与发布.md)。
 
+**Wave 7 赛题合规收口（0.4.0）**：补齐赛题功能最后缺口——**重构方案生成器**（确定性启发式 + LLM 增强，报告新增「重构方案」章节，契约 v1.7 `RefactorProposal`）；**JS/TS 修复与单测验证闭环**（`node --check` / `node --test`，node 不可用诚实降级）；**提速实验与开关化**——规则多进程并行与 ingest 硬链接均落地为可选开关（默认串行 / 复制），本机 2000 文件档实测并行仅 -7.1%、硬链接相对复制 +70.3%，负收益诚实回退默认值，命中集合指纹一致（41 = 41），设计保留待复跑（对比数据见 [bench/results/stress_w7_clean.md](bench/results/stress_w7_clean.md)）。总体方案见 [docs/12](docs/12-Wave7总体方案-赛题合规与提速.md)。
+
+## 赛题合规矩阵
+
+对照赛题要求的 10 项基线（0.4.0 起，逐项最终状态与证据详见 [docs/12 §7](docs/12-Wave7总体方案-赛题合规与提速.md)）：
+
+| # | 赛题要求 | 状态 | 证据 |
+|---|---|---|---|
+| 1 | 上传项目代码文件夹 | ✅ | zip / 目录双入口（[tests/integration/test_zip_diff_fallback.py](tests/integration/test_zip_diff_fallback.py)） |
+| 2 | 自动遍历文件、理解整体架构 | ✅ | ingest + index + understand 架构卡片（[docs/02](docs/02-系统架构设计.md)） |
+| 3 | 自动检测 bug、性能问题、规范问题 | ✅ | 63 条静态规则 + LLM 双通道（[规则手册](https://mingkiiiiing.github.io/codeaudit-agent/rules/)） |
+| 4 | 自动生成修复代码 | ✅ | fix 阶段三重验证闭环（[tests/integration/test_fix_tests_loop.py](tests/integration/test_fix_tests_loop.py)） |
+| 5 | 自动生成重构方案 | ✅（0.4.0 补齐） | `audit/refactor` + 报告「重构方案」章节（[docs/12 §7](docs/12-Wave7总体方案-赛题合规与提速.md)） |
+| 6 | 自动生成单元测试用例 | ✅ | testgen 生成 + 沙箱运行 + 失败重试（同上联调用例） |
+| 7 | 输出完整审计报告 | ✅ | md / html / json + SARIF + 健康分 + 重构方案章节 |
+| 8 | 支持主流编程语言 | ✅（0.4.0 JS/TS 闭环） | JS/TS 修复与单测验证（`node --check` / `node --test`，[docs/12 §7](docs/12-Wave7总体方案-赛题合规与提速.md)） |
+| 9 | 千行 <30s | ✅ | 规则通道 0.245 s/KLOC（[bench/results/stress_20260912.md](bench/results/stress_20260912.md)；W7 复跑与开关化见 [stress_w7_clean.md](bench/results/stress_w7_clean.md)） |
+| 10 | 准确率 85%+ | ⏳ 等 key | 240 条金标就绪，唯一外部依赖 `GLM_API_KEY` 真跑（`bench.real_run`） |
+
 ## Roadmap
 
-以下能力明确不在 0.3.0 范围，作为后续版本的演进方向（详见 [docs/09 §6](docs/09-Wave4总体方案-开源生态对标.md) 与 [docs-site/roadmap.md](docs-site/roadmap.md)）：
+以下能力明确不在 0.4.0 范围，作为后续版本的演进方向（详见 [docs/09 §6](docs/09-Wave4总体方案-开源生态对标.md) 与 [docs-site/roadmap.md](docs-site/roadmap.md)）：
 
 - [ ] Playground（浏览器在线演示）
 - [ ] 规则市场 / Registry（社区规则包分发与版本管理）
@@ -285,6 +305,7 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 | [09-Wave4总体方案-开源生态对标](docs/09-Wave4总体方案-开源生态对标.md) | Wave 4 对标结论（ruff / semgrep / pr-agent）、契约 v1.4（SARIF / 门禁 / 增量 / 基线 / 配置）、Roadmap |
 | [10-Wave5总体方案-质量攻坚](docs/10-Wave5总体方案-质量攻坚.md) | Wave 5 目标（三路审查 / Dogfood / 联调 / 压测）、任务分解与验收口径 |
 | [11-Wave6总体方案-依赖治理与发布](docs/11-Wave6总体方案-依赖治理与发布.md) | Wave 6 目标（依赖治理 / 健壮性清偿 / 规则手册 / 0.3.0 发布）、任务分解与发布流程 |
+| [12-Wave7总体方案-赛题合规与提速](docs/12-Wave7总体方案-赛题合规与提速.md) | Wave 7 目标（赛题合规审计矩阵 / 重构方案生成器 / JS/TS 闭环 / 提速实验）、§7 发布记录（10 项合规最终状态） |
 
 以上设计文档已收录进 [在线文档站](https://mingkiiiiing.github.io/codeaudit-agent/)（mkdocs-material，源文件 `docs-site/` 与 `docs/`，由 `.github/workflows/docs.yml` 自动构建发布）。
 
@@ -314,7 +335,7 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 ├── scripts/                # 构建与 CI 辅助脚本（打包就绪自检 check_build.py 等）
 ├── demo/                   # 离线全闭环演示：run_demo.py + mini_app 靶项目（见 demo/README.md）
 ├── tests/                  # 单元测试（tests/unit/**）、联调测试（tests/integration/**）与样例工程（tests/samples/demo_proj）
-├── docs/                   # 设计文档 00~11
+├── docs/                   # 设计文档 00~12
 ├── docs-site/              # 文档站自有页面：首页 / CLI 速查 / 规则手册 / SARIF / PR 实践 / Roadmap（+ 构建镜像脚本）
 ├── mkdocs.yml              # 文档站配置（mkdocs-material，见 requirements-docs.txt）
 ├── .github/                # CI / Release / Docs 工作流、issue 与 PR 模板、CODEOWNERS、Dependabot
@@ -334,7 +355,7 @@ python -m pytest tests/unit/server tests/unit/cli -q        # 服务与 CLI
 python -m pytest tests/unit/demo -q                         # 演示夹具一致性（diff 可 apply、生成单测过硬闸门、靶点唯一）
 ```
 
-全量 **950+ 项自动化测试（单元 + 联调）**：单元测试覆盖各模块与规则正反例，`tests/integration/` 提供 34 个跨阶段联调用例（全离线 < 5 分钟）。
+全量 **990+ 项自动化测试（单元 + 联调）**：单元测试覆盖各模块与规则正反例，`tests/integration/` 提供 34 个跨阶段联调用例（全离线 < 5 分钟）。
 
 ## License
 

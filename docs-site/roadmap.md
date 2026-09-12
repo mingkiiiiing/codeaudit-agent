@@ -11,6 +11,7 @@
 
 ## 已交付
 
-- **0.3.0**（本轮）：Wave 5 质量攻坚 + Wave 6 健壮性清偿与发布——68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC；R4 复核清偿 4 项必修（密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚、understand 未随 ingest 门控）；静态规则库 49 → 63 条并上线[内置规则手册](rules.md)；依赖约束治理——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
+- **0.4.0**（本轮）：Wave 7 赛题合规收口——**重构方案生成器**（确定性启发式 + LLM 增强，报告新增「重构方案」章节，契约 v1.7 `RefactorProposal`）；**JS/TS 修复与单测验证闭环**（`node --check` 语法验证 + `node --test` 单测验证，node 不可用诚实降级）；**性能实验与开关化**——规则多进程并行 / ingest 硬链接作为可选开关交付（默认串行 / 复制，本机 2000 文件档实测负收益诚实回退，命中集合指纹一致，对比数据见 [bench/results/stress_w7_clean.md](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/bench/results/stress_w7_clean.md)）；赛题合规矩阵 10 项最终状态落定——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
+- **0.3.0**：Wave 5 质量攻坚 + Wave 6 健壮性清偿与发布——68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC；R4 复核清偿 4 项必修（密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚、understand 未随 ingest 门控）；静态规则库 49 → 63 条并上线[内置规则手册](rules.md)；依赖约束治理——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
 - **0.2.0**：SARIF 输出、CI 门禁（`--check --fail-on`）、PR 增量审计（`--diff`）、基线抑制、配置文件、`codeaudit` 入口、GitHub 协作设施与文档站——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
 - **0.1.0**：七阶段流水线、双通道检测（静态规则 + LLM Agent）、修复与单测闭环、三端入口（CLI / API / Web）、240 条金标的评估基准
