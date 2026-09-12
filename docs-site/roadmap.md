@@ -11,7 +11,6 @@
 
 ## 已交付
 
-- **0.2.0**（本轮）：SARIF 输出、CI 门禁（`--check --fail-on`）、PR 增量审计（`--diff`）、基线抑制、配置文件、`codeaudit` 入口、GitHub 协作设施与文档站——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
+- **0.3.0**（本轮）：Wave 5 质量攻坚 + Wave 6 健壮性清偿与发布——68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC；R4 复核清偿 4 项必修（密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚、understand 未随 ingest 门控）；静态规则库 49 → 63 条并上线[内置规则手册](rules.md)；依赖约束治理——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
+- **0.2.0**：SARIF 输出、CI 门禁（`--check --fail-on`）、PR 增量审计（`--diff`）、基线抑制、配置文件、`codeaudit` 入口、GitHub 协作设施与文档站——见 [CHANGELOG](https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md)
 - **0.1.0**：七阶段流水线、双通道检测（静态规则 + LLM Agent）、修复与单测闭环、三端入口（CLI / API / Web）、240 条金标的评估基准
-
-> **0.2.1（2026-09-12）**：质量攻坚波次完成——三路审查 68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC。详见 CHANGELOG [0.2.1]。

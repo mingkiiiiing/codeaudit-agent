@@ -46,7 +46,8 @@ python demo/run_demo.py
 | 页面 | 内容 |
 |---|---|
 | [CLI 速查](cli.md) | run / index / report / serve 全参数表与退出码约定 |
+| [规则手册](rules.md) | 63 条内置规则（Python 35 / JavaScript 21 / TypeScript 专属 7）的判定说明与统计，由注册表自动生成 |
 | [SARIF 上传 Security](sarif.md) | `--format sarif` + upload-sarif 工作流，问题进 GitHub Security tab |
 | [PR 增量审计实践](pr-review.md) | `--diff` + `--check` + 基线：「存量豁免、增量把关」 |
 | [Roadmap](roadmap.md) | 后续版本演进方向 |
-| [使用文档 00~09](design/00-项目总览.md) | 需求、架构、Prompt、评估方案、Wave 方案等设计文档全文（左侧「使用文档」导航 00~09 逐篇可读） |
+| [使用文档 00~11](design/00-项目总览.md) | 需求、架构、Prompt、评估方案、Wave 方案等设计文档全文（左侧「使用文档」导航 00~11 逐篇可读） |

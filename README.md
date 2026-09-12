@@ -1,7 +1,7 @@
 # CodeAudit Agent —— 代码库级智能审计与重构 Agent
 
 [![CI](https://github.com/mingkiiiiing/codeaudit-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/mingkiiiiing/codeaudit-agent/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/Release-v0.2.0-blue.svg)](https://github.com/mingkiiiiing/codeaudit-agent/releases)
+[![Release](https://img.shields.io/badge/Release-v0.3.0-blue.svg)](https://github.com/mingkiiiiing/codeaudit-agent/releases)
 [![Docs](https://img.shields.io/badge/Docs-mkdocs--material-informational.svg)](https://mingkiiiiing.github.io/codeaudit-agent/)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](pyproject.toml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
@@ -22,7 +22,8 @@ python demo/run_demo.py          # 或 make demo
 
 ## 特性
 
-- **双通道检测**：tree-sitter AST + 正则的静态规则通道负责高召回、零成本；LLM Agent 通道以规则命中为线索，注入符号表 / 调用链上下文并可主动调用 `find_references` 等工具跨文件取证，再经 Verify Agent 复核，负责高精确。覆盖 bug / performance / security / style 四类问题。
+- **双通道检测**：tree-sitter AST + 正则的静态规则通道负责高召回、零成本；LLM Agent 通道以规则命中为线索，注入符号表 / 调用链上下文并可主动调用 `find_references` 等工具跨文件取证，再经 Verify Agent 复核，负责高精确。覆盖 bug / performance / security / style 四类问题，内置静态规则库 **63 条**（Python 35 / JavaScript 21 / TypeScript 专属 7）。
+- **规则手册自动生成**（0.3.0）：规则注册表即文档——`python scripts/gen_rule_docs.py` 从注册表生成规则手册页（含每条规则的判定说明与统计），随[文档站](https://mingkiiiiing.github.io/codeaudit-agent/rules/)发布，规则与文档不再漂移。
 - **修复闭环**：对 critical / high 问题生成 unified diff，`git apply --check` 后在沙箱中重解析语法、运行项目现有测试，只有验证通过的 Patch 才标记 `verified`，其余回退 `needs-review`，不阻断流程。
 - **单测生成**：对已验证 Patch 涉及的目标函数生成 pytest 用例，沙箱运行，失败带 traceback 重试（≤2 次），仍失败则剔除；生成文件只写入 `<src>/tests/generated/`，可整目录删除。
 - **三端入口**：CLI（`run / index / report / serve`）、REST API（异步任务 + SSE 进度）、单文件 Web 演示页（任务创建、阶段进度、健康分仪表盘、问题过滤与详情、Patch diff 视图）。输出 JSON + Markdown + HTML 三种报告。
@@ -251,13 +252,15 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 
 已完成的**离线纯规则基线**真跑（2026-09-11，240 条金标 / 10 个项目集）：Precision(critical+high) 1.000、Recall 0.844、P50 5.0 s/KLOC，详见 [bench/results/run_20260911_offline.md](bench/results/run_20260911_offline.md)；LLM 通道相关指标（精确率 85% 目标、tokens/KLOC）待配置 Key 真跑后引用。
 
-## W5 质量攻坚（0.2.1）
+## 质量攻坚（W5 / W6）
 
-0.2.1 为质量攻坚版本：三路只读审查 + 用本工具审计自身的 Dogfood 自审计共产出 **68 项发现**（代码质量 30 / 测试缺口 22 / 文档一致性 13 / 自审计 6），本版修复其中 **25 项**核心问题——含 simple 模式 LLM 审查失效的 critical 缺陷、ingest 失败门控、LLM 客户端与索引连接的资源收口、zip 炸弹与测试目标注入防护等（逐条见 [CHANGELOG](CHANGELOG.md)）；新增 **34 个**跨阶段联调用例（`tests/integration/`，全离线 < 5 分钟）；`bench/stress/` 一键产出 2000 文件级合成项目的吞吐、并发与内存压测基线（2000 文件档纯规则审计 0.245 s/KLOC，远优于 30 s/KLOC 目标），数据见 [bench/results/stress_20260912.md](bench/results/stress_20260912.md)。总体方案与验收口径见 [docs/10](docs/10-Wave5总体方案-质量攻坚.md)。
+**Wave 5 质量攻坚**：三路只读审查 + 用本工具审计自身的 Dogfood 自审计共产出 **68 项发现**（代码质量 30 / 测试缺口 22 / 文档一致性 13 / 自审计 6），修复其中 **25 项**核心问题——含 simple 模式 LLM 审查失效的 critical 缺陷、ingest 失败门控、LLM 客户端与索引连接的资源收口、zip 炸弹与测试目标注入防护等（逐条见 [CHANGELOG](CHANGELOG.md)）；新增 **34 个**跨阶段联调用例（`tests/integration/`，全离线 < 5 分钟）；`bench/stress/` 一键产出 2000 文件级合成项目的吞吐、并发与内存压测基线（2000 文件档纯规则审计 0.245 s/KLOC，远优于 30 s/KLOC 目标），数据见 [bench/results/stress_20260912.md](bench/results/stress_20260912.md)。
+
+**Wave 6 健壮性清偿与发布**：对 W5 修复逐项复核，清偿 4 项必修缺陷——密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚不完整、understand 未随 ingest 门控（另含任务取消终态落盘、沙箱超长行搜索降级等低危项，逐条见 [CHANGELOG](CHANGELOG.md)）；静态规则库 49 → **63 条**并上线[内置规则手册](https://mingkiiiiing.github.io/codeaudit-agent/rules/)；完成依赖约束治理。总体方案见 [docs/10](docs/10-Wave5总体方案-质量攻坚.md) 与 [docs/11](docs/11-Wave6总体方案-依赖治理与发布.md)。
 
 ## Roadmap
 
-以下能力明确不在 0.2.0 范围，作为后续版本的演进方向（详见 [docs/09 §6](docs/09-Wave4总体方案-开源生态对标.md) 与 [docs-site/roadmap.md](docs-site/roadmap.md)）：
+以下能力明确不在 0.3.0 范围，作为后续版本的演进方向（详见 [docs/09 §6](docs/09-Wave4总体方案-开源生态对标.md) 与 [docs-site/roadmap.md](docs-site/roadmap.md)）：
 
 - [ ] Playground（浏览器在线演示）
 - [ ] 规则市场 / Registry（社区规则包分发与版本管理）
@@ -280,6 +283,8 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 | [07-Wave2总体方案与任务分解](docs/07-Wave2总体方案与任务分解.md) | Wave 2 目标、契约 v1.2、任务分解与真实指标实测流程 |
 | [08-Wave3总体方案与GitHub发布](docs/08-Wave3总体方案与GitHub发布.md) | Wave 3 目标（金标扩充 / 消融开关 / 演示与发布 / CI）、契约 v1.3、GitHub 提交方案 |
 | [09-Wave4总体方案-开源生态对标](docs/09-Wave4总体方案-开源生态对标.md) | Wave 4 对标结论（ruff / semgrep / pr-agent）、契约 v1.4（SARIF / 门禁 / 增量 / 基线 / 配置）、Roadmap |
+| [10-Wave5总体方案-质量攻坚](docs/10-Wave5总体方案-质量攻坚.md) | Wave 5 目标（三路审查 / Dogfood / 联调 / 压测）、任务分解与验收口径 |
+| [11-Wave6总体方案-依赖治理与发布](docs/11-Wave6总体方案-依赖治理与发布.md) | Wave 6 目标（依赖治理 / 健壮性清偿 / 规则手册 / 0.3.0 发布）、任务分解与发布流程 |
 
 以上设计文档已收录进 [在线文档站](https://mingkiiiiing.github.io/codeaudit-agent/)（mkdocs-material，源文件 `docs-site/` 与 `docs/`，由 `.github/workflows/docs.yml` 自动构建发布）。
 
@@ -309,8 +314,8 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 ├── scripts/                # 构建与 CI 辅助脚本（打包就绪自检 check_build.py 等）
 ├── demo/                   # 离线全闭环演示：run_demo.py + mini_app 靶项目（见 demo/README.md）
 ├── tests/                  # 单元测试（tests/unit/**）、联调测试（tests/integration/**）与样例工程（tests/samples/demo_proj）
-├── docs/                   # 设计文档 00~09
-├── docs-site/              # 文档站自有页面：首页 / CLI 速查 / SARIF / PR 实践 / Roadmap（+ 构建镜像脚本）
+├── docs/                   # 设计文档 00~11
+├── docs-site/              # 文档站自有页面：首页 / CLI 速查 / 规则手册 / SARIF / PR 实践 / Roadmap（+ 构建镜像脚本）
 ├── mkdocs.yml              # 文档站配置（mkdocs-material，见 requirements-docs.txt）
 ├── .github/                # CI / Release / Docs 工作流、issue 与 PR 模板、CODEOWNERS、Dependabot
 ├── Makefile                # install / test / lint / demo / serve / clean
@@ -328,6 +333,8 @@ python -m pytest tests -q                                   # 全量（零网络
 python -m pytest tests/unit/server tests/unit/cli -q        # 服务与 CLI
 python -m pytest tests/unit/demo -q                         # 演示夹具一致性（diff 可 apply、生成单测过硬闸门、靶点唯一）
 ```
+
+全量 **950+ 项自动化测试（单元 + 联调）**：单元测试覆盖各模块与规则正反例，`tests/integration/` 提供 34 个跨阶段联调用例（全离线 < 5 分钟）。
 
 ## License
 
