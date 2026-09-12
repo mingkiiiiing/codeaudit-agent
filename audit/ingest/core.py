@@ -4,9 +4,17 @@
   - 在 work_root/{audit_id}/src 物化工作副本（zip 安全解压 + 单层顶层目录提升）
   - 物化阶段即应用内置忽略目录（R1-11：copytree ignore，避免把 node_modules/
     .git 等大目录复制进副本），被忽略文件不进入工作副本
+  - 目录入口同盘时优先 os.link 硬链接物化（W7-A1，docs/12 §2）：省去整树拷贝
+    的写盘开销；跨盘 / 链接失败（OSError EPERM/EXDEV 等）逐文件回退 copy，
+    结构性失败整体回退 copytree，manifests 与拷贝路径完全一致
   - 产出 FileManifest（path/language/loc/sha256），识别主语言
   - 规模保护：超过文件数 / 行数阈值抛 IngestError（阈值可参数化）
   - 失败清理（R1-16）：接入失败时删除半成品 task_root，不留垃圾目录
+
+⚠️ 硬链接语义说明（W7-A1）：工作副本与源文件共享 inode。只读流水线（ingest/
+index/understand/detect/report）不受影响；但 fix 阶段的 git apply 会**就地改写**
+工作副本文件——启用 do_fix 的审计建议以 link_same_volume=False 接入（回退整树
+拷贝），或在集成层把工作副本视为可丢弃副本（源为一次性拷贝，如 demo 流程）。
 """
 
 from __future__ import annotations
@@ -43,10 +51,15 @@ def ingest(
     max_loc: int = 500_000,
     max_file_lines: int = DEFAULT_MAX_FILE_LINES,
     max_zip_bytes: int = DEFAULT_MAX_ZIP_BYTES,
+    link_same_volume: bool = False,  # W7 实测硬链接路径在本机无收益，默认整树复制（可显式开启）
 ) -> WorkspaceContext:
     """把 source（目录或 .zip）接入为独立工作副本，返回 WorkspaceContext。
 
-    - 目录入口：整树复制（跳过内置忽略目录）后按过滤规则剪枝
+    - 目录入口：同盘优先整树硬链接（W7-A1，link_same_volume=True 默认）；跨盘 /
+      链接失败逐文件回退 copy，结构性失败整体回退整树复制（跳过内置忽略目录），
+      三条路径产出的 manifests 完全一致
+    - link_same_volume=False：禁用硬链接，始终整树复制（do_fix 审计的推荐姿势，
+      见模块 docstring 的硬链接语义说明）
     - zip 入口：安全解压（拒绝路径逃逸成员；累计解压大小前置校验），若所有条目
       共用单个顶层目录则提升
     - 产出 ctx.manifests 与 ctx.language；规模超限抛 audit.errors.IngestError
@@ -65,7 +78,7 @@ def ingest(
 
     try:
         if src.is_dir():
-            _materialize_dir(src, src_root)
+            _materialize_dir(src, src_root, link_same_volume=link_same_volume)
         else:
             _materialize_zip(src, src_root, max_zip_bytes=max_zip_bytes)
             # 仅 zip 入口提升单层顶层目录（目录入口的 src/ 子目录是正常结构）
@@ -114,14 +127,76 @@ def _resolve_source(source: str | Path) -> Path:
 # ---------------------------------------------------------------- 材质化
 
 
-def _materialize_dir(src: Path, src_root: Path) -> None:
-    """整树复制；物化阶段即跳过内置忽略目录（R1-11：不把 .git/node_modules 等搬进副本）。"""
+def _materialize_dir(src: Path, src_root: Path, *, link_same_volume: bool = True) -> None:
+    """整树物化工作副本；物化阶段即跳过内置忽略目录（R1-11：不把 .git/node_modules 等搬进副本）。
+
+    W7-A1：同盘优先 os.link 硬链接（省整树拷贝写盘）；链接失败逐文件回退 copy、
+    结构性失败整体回退 copytree——两条路径对后续阶段（gitignore 剪枝/manifests/
+    索引）完全等价。link_same_volume=False 时直接走复制路径。
+    """
+    if link_same_volume and _try_hardlink_tree(src, src_root):
+        return
     shutil.copytree(
         src,
         src_root,
         dirs_exist_ok=True,
         ignore=lambda _dir, names: [n for n in names if n in _MATERIALIZE_IGNORE_DIRS],
     )
+
+
+def _same_volume(a: Path, b: Path) -> bool:
+    """同卷判定：st_dev 相同且盘符（anchor）一致（Windows 下 st_dev 即卷标识）。"""
+    try:
+        return os.stat(a).st_dev == os.stat(b).st_dev and Path(a).anchor == Path(b).anchor
+    except OSError:
+        return False
+
+
+def _try_hardlink_tree(src: Path, src_root: Path) -> bool:
+    """同盘硬链接整树（W7-A1）。成功返回 True；结构性失败返回 False（调用方回退 copytree）。
+
+    - 忽略目录语义与 copytree ignore 完全一致（_MATERIALIZE_IGNORE_DIRS 不进副本）；
+    - 单文件 os.link 失败（跨盘残留 / EPERM / 文件系统不支持硬链接）逐文件回退
+      shutil.copy2，物化结果不受影响；
+    - 符号链接按 copytree 默认语义（symlinks=False）跟随：链接文件 copy2 内容、
+      链接目录递归进入（带 st_dev/st_ino 已访问环防护）。
+    """
+    if not _same_volume(src, src_root):
+        return False
+    visited_dirs: set[tuple[int, int]] = set()  # (st_dev, st_ino) 防符号链接目录成环
+    try:
+        for dirpath, dirnames, filenames in os.walk(src, followlinks=True):
+            cur = Path(dirpath)
+            try:
+                st = os.stat(cur)
+                key = (st.st_dev, st.st_ino)
+                if key in visited_dirs:
+                    dirnames[:] = []  # 环：剪掉整棵子树
+                    continue
+                visited_dirs.add(key)
+            except OSError:
+                return False
+            dirnames[:] = [d for d in dirnames if d not in _MATERIALIZE_IGNORE_DIRS]
+            dst_dir = src_root / cur.relative_to(src)
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            for name in filenames:
+                s = cur / name
+                d = dst_dir / name
+                if d.exists():  # 幂等：重跑同 audit_id 时先清旧入口
+                    d.unlink()
+                try:
+                    if s.is_symlink():
+                        shutil.copy2(s, d, follow_symlinks=True)  # 与 copytree(symlinks=False) 同语义
+                    else:
+                        os.link(s, d)
+                except OSError:
+                    try:  # 逐文件回退 copy（EPERM/EXDEV/文件系统不支持等）
+                        shutil.copy2(s, d)
+                    except OSError:
+                        return False
+        return True
+    except OSError:
+        return False
 
 
 def _materialize_zip(src: Path, src_root: Path, *, max_zip_bytes: int) -> None:

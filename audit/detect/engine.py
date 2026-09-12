@@ -21,18 +21,33 @@
   # 候选复核：confirmed 更新置信度保留 / false_positive（confidence<=0）从最终
   # ctx.issues 剔除但保留在 ctx.candidates / uncertain 降置信度保留；
   # 统计写入 ctx.extra["verify_stats"]={"checked","confirmed","rejected","uncertain"}。
+
+规则扫描并行化（W7-A1，契约 v1.8 微增 AuditConfig.rule_scan_workers，docs/12 §2/§4）：
+- config.rule_scan_workers=0（默认，自动）：文件数 ≥ PARALLEL_SCAN_MIN_FILES 时以
+  min(MAX_SCAN_WORKERS, cpu) 个进程并行扫描，否则串行（小项目进程开销不划算）；
+  1=强制串行；>1=指定并发度（文件数不足阈值仍串行）；
+- 行为等价铁律：命中集合与串行版完全一致（同输入→同 hits，顺序可以不同但内容
+  等价，最终统一排序）。worker（_scan_file_worker，模块级、spawn 安全）只负责
+  重建 RuleContext（tree=None，python 文件预计算 meta["pyscan"]）并逐规则 check；
+  行内抑制过滤（filter_suppressed）、rule_errors 记账与排序全部留在主进程；
+- 优雅降级：进程池创建失败 / 平台不支持 / payload 不可 pickle → 整体回退串行，
+  原因记录在 ctx.extra["rule_scan_parallel"]={"enabled": False, "reason": ...}；
+  成功时记录 {"enabled": True, "workers": N, "files": M}。
 """
 
 from __future__ import annotations
 
 import inspect
+import multiprocessing
+import os
 import re
+from concurrent.futures import Executor, ProcessPoolExecutor
 from typing import Any, Awaitable, Callable, Sequence
 
 from audit.detect.base import RuleContext, RuleRegistry
 from audit.detect.registry import get_registry
 from audit.detect.rules._python_common import scan_python
-from audit.models import Category, Issue, IssueSource, RuleHit, Severity
+from audit.models import Category, Issue, IssueSource, RuleHit, Severity, Symbol
 from audit.pipeline import PipelineContext
 from audit.utils import guess_language, make_id
 from audit.workspace import WorkspaceContext
@@ -41,18 +56,25 @@ __all__ = [
     "IssueReviewFn",
     "IssueVerifyFn",
     "MAX_ISSUES",
+    "PARALLEL_SCAN_MIN_FILES",
     "VERIFY_TRIGGER_SEVERITIES",
     "apply_verify",
     "build_rule_contexts",
     "dedup_issues",
     "filter_suppressed",
     "hits_to_issues",
+    "resolve_scan_workers",
     "run_detection",
     "run_rules",
     "validate_issue_lines",
 ]
 
 MAX_ISSUES = 2000  # 单次审计 Issue 数量上限（超预算保护）
+
+# 规则扫描并行化（W7-A1）：文件数达到该阈值才启用进程池（小项目串行更划算）
+PARALLEL_SCAN_MIN_FILES = 100
+# 自动并发度上限（docs/12 §4：默认 min(4, cpu)）
+MAX_SCAN_WORKERS = 4
 
 # review_fn(workspace, file_path, rule_hints) -> list[Issue]；允许同步或 async 实现
 IssueReviewFn = Callable[[WorkspaceContext, str, list[str]], "Sequence[Issue] | Awaitable[Sequence[Issue]]"]
@@ -173,14 +195,150 @@ def filter_suppressed(hits: Sequence[RuleHit], lines: list[str]) -> list[RuleHit
     return kept
 
 
+# ---------------------------------------------------------------- 规则执行
+
+# 并发度决议（W7-A1）：返回有效 worker 数，1 表示串行。
+# - 显式 1：强制串行；负值按 0（自动）处理；
+# - 0（自动）：文件数 ≥ PARALLEL_SCAN_MIN_FILES 时 min(MAX_SCAN_WORKERS, cpu)，否则串行；
+# - >1：使用指定并发度，但文件数不足阈值仍串行（小项目进程开销不划算）。
+
+
+def resolve_scan_workers(rule_scan_workers: int, n_files: int) -> int:
+    """把 config.rule_scan_workers 与文件数决议为有效并发度（纯函数，单测覆盖）。"""
+    value = rule_scan_workers if isinstance(rule_scan_workers, int) else 0
+    if value < 0:
+        value = 0
+    if value == 1:
+        return 1
+    if n_files < PARALLEL_SCAN_MIN_FILES:
+        return 1
+    if value == 0:
+        return min(MAX_SCAN_WORKERS, os.cpu_count() or 1)
+    return value
+
+
+def _scan_file_worker(payload: tuple) -> tuple[list[dict], dict[str, str]]:
+    """并行规则扫描 worker（W7-A1）。
+
+    Windows spawn 安全约束：必须保持模块级函数；入参与返回值均可 pickle。
+    入参 payload：(rel_path, language, source, symbols 序列化列表, disabled_rules,
+    该文件适用的规则实例列表)。worker 端重建 RuleContext（tree=None；python 文件
+    预计算 meta["pyscan"]，与 build_rule_contexts 同口径）并逐规则 check，返回
+    (RuleHit.to_dict 列表, {规则 id: 错误摘要})。行内抑制过滤（filter_suppressed）
+    留在主进程做——与串行路径完全同口径，保证行为等价。
+    """
+    rel_path, language, source, symbols_payload, disabled_rules, rules = payload
+    lines = source.splitlines()
+    symbols = [Symbol.from_dict(s) if isinstance(s, dict) else s for s in symbols_payload]
+    rc = RuleContext(
+        rel_path=rel_path, language=language, source=source, lines=lines, tree=None, symbols=symbols
+    )
+    if language == "python":
+        rc.meta["pyscan"] = scan_python(lines)
+    hits: list[dict] = []
+    errors: dict[str, str] = {}
+    for rule in rules:
+        if rule.id in disabled_rules:
+            continue
+        try:
+            hits.extend(h.to_dict() for h in rule.check(rc))
+        except Exception as exc:  # 单规则崩溃不阻断整体（与串行同口径）
+            errors[rule.id] = repr(exc)
+    return hits, errors
+
+
+def _rule_payloads(
+    contexts: Sequence[RuleContext], registry: RuleRegistry, disabled: set[str]
+) -> list[tuple]:
+    """把 RuleContext 列表打包成可 pickle 的 worker 入参（规则快照按文件语言取自注册表）。"""
+    payloads: list[tuple] = []
+    for rc in contexts:
+        rules = tuple(r for r in registry.rules_for(rc.language) if r.id not in disabled)
+        payloads.append(
+            (
+                rc.rel_path,
+                rc.language,
+                rc.source,
+                [s.to_dict() if hasattr(s, "to_dict") else s for s in rc.symbols],
+                tuple(disabled),
+                rules,
+            )
+        )
+    return payloads
+
+
+def _create_executor(workers: int) -> Executor:
+    """进程池工厂：spawn 上下文（Windows 安全）；测试通过 monkeypatch 本函数注入假 executor。"""
+    return ProcessPoolExecutor(max_workers=workers, mp_context=multiprocessing.get_context("spawn"))
+
+
+def _record_parallel_info(extra: dict[str, Any] | None, info: dict[str, Any]) -> None:
+    if extra is not None:
+        extra["rule_scan_parallel"] = info
+
+
+def _run_rules_parallel(
+    contexts: Sequence[RuleContext],
+    registry: RuleRegistry,
+    disabled: set[str],
+    workers: int,
+    extra: dict[str, Any] | None,
+) -> list[RuleHit] | None:
+    """多进程并行扫描全部文件；任何失败返回 None（调用方整体回退串行）。
+
+    进程池在首次需要时懒创建（非 import 期）；结果按入参顺序聚合，抑制过滤与
+    rule_errors 记账在主进程完成，命中集合与串行版等价。
+    """
+    payloads = _rule_payloads(contexts, registry, disabled)
+    try:
+        executor = _create_executor(workers)
+    except Exception as exc:  # 进程池创建失败/平台不支持 → 回退串行
+        _record_parallel_info(extra, {"enabled": False, "workers": workers, "reason": repr(exc)})
+        return None
+    try:
+        chunksize = max(1, len(payloads) // (workers * 8))
+        results = list(executor.map(_scan_file_worker, payloads, chunksize=chunksize))
+    except Exception as exc:  # worker 崩溃 / payload 不可 pickle 等 → 回退串行
+        _record_parallel_info(extra, {"enabled": False, "workers": workers, "reason": repr(exc)})
+        return None
+    finally:
+        try:
+            executor.shutdown(wait=True)
+        except Exception:  # pragma: no cover - shutdown 尽力而为
+            pass
+
+    hits: list[RuleHit] = []
+    by_path = {rc.rel_path: rc for rc in contexts}
+    for (rel_path, _lang, _src, _syms, _dis, _rules), (hit_dicts, errors) in zip(
+        payloads, results, strict=True
+    ):
+        rc = by_path[rel_path]
+        if errors and extra is not None:
+            # 崩溃规则的错误记账与串行同口径；该文件其余规则的命中照常聚合
+            extra.setdefault("rule_errors", {}).update(errors)
+        file_hits = [RuleHit.from_dict(d) if isinstance(d, dict) else d for d in hit_dicts]
+        # 行内抑制接线：与串行路径同口径，在主进程按该文件行内容过滤
+        hits.extend(filter_suppressed(file_hits, rc.lines))
+    _record_parallel_info(extra, {"enabled": True, "workers": workers, "files": len(payloads)})
+    return hits
+
+
 def _run_rules_on_contexts(
     contexts: list[RuleContext],
     registry: RuleRegistry,
     extra: dict[str, Any] | None = None,
+    rule_scan_workers: int = 0,
 ) -> list[RuleHit]:
     disabled: set[str] = set()
     if extra and isinstance(extra.get("disabled_rules"), (list, tuple, set)):
         disabled = set(extra["disabled_rules"])
+    # 并行分支（W7-A1）：并发度 >1 且文件数达阈值时启用；失败回退串行（行为等价兜底）
+    workers = resolve_scan_workers(rule_scan_workers, len(contexts))
+    if workers > 1 and contexts:
+        parallel_hits = _run_rules_parallel(contexts, registry, disabled, workers, extra)
+        if parallel_hits is not None:
+            parallel_hits.sort(key=lambda h: (h.file, h.line_start, h.rule_id))
+            return parallel_hits
     hits: list[RuleHit] = []
     for rc in contexts:
         for rule in registry.rules_for(rc.language):
@@ -198,11 +356,21 @@ def _run_rules_on_contexts(
     return hits
 
 
+def _config_scan_workers(ctx: PipelineContext) -> int:
+    """读取 config.rule_scan_workers（防御式：自研 config 之外的对象缺字段时按 0=自动）。"""
+    try:
+        return int(getattr(ctx.config, "rule_scan_workers", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def run_rules(ctx: PipelineContext, registry: RuleRegistry | None = None) -> list[RuleHit]:
     """对工作区全部源文件执行注册表中该语言的全部规则，返回聚合 RuleHit。"""
     registry = registry or get_registry()
     contexts = build_rule_contexts(ctx)
-    hits = _run_rules_on_contexts(contexts, registry, ctx.extra)
+    hits = _run_rules_on_contexts(
+        contexts, registry, ctx.extra, rule_scan_workers=_config_scan_workers(ctx)
+    )
     ctx.rule_hits = hits
     return hits
 
@@ -404,7 +572,9 @@ async def run_detection(
         hits: list[RuleHit] = []
         ctx.rule_hits = []
     else:
-        hits = _run_rules_on_contexts(contexts, registry, ctx.extra)
+        hits = _run_rules_on_contexts(
+            contexts, registry, ctx.extra, rule_scan_workers=_config_scan_workers(ctx)
+        )
         ctx.rule_hits = hits
     rule_issues = hits_to_issues(hits, id_start=1, registry=registry)
 

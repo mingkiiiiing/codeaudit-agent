@@ -30,9 +30,9 @@ def test_report_markdown_to_stdout(capsys):
     rc = cli.main(["report", str(FIXTURE_REPORT)])
     assert rc == 0
     out = capsys.readouterr().out
-    # 小节标题齐全
+    # 小节标题齐全（W7-A2：新增「六、重构方案」章节，原六/七顺延为七/八）
     assert "# 代码审计报告：fixture_proj" in out
-    for title in ("## 一、项目概览", "## 二、健康分", "## 三、问题总表", "## 四、重点问题详情", "## 六、Patch 与测试统计"):
+    for title in ("## 一、项目概览", "## 二、健康分", "## 三、问题总表", "## 四、重点问题详情", "## 六、重构方案", "## 七、Patch 与测试统计"):
         assert title in out, title
     assert "76.4 / 100" in out
     assert "ISS-0001" in out and "FIX-0001" in out

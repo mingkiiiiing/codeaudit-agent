@@ -87,7 +87,7 @@ def test_api_full_lifecycle_with_real_pipeline(
     assert payloads[-1] == {"type": "done"}
     progress = [p for p in payloads if p.get("type") == "progress"]
     stages = list(dict.fromkeys(p["stage"] for p in progress))
-    assert stages == ["init", "ingest", "index", "understand", "detect", "fix", "testgen", "report", "done"]
+    assert stages == ["init", "ingest", "index", "understand", "detect", "refactor", "fix", "testgen", "report", "done"]
     # 检测阶段事件携带真实问题计数（>0，样本含已知缺陷）
     detect_events = [p for p in progress if p["stage"] == "detect" and str(p.get("message", "")).startswith("检测完成")]
     assert detect_events and detect_events[-1].get("total", 0) > 0

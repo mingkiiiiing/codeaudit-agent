@@ -38,7 +38,8 @@ _B_PY = """def collect(items, bucket=[]):
 
 _FILES = {"a.py": _A_PY, "b.py": _B_PY}
 
-_EXPECTED_STAGES = ["init", "ingest", "index", "understand", "detect", "fix", "testgen", "report", "done"]
+# W7-A2（契约 v1.7）：detect 之后、fix 之前新增 refactor 阶段（自动生成重构方案）
+_EXPECTED_STAGES = ["init", "ingest", "index", "understand", "detect", "refactor", "fix", "testgen", "report", "done"]
 
 _COMBOS = [(do_fix, do_tests, use_diff) for do_fix in (False, True) for do_tests in (False, True) for use_diff in (False, True)]
 _COMBO_IDS = [f"fix{int(f)}-tests{int(t)}-diff{int(d)}" for f, t, d in _COMBOS]

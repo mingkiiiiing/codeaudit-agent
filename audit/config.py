@@ -62,6 +62,11 @@ class AuditConfig:
     config_file: str = ""  # 显式配置文件路径；空则自动发现 .codeaudit.toml / pyproject [tool.codeaudit]
     config_warnings: list[str] = field(default_factory=list)  # 配置合成的警告（未知键/读取失败），只读输出
 
+    # Wave 7（契约 v1.8 微增，docs/12 §4）：规则扫描并行度（W7-A1）
+    # W7 实测（bench/results/stress_w7_clean.md）：本机默认并行较串行慢 43%
+    # （进程池序列化开销 > 多核收益），默认强制串行；多核大库场景可显式开启
+    rule_scan_workers: int = 1  # 0=自动（文件数≥100 时 min(4,cpu)）；1=串行（默认）；>1=指定并发度
+
     @classmethod
     def from_env(cls, source_path: str | None = None, **overrides: object) -> "AuditConfig":
         env_map = {

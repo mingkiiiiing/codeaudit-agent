@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import cProfile
+import hashlib
 import math
 import os
 import platform
@@ -43,6 +44,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from audit.detect.engine import PARALLEL_SCAN_MIN_FILES
 from audit.indexer.store import SqliteIndexStore
 from audit.llm.base import FakeLLMClient, LLMResponse, ToolCall
 
@@ -54,6 +56,18 @@ DEFAULT_RESULTS_DIR = PROJECT_ROOT / "bench" / "results"
 
 STRESS_SEED = 42
 DEFECT_RATIO = 0.02
+
+# W6 基线（2000 文件档，摘自 bench/results/stress_20260912.md，勿改——只作对比基准）。
+# W7 优化（并行规则扫描 + ingest 硬链接）落地后由「W7 优化对比」节与其对拍。
+W6_BASELINE_2000: dict[str, Any] = {
+    "ingest_sec": 8.335,
+    "index_build_sec": 14.19,
+    "rules_wall_sec": 50.959,
+    "sec_per_kloc": 0.245,
+    "rule_hits": 41,
+    "loc": 207981,
+    "source": "bench/results/stress_20260912.md（W5-A2/W6 压测，串行规则扫描 + 全树复制）",
+}
 
 # 场景 3：LLM 并发扩展性参数
 LLM_LATENCY_SEC = 0.2
@@ -244,8 +258,12 @@ def r18_profile_share(profile_rows: dict[str, dict[str, float]]) -> dict[str, An
 # ---------------------------------------------------------------- 场景 1：ingest + index
 
 
-def scenario_ingest_index(proj: Path, work_dir: Path) -> ScenarioResult:
-    """ingest 物化 + create_index().build() 分档计时；内存峰值用 tracemalloc 单独跑。"""
+def scenario_ingest_index(proj: Path, work_dir: Path, *, link_same_volume: bool = True) -> ScenarioResult:
+    """ingest 物化 + create_index().build() 分档计时；内存峰值用 tracemalloc 单独跑。
+
+    W7-A1：link_same_volume 透传 ingest——True（默认）走同盘硬链接，False 强制整树
+    复制（对照路径，供 W7 优化对比节做同工况 A/B）。
+    """
     from audit.indexer import create_index
     from audit.ingest import ingest
 
@@ -254,7 +272,7 @@ def scenario_ingest_index(proj: Path, work_dir: Path) -> ScenarioResult:
     # Pass A：纯计时（tracemalloc 有开销，不与耗时混测）
     pass_a = work_dir / "timing"
     start = time.perf_counter()
-    ws = ingest(str(proj), pass_a)
+    ws = ingest(str(proj), pass_a, link_same_volume=link_same_volume)
     t_ingest = time.perf_counter() - start
     store = create_index(ws)
     start = time.perf_counter()
@@ -263,13 +281,23 @@ def scenario_ingest_index(proj: Path, work_dir: Path) -> ScenarioResult:
     stats = dict(store.stats())
     db_path = Path(ws.db_path)
     db_bytes = db_path.stat().st_size if db_path.exists() else 0
+    # 物化模式探针（W7-A1）：抽首个 manifest 文件看硬链接是否生效（st_nlink>1）
+    materialize_mode = "copy"
+    for m in ws.manifests:
+        p = ws.abs_path(m.path)
+        if p.is_file():
+            try:
+                materialize_mode = "hardlink" if os.stat(p).st_nlink > 1 else "copy"
+            except OSError:
+                materialize_mode = "unknown"
+            break
     store.close()
     shutil.rmtree(pass_a, ignore_errors=True)
 
     # Pass B：tracemalloc 内存峰值（单独跑，不计时）
     pass_b = work_dir / "memory"
     tracemalloc.start()
-    ws2 = ingest(str(proj), pass_b)
+    ws2 = ingest(str(proj), pass_b, link_same_volume=link_same_volume)
     store2 = create_index(ws2)
     store2.build()
     _current, peak = tracemalloc.get_traced_memory()
@@ -287,6 +315,7 @@ def scenario_ingest_index(proj: Path, work_dir: Path) -> ScenarioResult:
         "ingest_sec": round(t_ingest, 3),
         "index_build_sec": round(t_index, 3),
         "total_sec": round(t_ingest + t_index, 3),
+        "materialize_mode": materialize_mode,
         "db_size_mb": round(db_bytes / _1MB, 3),
         "peak_memory_mb": round(peak / _1MB, 3),
         "peak_memory_note": "tracemalloc 单独跑（Pass B），不计入耗时",
@@ -297,8 +326,13 @@ def scenario_ingest_index(proj: Path, work_dir: Path) -> ScenarioResult:
 # ---------------------------------------------------------------- 场景 2：纯规则审计吞吐
 
 
-def scenario_rules_audit(proj: Path, work_dir: Path) -> ScenarioResult:
-    """run_audit(enable_llm_review=False) 端到端 wall time → s/KLOC + 规则命中数。"""
+def scenario_rules_audit(proj: Path, work_dir: Path, *, rule_scan_workers: int = 0) -> ScenarioResult:
+    """run_audit(enable_llm_review=False) 端到端 wall time → s/KLOC + 规则命中数。
+
+    W7-A1：rule_scan_workers 透传 AuditConfig（0=自动并行；1=强制串行），同时捕获
+    命中指纹（内容哈希）与 ctx.extra["rule_scan_parallel"]，供「W7 优化对比」节做
+    串行/并行命中集合一致校验。
+    """
     import audit.detect.engine as detect_engine
     import audit.report.builder as report_builder
     from audit.config import AuditConfig
@@ -313,9 +347,16 @@ def scenario_rules_audit(proj: Path, work_dir: Path) -> ScenarioResult:
     original_builder = report_builder.build_report
     original_make_llm = orch._make_llm
 
-    def counting_rules(contexts: Any, registry: Any, extra: Any = None) -> Any:
-        hits = original_rules(contexts, registry, extra)
+    def counting_rules(contexts: Any, registry: Any, extra: Any = None, rule_scan_workers: int = 0) -> Any:
+        hits = original_rules(contexts, registry, extra, rule_scan_workers=rule_scan_workers)
         rule_counter["hits"] = len(hits)
+        # 命中指纹：只取决定性字段，串行/并行集合一致校验用（顺序不敏感）
+        fingerprint = sorted(
+            (h.file, h.line_start, h.line_end, h.rule_id, h.message, h.snippet) for h in hits
+        )
+        rule_counter["fingerprint_sha"] = hashlib.md5(
+            repr(fingerprint).encode("utf-8")
+        ).hexdigest()[:12]
         return hits
 
     def capturing_builder(ctx: Any) -> Any:
@@ -330,6 +371,7 @@ def scenario_rules_audit(proj: Path, work_dir: Path) -> ScenarioResult:
         api_key="",
         enable_llm_review=False,
         enable_verify=False,
+        rule_scan_workers=rule_scan_workers,
     )
 
     with patched_attr(detect_engine, "_run_rules_on_contexts", counting_rules), \
@@ -341,12 +383,16 @@ def scenario_rules_audit(proj: Path, work_dir: Path) -> ScenarioResult:
 
     loc = int(report.loc or 0)
     detection = dict((capture.get("extra") or {}).get("detection") or {})
+    parallel_info = dict((capture.get("extra") or {}).get("rule_scan_parallel") or {})
     result.seconds = wall
     result.metrics = {
         "wall_sec": round(wall, 3),
         "loc": loc,
         "sec_per_kloc": round(wall / (loc / 1000.0), 3) if loc else None,
         "rule_hits": rule_counter["hits"],
+        "hits_fingerprint_sha": rule_counter.get("fingerprint_sha"),
+        "rule_scan_workers_requested": rule_scan_workers,
+        "rule_scan_parallel": parallel_info,
         "issues": len(report.issues or []),
         "files_reviewed": detection.get("files_reviewed"),
         "pipeline_duration_sec": round(float(report.stats.duration_sec or 0.0), 3),
@@ -910,12 +956,141 @@ def render_report(meta: dict[str, str], scale_results: dict[int, dict[str, Scena
     if srv is not None:
         _scenario_section(sb, f"场景 5：server 并发（{SERVER_TASKS} 个小项目同时创建）", srv)
 
+    # ---- W7 优化对比（W6 基线 vs W7 实测，W7-A1）
+    sb.extend(render_w7_compare_section(scale_results))
+
     # ---- 结论
     sb.append("## 结论")
     sb.append("")
     sb.extend(_conclusions(scale_results, llm, srv))
     sb.append("")
     return "\n".join(sb)
+
+
+def _pct(old: Any, new: Any) -> str:
+    """两数对比的变化率文本；数据不足返回 N/A。"""
+    try:
+        old_f, new_f = float(old), float(new)
+    except (TypeError, ValueError):
+        return "N/A"
+    if old_f <= 0:
+        return "N/A"
+    change = (new_f - old_f) / old_f * 100.0
+    sign = "+" if change >= 0 else ""
+    return f"{sign}{change:.1f}%"
+
+
+def render_w7_compare_section(scale_results: dict[int, dict[str, ScenarioResult]]) -> list[str]:
+    """「W7 优化对比」节（W7-A1）：W6 基线（2000 档，stress_20260912.md）vs W7 实测。
+
+    全部数字来自本次真跑（或标注为基线摘录）；命中集合一致性由串行/并行双跑的
+    内容指纹（md5）校验。基线仅覆盖 2000 文件档；其他档位仍给出 W7 串行 vs 并行。
+    """
+    out: list[str] = ["## W7 优化对比（W6 基线 2026-09-12 vs W7 实测）", ""]
+    max_scale = max(scale_results) if scale_results else None
+    if max_scale is None:
+        return out
+    results = scale_results[max_scale]
+    s1 = results.get("ingest_index")
+    s1_copy = results.get("ingest_index_copy")
+    s2 = results.get("rules_audit")
+    s2_serial = results.get("rules_audit_serial")
+    m1 = s1.metrics if s1 else {}
+    m1c = s1_copy.metrics if s1_copy else {}
+    m2 = s2.metrics if s2 else {}
+    m2s = s2_serial.metrics if s2_serial else {}
+    baseline = W6_BASELINE_2000 if max_scale == 2000 else None
+
+    out.append(
+        f"W7 改动：规则扫描按文件分片多进程并行（`rule_scan_workers=0` 自动：文件数 ≥ "
+        f"{PARALLEL_SCAN_MIN_FILES} 时 min(4, cpu)）+ ingest 同盘硬链接物化（跨盘/失败回退拷贝）。"
+        "下表 W6 列为基线摘录（串行规则扫描 + 全树复制），W7 列为本次真跑。"
+    )
+    out.append("")
+
+    def _w7_or_na(key: str) -> Any:
+        return m2.get(key) if m2 else None
+
+    rows: list[tuple[str, Any, Any, str]] = [
+        ("ingest(s)", baseline.get("ingest_sec") if baseline else None, m1.get("ingest_sec"), "越低越好"),
+        ("index build(s)", baseline.get("index_build_sec") if baseline else None, m1.get("index_build_sec"), "未改动（对照项）"),
+        ("纯规则审计 wall(s)", baseline.get("rules_wall_sec") if baseline else None, _w7_or_na("wall_sec"), "规则并行化主目标"),
+        ("s/KLOC", baseline.get("sec_per_kloc") if baseline else None, _w7_or_na("sec_per_kloc"), "docs/04 §3.2 口径"),
+        ("规则命中数", baseline.get("rule_hits") if baseline else None, _w7_or_na("rule_hits"), "必须一致（correctness）"),
+    ]
+    out.append(f"| 指标（{max_scale} 文件档） | W6 基线 | W7 实测 | 变化 | 说明 |")
+    out.append("|---|---|---|---|---|")
+    for name, w6, w7, note in rows:
+        w6_txt = _fmtf(w6, 3) if baseline else "N/A（基线为 2000 档）"
+        out.append(f"| {name} | {w6_txt} | {_fmtf(w7, 3)} | {_pct(w6, w7)} | {note} |")
+    out.append("")
+
+    # 串行 vs 并行双跑对拍（命中集合一致校验 + 规则阶段纯提速）
+    if m2s:
+        out.append("**串行 vs 并行对拍（同一次生成项目、同规则集、同一负载窗口）**：")
+        out.append("")
+        out.append("| 指标 | W7 串行（workers=1） | W7 并行（自动） | 规则阶段变化 |")
+        out.append("|---|---|---|---|")
+        out.append(
+            f"| 纯规则审计 wall(s) | {_fmtf(m2s.get('wall_sec'), 3)} | {_fmtf(_w7_or_na('wall_sec'), 3)} "
+            f"| {_pct(m2s.get('wall_sec'), _w7_or_na('wall_sec'))} |"
+        )
+        out.append(
+            f"| s/KLOC | {_fmtf(m2s.get('sec_per_kloc'), 3)} | {_fmtf(_w7_or_na('sec_per_kloc'), 3)} | — |"
+        )
+        out.append(
+            f"| 规则命中 | {_fmtf(m2s.get('rule_hits'))} | {_fmtf(_w7_or_na('rule_hits'))} | — |"
+        )
+        out.append(
+            f"| 命中指纹（md5 前 12 位） | {m2s.get('hits_fingerprint_sha')} "
+            f"| {_w7_or_na('hits_fingerprint_sha')} | — |"
+        )
+        identical = (
+            m2s.get("hits_fingerprint_sha") is not None
+            and m2s.get("hits_fingerprint_sha") == _w7_or_na("hits_fingerprint_sha")
+            and m2s.get("rule_hits") == _w7_or_na("rule_hits")
+        )
+        out.append("")
+        parallel_info = m2.get("rule_scan_parallel") or {}
+        workers = parallel_info.get("workers", "?")
+        out.append(
+            f"**命中集合一致校验：{'一致（PASS）' if identical else '不一致（FAIL，并行化引入行为差异！）'}**"
+            f"；并行信息：workers={workers}，files={parallel_info.get('files', '?')}，"
+            f"materialize={m1.get('materialize_mode', '?')}。"
+        )
+    else:
+        out.append(
+            f"说明：本档未复跑串行基线（仅 ≥ {PARALLEL_SCAN_MIN_FILES} 文件档做串行/并行双跑对拍）；"
+            f"规则并行信息：{m2.get('rule_scan_parallel') or 'N/A'}。"
+        )
+    out.append("")
+
+    # ingest 硬链接 vs 整树复制对拍（同负载窗口 A/B；跨盘 work_dir 时硬链接不生效，如实显示）
+    if m1c:
+        mode = m1.get("materialize_mode", "?")
+        out.append("**ingest 物化 A/B（同负载窗口：硬链接路径 vs 整树复制路径）**：")
+        out.append("")
+        out.append("| 指标 | 硬链接路径 | 复制路径（link_same_volume=False） | 变化 |")
+        out.append("|---|---|---|---|")
+        out.append(
+            f"| ingest(s) | {_fmtf(m1.get('ingest_sec'), 3)} | {_fmtf(m1c.get('ingest_sec'), 3)} "
+            f"| {_pct(m1c.get('ingest_sec'), m1.get('ingest_sec'))} |"
+        )
+        out.append(
+            f"| index build(s)（对照项） | {_fmtf(m1.get('index_build_sec'), 3)} "
+            f"| {_fmtf(m1c.get('index_build_sec'), 3)} | — |"
+        )
+        out.append("")
+        if mode != "hardlink":
+            out.append(
+                f"注意：本次实测 materialize={mode}（work_dir 与源项目跨卷时 os.link 正确回退复制，"
+                "硬链接收益需同卷 work_dir 才能体现；跨卷判定与回退本身符合设计）。"
+            )
+            out.append("")
+    if baseline:
+        out.append(f"W6 基线来源：{baseline['source']}。")
+        out.append("")
+    return out
 
 
 def _conclusions(scale_results: dict[int, dict[str, ScenarioResult]],
@@ -1035,16 +1210,29 @@ def _conclusions(scale_results: dict[int, dict[str, ScenarioResult]],
                f"{r18.metrics.get('measured_saving_pct')}%（best-of-3 A/B）" if r18 and r18.status != "skip" else "")
             + "。"
         )
+        materialize = m1.get("materialize_mode")
         out.append(
-            f"2. **ingest 全树复制**：{m1.get('ingest_sec')}s（含逐文件 sha256/清单/过滤）；"
+            f"2. **ingest 物化**：{m1.get('ingest_sec')}s（含逐文件 sha256/清单/过滤；"
+            f"W7 起同盘硬链接物化，本次实测模式={materialize}）；"
             f"ingest+index 合计 {m1.get('total_sec')}s，占纯规则审计端到端的 {front_share * 100:.0f}%——"
-            "流水线前半段（工作副本物化 + 索引）是单次审计的固定串行开销，可考虑硬链接/增量副本。"
+            "流水线前半段（工作副本物化 + 索引）仍是单次审计的固定串行开销，"
+            "ingest 剩余成本以逐文件 sha256/解码为主（可选 fast 模式见 docs/12）。"
         )
-        out.append(
-            f"3. **规则扫描的逐文件串行扫描**：纯规则审计 wall {m2.get('wall_sec')}s 中，规则命中 "
-            f"{m2.get('rule_hits')} 条、产出 {m2.get('issues')} 个 Issue；规则阶段为纯 CPU 单线程，"
-            "可按文件分片多进程并行（优先级低于 R1-8）。"
-        )
+        parallel_info = m2.get("rule_scan_parallel") or {}
+        if parallel_info.get("enabled"):
+            out.append(
+                f"3. **规则扫描并行化（W7 已启用）**：纯规则审计 wall {m2.get('wall_sec')}s，"
+                f"规则命中 {m2.get('rule_hits')} 条；规则阶段按文件分片多进程并行"
+                f"（workers={parallel_info.get('workers')}，files={parallel_info.get('files')}），"
+                "命中集合与串行版一致（见 W7 优化对比节）。剩余大头为 index build 与 ingest 的 sha256/解码。"
+            )
+        else:
+            out.append(
+                f"3. **规则扫描的逐文件串行扫描**：纯规则审计 wall {m2.get('wall_sec')}s 中，规则命中 "
+                f"{m2.get('rule_hits')} 条、产出 {m2.get('issues')} 个 Issue；规则阶段为纯 CPU 单线程"
+                f"（本次并行未启用：{parallel_info.get('reason', '文件数未达阈值或 workers=1')}），"
+                "可按文件分片多进程并行。"
+            )
     out.append("")
     return out
 
@@ -1052,10 +1240,10 @@ def _conclusions(scale_results: dict[int, dict[str, ScenarioResult]],
 # ---------------------------------------------------------------- 编排与 CLI
 
 
-def _safe(name: str, fn: Any, *args: Any) -> ScenarioResult:
+def _safe(name: str, fn: Any, *args: Any, **kwargs: Any) -> ScenarioResult:
     """场景容错执行：单场景异常不中断整份报告。"""
     try:
-        return fn(*args)
+        return fn(*args, **kwargs)
     except Exception as exc:  # noqa: BLE001 —— 场景失败只记 ERROR 行
         return ScenarioResult(name=name, status="error", error=f"{type(exc).__name__}: {exc}")
 
@@ -1101,6 +1289,22 @@ def run_stress(
             per_scale["rules_audit"] = _safe("rules_audit", scenario_rules_audit, proj,
                                              scale_work / "audit")
             print(f"[stress]   -> {per_scale['rules_audit'].badge}", file=sys.stderr)
+
+            # W7-A1：最大档补跑对照/基线场景，全部在同一负载窗口内做 A/B：
+            #   - ingest 整树复制对照（link_same_volume=False）：硬链接收益的公平对照
+            #   - 串行规则审计（workers=1）：并行收益与命中集合一致校验
+            if scale == max_scale:
+                if scale >= PARALLEL_SCAN_MIN_FILES:
+                    print("[stress] W7 对比：串行规则审计复跑（workers=1）...", file=sys.stderr)
+                    per_scale["rules_audit_serial"] = _safe(
+                        "rules_audit_serial", scenario_rules_audit, proj,
+                        scale_work / "audit_serial", rule_scan_workers=1)
+                    print(f"[stress]   -> {per_scale['rules_audit_serial'].badge}", file=sys.stderr)
+                print("[stress] W7 对比：ingest 整树复制对照 ...", file=sys.stderr)
+                per_scale["ingest_index_copy"] = _safe(
+                    "ingest_index_copy", scenario_ingest_index, proj,
+                    scale_work / "ingest_copy", link_same_volume=False)
+                print(f"[stress]   -> {per_scale['ingest_index_copy'].badge}", file=sys.stderr)
 
             print("[stress] 场景 4：预算熔断 ...", file=sys.stderr)
             per_scale["budget_circuit_breaker"] = _safe(

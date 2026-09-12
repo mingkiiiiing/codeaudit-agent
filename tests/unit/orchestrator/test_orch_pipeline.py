@@ -121,7 +121,7 @@ async def test_ingest_failure_gates_index_detect_fix(fake_emitter, tmp_path: Pat
 
     assert report.issues == []
     gated = [e for e in fake_emitter.events if "ingest 未成功" in str(e.get("message", ""))]
-    assert {e["stage"] for e in gated} == {"index", "understand", "detect", "fix"}
+    assert {e["stage"] for e in gated} == {"index", "understand", "detect", "refactor", "fix"}
     # ingest 失败被记入 stage_errors 而非中断流水线
     assert any(e.get("stage") == "ingest" and e.get("error") for e in fake_emitter.events)
     # 原始目录未被触碰
@@ -330,7 +330,7 @@ async def test_wired_pipeline_order_events_and_report(
     events = fake_emitter.events
 
     # 1) 编排顺序：七阶段按序出现
-    assert _stages(events) == ["init", "ingest", "index", "understand", "detect", "fix", "testgen", "report", "done"]
+    assert _stages(events) == ["init", "ingest", "index", "understand", "detect", "refactor", "fix", "testgen", "report", "done"]
 
     # 1b) 报告项目名取原始路径名（而非工作副本目录名 src）
     assert report.project_name == "my-proj"

@@ -102,7 +102,7 @@ def test_sarif_driver_metadata(rendered: dict[str, Any]) -> None:
     """driver：工具名 / 版本单源（audit.__version__）/ 仓库 informationUri。"""
     driver = rendered["runs"][0]["tool"]["driver"]
     assert driver["name"] == "codeaudit-agent"
-    assert driver["version"] == audit.__version__ == "0.3.0"
+    assert driver["version"] == audit.__version__ == "0.4.0"
     assert driver["informationUri"] == "https://github.com/mingkiiiiing/codeaudit-agent"
 
 
