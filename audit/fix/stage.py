@@ -8,6 +8,10 @@
   → tree-sitter 语法重解析（失败 → 回滚 + needs-review）
   → 探测现有测试：无 → syntax-ok；全绿 → verified；失败/超时 → 回滚 + needs-review。
 
+W7-A3：闭环对 JS/TS Issue 直接可用——选 Issue 只按 severity 不按语言；语法重解析
+由 tree-sitter 原生支持 js/ts；现有测试探测新增 node-test（node --test，node 不可用
+时 find_existing_tests 返回 None，诚实降级 syntax-ok）。
+
 失败语义：
 - 单 Issue 失败不阻断后续（整体 try/except 兜底，沙箱超时按失败处理）；
 - 同文件多个 Issue 顺序处理，后续 Patch 基于已改内容重新读取/备份；
@@ -39,6 +43,10 @@ _TEST_PASSED_RE = re.compile(r"(\d+) passed")
 _TEST_TOTAL_RE = re.compile(r"(\d+) total")
 _TEST_EXTRA_RES = tuple((w, re.compile(rf"(\d+) {w}")) for w in ("failed", "errors?", "skipped", "xfailed", "xpassed"))
 
+# node --test 摘要（spec/TAP 两种 reporter 均兼容）："tests 2" / "pass 2" / "fail 0"
+_NODE_TOTAL_RE = re.compile(r"tests\s+(\d+)")
+_NODE_PASS_RE = re.compile(r"pass\s+(\d+)")
+
 
 def _severity_value(issue: Issue) -> str:
     return issue.severity.value if isinstance(issue.severity, Severity) else str(issue.severity)
@@ -52,9 +60,20 @@ def _select_issues(issues: list[Issue], max_patches: int) -> list[Issue]:
     return candidates[:limit]
 
 
-def _parse_test_counts(stdout: str, stderr: str) -> tuple[int, int]:
-    """从 pytest/jest 输出解析 (运行数, 通过数)；解析不出返回 (0, 0)。"""
+def _parse_test_counts(stdout: str, stderr: str, framework: str = "") -> tuple[int, int]:
+    """从 pytest/jest/node --test 输出解析 (运行数, 通过数)；解析不出返回 (0, 0)。
+
+    W7-A3：node-test（node --test）摘要形如 "ℹ tests 2 / ℹ pass 2 / ℹ fail 0"
+    （spec reporter）或 "# tests 2 / # pass 2"（TAP reporter），两种均按
+    "tests N" / "pass N" 宽松匹配。
+    """
     text = f"{stdout}\n{stderr}"
+    if str(framework or "").strip().lower() == "node-test":
+        total_match = _NODE_TOTAL_RE.search(text)
+        pass_match = _NODE_PASS_RE.search(text)
+        total = int(total_match.group(1)) if total_match else 0
+        passed = int(pass_match.group(1)) if pass_match else 0
+        return total, passed
     passed_match = _TEST_PASSED_RE.search(text)
     passed = int(passed_match.group(1)) if passed_match else 0
     total_match = _TEST_TOTAL_RE.search(text)  # jest 风格："N passed, M total"
@@ -313,9 +332,14 @@ async def _fix_one(ctx: PipelineContext, state: _IssueRun, sandbox: SandboxExecu
         )
         return
     result: SandboxResult = await run_existing_tests(sandbox, ctx.workspace, framework)
-    tests_run, tests_passed = _parse_test_counts(result.stdout_tail, result.stderr_tail)
+    tests_run, tests_passed = _parse_test_counts(result.stdout_tail, result.stderr_tail, framework)
     all_green = result.exit_code == 0 and not result.timed_out
     no_tests_collected = framework == "pytest" and result.exit_code == _PYTEST_NO_TESTS_EXIT
+    if framework == "node-test":
+        # node --test 无匹配测试文件时 exit 0 且 tests 0：无法证伪，降级 syntax-ok
+        no_tests_collected = no_tests_collected or (
+            result.exit_code == 0 and not result.timed_out and tests_run == 0
+        )
     await ctx.emit(
         "fix",
         f"{issue.id} 现有测试（{framework}）运行完成：exit={result.exit_code} "

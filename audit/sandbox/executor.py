@@ -5,8 +5,12 @@ Windows 落地实现（asyncio 子进程 + 超时 kill；CREATE_NEW_PROCESS_GROU
 保持不变（docs/02 §6）。
 
 安全语义：不执行来自 LLM 的任意 shell 命令，仅暴露 run()（受控调用方使用）与
-run_tests()（白名单 pytest/jest）。可执行文件缺失以 exit_code=127 的 SandboxResult
-返回而非抛异常；未知测试框架抛 SandboxError（属调用方编程错误）。
+run_tests()（白名单 pytest/jest/node-test）。可执行文件缺失以 exit_code=127 的
+SandboxResult 返回而非抛异常；未知测试框架抛 SandboxError（属调用方编程错误）。
+
+W7-A3：新增 node-test（node 18+ 内置 test runner，命令 [node, --test, target]，
+零第三方依赖）；test_runner_available() 供 fix/testgen 阶段在执行前探测可用性
+（探测失败走诚实降级：JS/TS 修复验证降级 syntax-ok、单测生成跳过该语言目标）。
 """
 
 from __future__ import annotations
@@ -23,9 +27,9 @@ from typing import Any
 
 from audit.errors import SandboxError
 
-__all__ = ["SandboxExecutor", "SandboxResult", "TEST_FRAMEWORKS"]
+__all__ = ["SandboxExecutor", "SandboxResult", "TEST_FRAMEWORKS", "test_runner_available"]
 
-TEST_FRAMEWORKS = ("pytest", "jest")
+TEST_FRAMEWORKS = ("pytest", "jest", "node-test")
 
 
 @dataclass
@@ -57,6 +61,29 @@ def _tail(text: str, max_lines: int) -> str:
     if len(lines) <= max_lines:
         return text
     return "\n".join(lines[-max_lines:])
+
+
+def test_runner_available(framework: str) -> bool:
+    """探测测试运行器在本机是否可用（不实际执行进程，毫秒级）。
+
+    - pytest：sys.executable 存在（shutil.which 恒真于正常解释器）且 pytest 可导入；
+    - jest / node-test：shutil.which 探测可执行文件；
+    - 未知框架返回 False（调用方按不可用做诚实降级）。
+    """
+    fw = str(framework or "").strip().lower()
+    if fw == "pytest":
+        if shutil.which(sys.executable) is None and not Path(sys.executable).is_file():
+            return False
+        try:
+            import pytest  # noqa: F401 —— 仅探测可导入性
+        except ImportError:
+            return False
+        return True
+    if fw == "jest":
+        return shutil.which("jest") is not None
+    if fw == "node-test":
+        return shutil.which("node") is not None
+    return False
 
 
 class SandboxExecutor:
@@ -129,12 +156,27 @@ class SandboxExecutor:
         """在沙箱中运行白名单测试框架；未知框架抛 SandboxError。"""
         fw = str(framework or "").strip().lower()
         if fw not in TEST_FRAMEWORKS:
-            raise SandboxError(f"不支持的测试框架: {framework!r}（白名单: pytest / jest）")
+            raise SandboxError(
+                f"不支持的测试框架: {framework!r}（白名单: pytest / jest / node-test）"
+            )
         if fw == "pytest":
             command = [sys.executable, "-m", "pytest"]
             if target:
                 command.append(target)
             command += ["-q", "--no-header"]
+            return await self.run(command, cwd)
+        if fw == "node-test":
+            # node 18+ 内置 test runner：[node, --test, target]，零第三方依赖。
+            # node 缺失时返回 127 结构化错误（诚实降级，不抛异常）。
+            node = shutil.which("node")
+            if not node:
+                return SandboxResult(
+                    exit_code=127,
+                    stderr_tail="error: 未找到 node 可执行文件（未安装或不在 PATH 中），无法运行 node --test 测试",
+                )
+            command = [node, "--test"]
+            if target:
+                command.append(target)
             return await self.run(command, cwd)
         # jest：先探测可执行文件，缺失返回清晰 error 而非崩溃
         jest = shutil.which("jest")

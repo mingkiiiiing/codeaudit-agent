@@ -1,9 +1,12 @@
-"""Stage6 单测生成闭环编排（W2-A2）：run_testgen_stage。
+"""Stage6 单测生成闭环编排（W2-A2；W7-A3 扩展 JS/TS）：run_testgen_stage。
 
 流程（docs/02 §2 Stage6、docs/07 §3.2 契约 v1.2）：
   select_targets 选目标（verified Patch hunk / extra 指定 / critical-high Issue）
-  → 逐目标 generate_tests → validate_code（非法记一次失败，带校验错误回喂）
-  → write_generated 落盘 → run_generated 沙箱运行
+  → 按目标语言分派（Python→pytest 路径不变；JS/TS→node-test 路径；
+    node 不可用时该语言目标 emit 警告并跳过——诚实降级）
+  → 逐目标 generate_tests → validate_code / validate_code_js
+    （非法记一次失败，带校验错误回喂）
+  → write_generated 落盘（Python .py / JS .test.mjs）→ run_generated 沙箱运行
   → 失败把 stderr_tail 末尾 40 行截断作为上下文回喂重生成（≤2 次重试）
   → 仍失败 remove_generated 剔除 + TestCase(status="dropped")
   → 通过 → ctx.test_cases 追加 TestCase(status="passed")。
@@ -24,10 +27,16 @@ from typing import Any
 
 from audit.models import TestCase
 from audit.pipeline import PipelineContext
-from audit.sandbox import SandboxExecutor
-from audit.testgen.generator import count_asserts, generate_tests, select_targets, validate_code
+from audit.sandbox import SandboxExecutor, test_runner_available
+from audit.testgen.generator import (
+    count_asserts,
+    generate_tests,
+    select_targets,
+    validate_code,
+    validate_code_js,
+)
 from audit.testgen.runner import remove_generated, run_generated, write_generated
-from audit.utils import make_id, truncate
+from audit.utils import guess_language, make_id, truncate
 
 __all__ = ["run_testgen_stage"]
 
@@ -35,11 +44,16 @@ _MAX_RETRIES = 2  # 失败后最多重试 2 次（共 3 次尝试）
 _STDERR_TAIL_LINES = 40  # 回喂上下文保留 stderr 末尾行数
 _STATS_KEYS = ("targets", "generated", "passed", "dropped", "retries")
 
-_KIND_RE = re.compile(r"#\s*kind:\s*(normal|boundary|error)")
+_KIND_RE = re.compile(r"(?:#|//)\s*kind:\s*(normal|boundary|error)")
+
+
+def _target_language(file: str) -> str:
+    """目标文件语言：python / javascript / typescript（未知后缀按 python 处理，行为不变）。"""
+    return guess_language(file) or "python"
 
 
 def _parse_kind(code: str) -> str:
-    """从代码注释解析用例类别（首个 # kind: 标注）；缺省 normal。"""
+    """从代码注释解析用例类别（首个 # kind: / // kind: 标注）；缺省 normal。"""
     match = _KIND_RE.search(code or "")
     return match.group(1) if match else "normal"
 
@@ -91,6 +105,15 @@ async def run_testgen_stage(ctx: PipelineContext) -> None:
             current=index,
             total=len(targets),
         )
+        # W7-A3：按语言分派运行框架；node 不可用时 JS/TS 目标 emit 警告并跳过（诚实降级）
+        language = _target_language(file)
+        if language != "python" and not test_runner_available("node-test"):
+            await ctx.emit(
+                "testgen",
+                f"{file}:{symbol} 跳过（node 不可用，无法运行 node --test 验证 JS/TS 单测）",
+                status="skipped",
+            )
+            continue
         try:
             tc_seq = await _testgen_one(ctx, sandbox, file, symbol, stats, tc_seq)
         except Exception as exc:  # noqa: BLE001 —— 单目标失败不阻断后续
@@ -123,13 +146,18 @@ async def _testgen_one(
         递增后的 TestCase 序号（追加 passed/dropped 记录时消耗）。
     """
     workspace = ctx.workspace
+    language = _target_language(file)
+    is_js = language in ("javascript", "typescript")
+    framework = "node-test" if is_js else "pytest"
+    runner_label = "node --test" if is_js else "pytest"
+    fence_name = "```javascript" if is_js else "```python"
     error_context = ""
     gen_path: Path | None = None
     last_code = ""
 
     for attempt in range(_MAX_RETRIES + 1):
         generated = await generate_tests(
-            ctx.llm, workspace, ctx.index, file, symbol, error_context=error_context
+            ctx.llm, workspace, ctx.index, file, symbol, error_context=error_context, language=language
         )
         failure = ""
         if generated is None:
@@ -140,23 +168,32 @@ async def _testgen_one(
                     f"{file}:{symbol} 跳过（LLM 判定不可单测或输出不可解析）",
                 )
                 return tc_seq
-            failure = "LLM 输出不可解析（无 ```python 围栏）"
+            failure = f"LLM 输出不可解析（无 {fence_name} 围栏）"
         else:
             code, _ = generated
             last_code = code
-            errors = validate_code(code)
+            syntax_checked = True
+            if is_js:
+                errors, syntax_checked = validate_code_js(code)
+            else:
+                errors = validate_code(code)
             if errors:
                 failure = "生成代码校验失败：" + "；".join(errors)
             else:
+                if is_js and not syntax_checked:
+                    await ctx.emit(
+                        "testgen",
+                        f"{file}:{symbol} node 不可用，已跳过 node --check 语法校验（仅静态校验）",
+                    )
                 stats["generated"] += 1
                 if gen_path is not None:
                     # 重试场景：先剥离上一版失败代码块，再追加新块
                     remove_generated(workspace, gen_path, file, symbol)
-                gen_path = write_generated(workspace, file, symbol, code)
-                result = await run_generated(sandbox, workspace, gen_path)
+                gen_path = write_generated(workspace, file, symbol, code, language)
+                result = await run_generated(sandbox, workspace, gen_path, framework)
                 if result.exit_code == 0 and not result.timed_out:
                     tc_seq += 1
-                    assert_count = count_asserts(code)
+                    assert_count = count_asserts(code, language)
                     ctx.test_cases.append(
                         TestCase(
                             id=make_id("TC", tc_seq),
@@ -178,7 +215,7 @@ async def _testgen_one(
                     result.stdout_tail, _STDERR_TAIL_LINES
                 )
                 failure = (
-                    f"pytest 未通过（exit={result.exit_code}, timed_out={result.timed_out}）：\n{detail}"
+                    f"{runner_label} 未通过（exit={result.exit_code}, timed_out={result.timed_out}）：\n{detail}"
                 )
 
         if attempt < _MAX_RETRIES:
@@ -200,7 +237,7 @@ async def _testgen_one(
             file=workspace.rel(gen_path) if gen_path is not None else "",
             status="dropped",
             kind=_parse_kind(last_code) if last_code else "normal",
-            assert_count=count_asserts(last_code),
+            assert_count=count_asserts(last_code, language),
         )
     )
     stats["dropped"] += 1
