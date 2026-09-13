@@ -1,0 +1,1411 @@
+
+<!doctype html>
+<html lang="zh" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="代码库级智能审计与重构 Agent——七阶段流水线、双通道检测、修复与单测闭环、SARIF 与 CI 增量门禁">
+      
+      
+      
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/">
+      
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>13 Wave 8 总体方案：Web 前后端（配套前端升级） - CodeAudit Agent</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#13-wave-8-web" class="md-skip">
+          跳转至
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="页眉">
+    <a href="../.." title="CodeAudit Agent" class="md-header__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            CodeAudit Agent
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              13 Wave 8 总体方案：Web 前后端（配套前端升级）
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到深色模式"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="切换到深色模式" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="切换到浅色模式"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="切换到浅色模式" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="搜索" placeholder="搜索" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="查找">
+        
+        <button type="reset" class="md-search__icon md-icon" title="清空当前内容" aria-label="清空当前内容" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            正在初始化搜索引擎
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/mingkiiiiing/codeaudit-agent" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mingkiiiiing/codeaudit-agent
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="CodeAudit Agent" class="md-nav__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    CodeAudit Agent
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/mingkiiiiing/codeaudit-agent" title="前往仓库" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    mingkiiiiing/codeaudit-agent
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    首页
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    使用文档
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    使用文档
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    00 项目总览
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    01 需求规格说明书
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    02 系统架构设计
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../03-Agent%E5%B7%A5%E5%85%B7%E9%9B%86%E4%B8%8EPrompt%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    03 Agent工具集与Prompt设计
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-%E8%AF%84%E4%BC%B0%E4%B8%8E%E6%8C%87%E6%A0%87%E9%AA%8C%E8%AF%81%E6%96%B9%E6%A1%88/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    04 评估与指标验证方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92-%E9%A3%8E%E9%99%A9-%E9%9D%A2%E8%AF%95%E5%87%86%E5%A4%87/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    05 开发计划-风险-面试准备
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-%E5%A4%9A%E4%BB%BB%E5%8A%A1%E5%B9%B6%E8%A1%8C%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    06 多任务并行开发计划
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    07 Wave2总体方案与任务分解
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    08 Wave3总体方案与GitHub发布
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    09 Wave4总体方案-开源生态对标
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../10-Wave5%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B4%A8%E9%87%8F%E6%94%BB%E5%9D%9A/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    10 Wave5 质量攻坚
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../11-Wave6%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E4%BE%9D%E8%B5%96%E6%B2%BB%E7%90%86%E4%B8%8E%E5%8F%91%E5%B8%83/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    11 Wave6 方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../12-Wave7%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B5%9B%E9%A2%98%E5%90%88%E8%A7%84%E4%B8%8E%E6%8F%90%E9%80%9F/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    12 Wave7 方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CLI 速查
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../rules/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    规则手册
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <label class="md-nav__link" for="__nav_5" id="__nav_5_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    CI 集成
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    CI 集成
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../sarif/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SARIF 上传 Security
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../pr-review/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    PR 增量审计实践
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../roadmap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Roadmap
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-github-2026-09-13" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 开源调研结论（GitHub 核实数据，2026-09-13）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 总体架构
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-rest-api-v20-v1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. REST API 契约 v2.0（在 v1 基础上纯增量，旧端点行为不变）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 任务分解表（3 个并行大任务 + 集成人）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 关键设计约束
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-a2-a3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. 前端公共层契约（A2 产出、A3 消费）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-w8-a4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. 集成、测试与发布流程（集成人 W8-A4）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-w8-a4v050" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. 发布记录（W8-A4，v0.5.0）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="8. 发布记录（W8-A4，v0.5.0）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#81" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.1 任务完成情况
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#82-gui-t1t6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.2 联调与 GUI 黑盒测试（T1–T6 全过）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#83-benchresultsstress_web_w8md" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.3 压测基线（bench/results/stress_web_w8.md，正式口径）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#84" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8.4 最终质量门
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+
+<h1 id="13-wave-8-web">13 Wave 8 总体方案：Web 前后端（配套前端升级）<a class="headerlink" href="#13-wave-8-web" title="Permanent link">&para;</a></h1>
+<p>版本：v1.0 ｜ 日期：2026-09-13 ｜ 前置：docs/12（v0.4.0 已发布，1039 测试 + CI/Docs/Release 全绿）</p>
+<hr />
+<h2 id="1-github-2026-09-13">1. 开源调研结论（GitHub 核实数据，2026-09-13）<a class="headerlink" href="#1-github-2026-09-13" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>项目</th>
+<th>Star</th>
+<th>结论</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><a href="https://github.com/ant-design/ant-design">ant-design/ant-design</a></td>
+<td>99.5k★，当日仍在推送</td>
+<td><strong>采用</strong>：企业级 React 组件库，中文生态第一；Table/Form/Steps/Upload 直接覆盖审计工作台需求</td>
+</tr>
+<tr>
+<td><a href="https://github.com/apache/echarts">apache/echarts</a></td>
+<td>67.3k★</td>
+<td><strong>采用</strong>：健康分 gauge、严重度/类别分布图；直接用 echarts 本体（不引第三方 wrapper）</td>
+</tr>
+<tr>
+<td><a href="https://github.com/vitejs/vite">vitejs/vite</a> 官方 react-ts 模板</td>
+<td>—</td>
+<td><strong>采用</strong>：脚手架起点（React 18 + TS + Vite），不引重型 admin 模板（ant-design-pro 为 UmiJS 栈，过重）</td>
+</tr>
+<tr>
+<td><a href="https://github.com/DefectDojo/django-DefectDojo">DefectDojo/django-DefectDojo</a></td>
+<td>4.9k★</td>
+<td><strong>交互范式参考</strong>：漏洞管理仪表盘的「severity 小部件 + 过滤器 + 发现列表 + 详情展开」布局</td>
+</tr>
+<tr>
+<td><a href="https://github.com/ZupIT/horusec">ZupIT/horusec</a></td>
+<td>1.3k★</td>
+<td><strong>对标</strong>：一体化 SAST 平台形态（CLI 为主，web 平台已独立）；确认本项目「引擎 + 轻工作台」定位合理</td>
+</tr>
+<tr>
+<td>SonarQube / Semgrep / CodeQL</td>
+<td>—</td>
+<td>UI 范式参考（问题列表 + 严重度筛选 + 代码定位）；前端闭源/部分闭源，不作代码复用</td>
+</tr>
+</tbody>
+</table>
+<p><strong>决策</strong>：不下载现成 admin 模板（体积大、技术栈不合、维护负担），以 Vite 官方模板起步 + antd 5 + echarts 组合，自建约 15 个组件的轻工作台。已有的 <code>web/index.html</code> 单文件演示页<strong>保留</strong>为零构建回退入口。</p>
+<h2 id="2">2. 总体架构<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code>flowchart LR
+    subgraph FE["frontend/（React 18 + TS + Vite，W8 新增）"]
+        R["Router：/ 仪表盘 · /new 新建 · /audits/:id 详情"]
+        API["api/client.ts + types.ts（契约 v2 类型化封装）"]
+        R --&gt; API
+    end
+    subgraph BE["server/（FastAPI，v2 扩展）"]
+        REST["REST：任务 CRUD + 报告/问题/补丁/重构/架构"]
+        SSE["SSE /api/audits/{id}/events（不变）"]
+        STATIC["静态托管 frontend/dist（缺则回退单文件演示页）"]
+    end
+    FE -- "fetch / EventSource（dev 走 Vite proxy）" --&gt; BE
+    BE --&gt; ORCH["audit 七阶段流水线（不改动）"]
+</code></pre></div>
+<p><strong>技术选型</strong>：React 18 + TypeScript(strict) + Vite 5、antd 5（zhCN locale）、react-router-dom 6、echarts 5（直连，自写 useChart hook）、dayjs；测试 vitest + @testing-library/react（jsdom）。包管理 npm（node 24 / npm 11 已验证，registry 连通）。</p>
+<p><strong>部署形态</strong>：<code>python cli.py serve</code> 单进程同时服务 API 与前端产物；开发态 <code>npm run dev</code>（5173，proxy /api → 8000）+ uvicorn 双进程。</p>
+<h2 id="3-rest-api-v20-v1">3. REST API 契约 v2.0（在 v1 基础上纯增量，旧端点行为不变）<a class="headerlink" href="#3-rest-api-v20-v1" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>端点</th>
+<th>方法</th>
+<th>契约</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>/api/health</code></td>
+<td>GET</td>
+<td><code>{status:"ok", version, audits:{active,total}}</code></td>
+</tr>
+<tr>
+<td><code>/api/audits</code></td>
+<td>GET</td>
+<td><code>?limit&amp;offset</code> → <code>{total, audits:[{audit_id,status,created_at,source_path,do_fix,do_tests,error}]}</code>；任务表条目新增 <code>created_at/source_path/do_fix/do_tests</code> 字段</td>
+</tr>
+<tr>
+<td><code>/api/audits</code></td>
+<td>POST</td>
+<td>既有 <code>{source_path,do_fix,do_tests}</code> → <code>{audit_id}</code>，行为不变</td>
+</tr>
+<tr>
+<td><code>/api/audits/upload</code></td>
+<td>POST</td>
+<td>multipart 字段 <code>file</code>（zip）；校验：非 zip → 400；&gt;200MB → 413；落盘 <code>&lt;work_root&gt;/uploads/&lt;audit_id&gt;.zip</code> 后走既有创建流程 → <code>{audit_id}</code></td>
+</tr>
+<tr>
+<td><code>/api/audits/{id}</code></td>
+<td>GET</td>
+<td>既有 payload 增补 <code>created_at/source_path/do_fix/do_tests</code></td>
+</tr>
+<tr>
+<td><code>/api/audits/{id}</code></td>
+<td>DELETE</td>
+<td>未知 → 404；终态 → 204 并移除；running → 先 <code>task.cancel()</code>（entry 置 failed/error=已取消）再移除 → 204</td>
+</tr>
+<tr>
+<td><code>/api/audits/{id}/events</code></td>
+<td>GET</td>
+<td>SSE，<strong>不变</strong>（含历史回放与 done 终止帧）</td>
+</tr>
+<tr>
+<td><code>/api/audits/{id}/understand</code></td>
+<td>GET</td>
+<td><code>{architecture: ArchitectureCard\|null}</code>（<code>report.architecture.to_dict()</code>，未完成沿用既有 404 语义）</td>
+</tr>
+<tr>
+<td><code>/api/audits/{id}/refactors</code></td>
+<td>GET</td>
+<td><code>{total, proposals:[RefactorProposal.to_dict()]}</code>（契约 v1.7 字段：id/title/target/kind/rationale/steps/benefits/related_issues/source/confidence）</td>
+</tr>
+<tr>
+<td><code>/api/audits/{id}/summary\|issues\|patches\|report</code></td>
+<td>GET</td>
+<td><strong>不变</strong></td>
+</tr>
+<tr>
+<td><code>/</code> 与未知路径</td>
+<td>GET</td>
+<td><code>frontend/dist/index.html</code> 存在则 SPA 兜底（catch-all）；否则回退 <code>web/index.html</code>；<code>/assets/*</code> 挂载 dist 静态资源</td>
+</tr>
+<tr>
+<td>CORS</td>
+<td>—</td>
+<td>仅放行 <code>http://localhost:5173</code> 与 <code>http://127.0.0.1:5173</code>（开发态）</td>
+</tr>
+</tbody>
+</table>
+<p>任务列表为<strong>内存态</strong>（进程重启即清空）——0.5.0 如实标注，持久化留作后续 Wave。</p>
+<h2 id="4-3">4. 任务分解表（3 个并行大任务 + 集成人）<a class="headerlink" href="#4-3" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>代号</th>
+<th>任务名</th>
+<th>独占目录/文件</th>
+<th>禁改</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>W8-A1</td>
+<td>后端 API v2</td>
+<td><code>server/**</code>、<code>tests/unit/server/**</code></td>
+<td><code>cli.py</code>、<code>audit/**</code>、<code>web/index.html</code></td>
+</tr>
+<tr>
+<td>W8-A2</td>
+<td>前端基座</td>
+<td><code>frontend/</code> 脚手架、<code>package.json</code>（唯一所有者）、<code>src/{main,App,router,theme,api,layouts,utils}/**</code>、<code>src/pages/Dashboard/**</code>、<code>src/pages/NewAudit/**</code>、<code>src/pages/TaskDetail/index.tsx</code>（<strong>仅占位</strong>，两行文案即可）、前端 vitest 基建 + 自测</td>
+<td><code>src/pages/TaskDetail/</code> 除 index.tsx 外、<code>src/components/**</code></td>
+</tr>
+<tr>
+<td>W8-A3</td>
+<td>任务详情页</td>
+<td><code>src/pages/TaskDetail/**</code>（覆盖 A2 占位）、<code>src/components/**</code>、自测文件</td>
+<td><code>package.json</code>、A2 全部文件（缺依赖不许自装，报集成人）</td>
+</tr>
+<tr>
+<td>W8-A4</td>
+<td>集成与发布</td>
+<td><code>.github/workflows/**</code>、<code>bench/**</code>、<code>docs/13</code>、<code>README.md</code>、<code>CHANGELOG.md</code>、<code>audit/__init__.py</code>（版本单源）、<code>Makefile</code></td>
+<td>其余</td>
+</tr>
+</tbody>
+</table>
+<p><strong>依赖策略</strong>：<code>package.json</code> 由 A2 一次性锁定全部依赖（含 A3 所需：antd、react-router-dom、echarts、dayjs、vitest、@testing-library/*、jsdom）；A3 零包管理操作，避免并行安装冲突。</p>
+<h2 id="5">5. 关键设计约束<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>契约先行</strong>：三个代理以本文档 §3/§6 为唯一契约；<code>api/types.ts</code> 类型以后端 <code>audit/models.py</code> 为 source of truth（Issue/Patch/RefactorProposal/ArchitectureCard/summary）。</li>
+<li><strong>A1 零回归</strong>：旧端点（POST /api/audits、events、report、issues、patches、summary）行为与状态码逐条不变；既有 <code>tests/unit/server/**</code> 全绿；ruff 零告警。</li>
+<li><strong>A2/A3 解耦</strong>：A3 只 import A2 的 <code>api/client.ts</code>、<code>api/types.ts</code>、<code>components/SevTag</code>（若需）等公共层，公共层接口在 §6 固定；A3 内部状态自管理。</li>
+<li><strong>UI 语言</strong>：全站中文（antd ConfigProvider zhCN + dayjs zh-cn）；颜色沿用演示页语义（critical 红 / high 橙 / medium 黄 / low 蓝）。</li>
+<li><strong>SSE 消费</strong>：EventSource 优先，onerror 自动降级 1s 轮询 <code>GET /api/audits/{id}</code>（沿用演示页已验证模式）；完成后并行拉 summary/patches/issues/refactors/understand。</li>
+<li><strong>性能</strong>：问题列表走服务端 severity/category 过滤 + 前端关键词过滤（与现状一致）；表格用 antd Pagination，不做虚拟滚动。</li>
+<li><strong>底线</strong>：全量 pytest 零回归（1039+新增）、ruff 零告警、<code>npm run build</code> + <code>tsc --noEmit</code> + <code>vitest run</code> 全绿、demo exit 0。</li>
+</ol>
+<h2 id="6-a2-a3">6. 前端公共层契约（A2 产出、A3 消费）<a class="headerlink" href="#6-a2-a3" title="Permanent link">&para;</a></h2>
+<div class="highlight"><pre><span></span><code><span class="c1">// src/api/types.ts：AuditSummary、IssueItem、PatchItem、RefactorProposalItem、</span>
+<span class="c1">//   ArchitectureCard、TaskListItem、CreateAuditResult（字段名与 §3/audit.models 完全一致，camel 不转）</span>
+<span class="c1">// src/api/client.ts：</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">getHealth</span><span class="p">()</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="nx">HealthInfo</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">listAudits</span><span class="p">(</span><span class="nx">limit</span><span class="o">?</span><span class="p">,</span><span class="w"> </span><span class="nx">offset</span><span class="o">?</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">total</span><span class="o">:</span><span class="w"> </span><span class="kt">number</span><span class="p">;</span><span class="w"> </span><span class="nx">audits</span><span class="o">:</span><span class="w"> </span><span class="kt">TaskListItem</span><span class="p">[]}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">createAudit</span><span class="p">(</span><span class="nx">body</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">source_path</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">;</span><span class="w"> </span><span class="nx">do_fix</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w"> </span><span class="nx">do_tests</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">audit_id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">uploadAuditZip</span><span class="p">(</span><span class="nx">file</span><span class="o">:</span><span class="w"> </span><span class="kt">File</span><span class="p">,</span><span class="w"> </span><span class="nx">opts</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">do_fix</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">;</span><span class="w"> </span><span class="nx">do_tests</span><span class="o">:</span><span class="w"> </span><span class="kt">boolean</span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">audit_id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">getAudit</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="nx">AuditDetail</span><span class="o">&gt;</span><span class="w">          </span><span class="c1">// status/error/report?/created_at...</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">deleteAudit</span><span class="p">(</span><span class="nx">id</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="ow">void</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">getSummary</span><span class="p">(</span><span class="nx">id</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="nx">AuditSummary</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">listIssues</span><span class="p">(</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="nx">params</span><span class="o">?:</span><span class="w"> </span><span class="p">{</span><span class="nx">severity</span><span class="o">?</span><span class="p">;</span><span class="w"> </span><span class="nx">category</span><span class="o">?</span><span class="p">;</span><span class="w"> </span><span class="nx">limit</span><span class="o">?</span><span class="p">;</span><span class="w"> </span><span class="nx">offset</span><span class="o">?</span><span class="p">})</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">total</span><span class="p">;</span><span class="w"> </span><span class="nx">issues</span><span class="o">:</span><span class="w"> </span><span class="kt">IssueItem</span><span class="p">[]}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">listPatches</span><span class="p">(</span><span class="nx">id</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">total</span><span class="p">;</span><span class="w"> </span><span class="nx">patches</span><span class="o">:</span><span class="w"> </span><span class="kt">PatchItem</span><span class="p">[]}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">listRefactors</span><span class="p">(</span><span class="nx">id</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">total</span><span class="p">;</span><span class="w"> </span><span class="nx">proposals</span><span class="o">:</span><span class="w"> </span><span class="kt">RefactorProposalItem</span><span class="p">[]}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">getUnderstand</span><span class="p">(</span><span class="nx">id</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="nb">Promise</span><span class="o">&lt;</span><span class="p">{</span><span class="nx">architecture</span><span class="o">:</span><span class="w"> </span><span class="kt">ArchitectureCard</span><span class="w"> </span><span class="o">|</span><span class="w"> </span><span class="kc">null</span><span class="p">}</span><span class="o">&gt;</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">reportUrl</span><span class="p">(</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="nx">fmt</span><span class="o">:</span><span class="w"> </span><span class="s2">"json"</span><span class="o">|</span><span class="s2">"md"</span><span class="o">|</span><span class="s2">"html"</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span>
+<span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">subscribeEvents</span><span class="p">(</span><span class="nx">id</span><span class="p">,</span><span class="w"> </span><span class="nx">onEvent</span><span class="p">,</span><span class="w"> </span><span class="nx">onDone</span><span class="p">,</span><span class="w"> </span><span class="nx">onError</span><span class="p">)</span><span class="o">:</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="ow">void</span><span class="w">   </span><span class="c1">// 内建降级轮询</span>
+</code></pre></div>
+<p>路由：<code>/</code>（仪表盘）、<code>/new</code>（新建）、<code>/audits/:id</code>（详情）。TaskDetail 面板结构（A3）：Steps 进度条（运行中）→ 完成后 Tabs【概览｜问题｜修复补丁｜重构方案｜架构理解】+ 报告下载链接组。</p>
+<h2 id="7-w8-a4">7. 集成、测试与发布流程（集成人 W8-A4）<a class="headerlink" href="#7-w8-a4" title="Permanent link">&para;</a></h2>
+<p>三任务合流 → 集成自检（全量 pytest + ruff + build + vitest）→ <strong>联调</strong>（uvicorn + 构建产物，demo/mini_app 全链路：新建→SSE 进度→仪表盘→问题→补丁→重构方案）+ 浏览器黑盒 GUI 测试 + 视觉验收截图 → <strong>压测</strong>（<code>bench/stress_web.py</code>：并发创建+轮询、读端点突发、SSE 并发流；出 <code>bench/results/stress_w8.md</code>）→ 修复 → README/CHANGELOG/版本 0.5.0 → tag <strong>v0.5.0</strong> → Release。</p>
+<h2 id="8-w8-a4v050">8. 发布记录（W8-A4，v0.5.0）<a class="headerlink" href="#8-w8-a4v050" title="Permanent link">&para;</a></h2>
+<p>2026-09-13 发布 0.5.0。开发执行情况与契约偏差如实记录：</p>
+<h3 id="81">8.1 任务完成情况<a class="headerlink" href="#81" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>代号</th>
+<th>交付</th>
+<th>自验结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>W8-A1 后端 API v2</td>
+<td>§3 契约全部端点 + SPA 托管 + CORS；<code>tests/unit/server</code> 26→47 条</td>
+<td>全量 pytest 1039→1060 全绿，ruff 零告警；移交事项 <code>python-multipart</code> 入 pyproject（集成人落地）</td>
+</tr>
+<tr>
+<td>W8-A2 前端基座</td>
+<td>Vite+React18+TS 脚手架、API 公共层（含 SSE 降级轮询）、Dashboard、NewAudit、SevTag/StatusTag</td>
+<td>typecheck + vitest 23 条 + build 全绿</td>
+</tr>
+<tr>
+<td>W8-A3 任务详情页</td>
+<td><strong>代理因账户限流中断于 8/12 文件</strong>，集成人按其已落文件的风格与接口接手收尾：PatchesPanel / RefactorsPanel / UnderstandPanel / index.tsx 组装 / 22 条测试</td>
+<td>vitest 全量 45 条全绿，typecheck/build 通过</td>
+</tr>
+<tr>
+<td>W8-A4 集成发布</td>
+<td>契约文档、依赖收口、CI 前端 job、README/CHANGELOG/Makefile、联调、GUI 黑盒、压测、5 项修复、版本 0.5.0</td>
+<td>见下</td>
+</tr>
+</tbody>
+</table>
+<h3 id="82-gui-t1t6">8.2 联调与 GUI 黑盒测试（T1–T6 全过）<a class="headerlink" href="#82-gui-t1t6" title="Permanent link">&para;</a></h3>
+<p>浏览器黑盒全链路：仪表盘空态→新建审计（本地路径）→SSE 七阶段进度→自动切换概览（健康分 gauge / 严重度柱状图 / 徽章 / 元信息）→问题列表（服务端 severity 过滤 3→1、行展开详情）→修复补丁/重构方案空态→架构卡片渲染→错误路径（不存在路径，后端 400 以 message 透出）→删除任务（统计与列表同步刷新）。SPA 托管与客户端路由兜底（<code>/audits/xyz</code> → index.html）实证。</p>
+<p><strong>发现并修复 5 项</strong>：
+1. <strong>[P1] 报告下载链接 404</strong>：<code>GET /summary</code> 返回流水线报告内部 <code>audit_id</code>，与服务端任务 ID 是两个体系，前端按其拼链接必 404 → 后端 summary 以任务表键为准（一处修复两端受益）。
+2. <strong>[P2] 严重度下拉文案重复</strong>（"critical critical"）：IssuesPanel 错用类别标签映射 → 改用 SEV_LABEL（"致命 critical"）。
+3. <strong>[P1→瞬态] 仪表盘统计自相矛盾</strong>（总任务 0 vs 已完成 2，judge 视觉验收发现）：总任务数与任务列表分两段异步 setState，中间态可见 → 总任务改为与表格同源同批更新（<code>list.total</code>），顺带省一次 health 请求。
+4. <strong>[P3] 详情页标题双 ID 冗余</strong> → 移除短 ID。
+5. <strong>[P3] html/body 无底色</strong>，滚动合成露黑 → 全局兜底 <code>#f5f5f5</code>。</p>
+<p><strong>判定为测试环境伪影（不修）</strong>：Tab 激活指示条一次未跟随——面板后台化后 requestAnimationFrame 被节流所致（React 状态与内容切换正常，前台会话同路径正常）；重启面板后无法复现。</p>
+<h3 id="83-benchresultsstress_web_w8md">8.3 压测基线（bench/results/stress_web_w8.md，正式口径）<a class="headerlink" href="#83-benchresultsstress_web_w8md" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>场景</th>
+<th>结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>S1 读端点突发</td>
+<td>32 并发 × 560 请求，<strong>309.7 RPS，p95=119.5ms，0 错误</strong></td>
+</tr>
+<tr>
+<td>S2 并发审计</td>
+<td>6 任务同时提交全 done、ID 互异，端到端 p50=14.2s（80 文件合成项目离线口径），吞吐 25.4 任务/min</td>
+</tr>
+<tr>
+<td>S3 SSE 并发流</td>
+<td>24 并发连接全部收到 done 终帧，首事件 p50=97.5ms</td>
+</tr>
+<tr>
+<td>S4 zip 上传</td>
+<td>12 次 p50=377ms，非 zip 负样本正确 400</td>
+</tr>
+</tbody>
+</table>
+<h3 id="84">8.4 最终质量门<a class="headerlink" href="#84" title="Permanent link">&para;</a></h3>
+<ul>
+<li>全量 pytest <strong>1060 passed</strong>（基线 1039 + W8 新增 21 后端 + 版本门更新），ruff 零告警</li>
+<li>前端：tsc --noEmit 零错误，vitest <strong>45 passed</strong>（A2 23 + A3 22），vite build 成功</li>
+<li>CI 新增 <code>frontend</code> job（node 20：typecheck + vitest + build），与 Python 三矩阵并行</li>
+<li>已知诚实边界：任务列表为内存态（重启即清空，UI 有对应提示文案）；上传采用读入内存后校验（200MB 上限在读取后判定）；upload 大文件防护的流式化、任务持久化留作后续 Wave。</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  回到页面顶部
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.footer", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
