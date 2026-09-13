@@ -4,6 +4,17 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [未发布]
+
+Wave 9：测试体系补全（压力 / 并发 / 算法 / 恶意 / 灰度五类矩阵）+ 全面代码审查。方案与风险登记见 [docs/14](docs/14-Wave9总体方案-测试体系补全与灰度发布.md)。
+
+### Added
+
+- **对抗与滥用测试运行器**（`bench/adversarial/run_adversarial.py`，`make adversarial`）：八场景真实 HTTP + 库层双口径——恶意 zip 军火库（路径逃逸 / 1GB 声明量炸弹 / 坏 zip / 空 zip / 奇葩文件名 / 40 层深嵌套 / 二进制与 3MB 单行 .py，含 marker 全树逃逸扫描）、参数与路径滥用矩阵（20 探针精确 4xx）、任务表洪泛（60 任务 FIFO 淘汰 + 10 路并发无准入观察）、create→DELETE 抖动竞态、100 路 SSE 中途 DELETE 收流、210MB 不可压缩上传（413 + 服务端 RSS 取证）、沙箱逃逸四件套（超时击杀 / 200MB 输出炸弹 / 白名单拒绝 / 越出 cwd 写文件取证）、提示注入离线实证（注入 payload 不影响规则通道对真缺陷的判定）。报告见 [bench/results/adversarial_w9.md](bench/results/adversarial_w9.md)。
+- **算法不变量测试**（`tests/property/test_algorithm_invariants.py`，进 CI）：审计确定性（同输入两次问题清单逐字段一致）、健康分单调性（追加 critical 不升分，50 组随机性质 + 值域边界）、干净语料零 critical/high 误报、SARIF 2.1.0 结构不变量、summary/issues 计数自洽、过滤与分页端到端不变量（severity 归一化语义、offset 游走拼回无重无漏）。
+- **灰度发布保障测试**（`tests/integration/test_gray_release.py`，进 CI）：旧版报告（v0.3 形态，缺 v1.7 字段）在当前代码可反序列化 + md/html/SARIF 三格式渲染 + 往返不漂移；特性开关 A/B 等价性（rule_scan_workers 串行 vs 并行、ingest 硬链接 vs 复制，语义快照相等）；API 路由面冻结（openapi paths 与契约 v2 清单精确相等，多删都红）。
+- **审查发现登记 F1–F5**（docs/14 §1）：无鉴权任意路径审计（取证：仓库外目录可审计且报告回传源码片段）、上传全量缓冲（取证：210MB 上传 RSS 峰值同量级，413 语义正确）、Windows 沙箱无文件系统隔离（取证：子进程可写 cwd 外）、沙箱输出无界缓冲（tail 截断正确但瞬时内存峰值）、任务无准入控制（10 路并发全部接纳）。修复排期见 docs/14 §6。
+
 ## [0.5.0] - 2026-09-13
 
 Wave 8：Web 前后端。配套前端从单文件演示页升级为工程化 React 工作台（`frontend/`，React 18 + TypeScript + Vite + Ant Design 5 + ECharts），REST API 扩展为契约 v2（任务列表 / 删除 / zip 上传 / 重构方案 / 架构理解 / 健康检查），`python cli.py serve` 单进程同时服务 API 与前端构建产物。技术选型经 GitHub 开源调研后锁定（antd 99.5k★ / ECharts 67.3k★ / DefectDojo 交互范式参考），方案与任务分解见 [docs/13](docs/13-Wave8总体方案-Web前后端.md)。

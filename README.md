@@ -318,6 +318,8 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 | [10-Wave5总体方案-质量攻坚](docs/10-Wave5总体方案-质量攻坚.md) | Wave 5 目标（三路审查 / Dogfood / 联调 / 压测）、任务分解与验收口径 |
 | [11-Wave6总体方案-依赖治理与发布](docs/11-Wave6总体方案-依赖治理与发布.md) | Wave 6 目标（依赖治理 / 健壮性清偿 / 规则手册 / 0.3.0 发布）、任务分解与发布流程 |
 | [12-Wave7总体方案-赛题合规与提速](docs/12-Wave7总体方案-赛题合规与提速.md) | Wave 7 目标（赛题合规审计矩阵 / 重构方案生成器 / JS/TS 闭环 / 提速实验）、§7 发布记录（10 项合规最终状态） |
+| [13-Wave8总体方案-Web前后端](docs/13-Wave8总体方案-Web前后端.md) | Wave 8 目标（React 工作台 / REST API 契约 v2 / Web 压测）、联调修复与视觉验收记录 |
+| [14-Wave9总体方案-测试体系补全与灰度发布](docs/14-Wave9总体方案-测试体系补全与灰度发布.md) | Wave 9 五类测试矩阵（压力 / 并发 / 算法 / 恶意 / 灰度）、审查发现 F1–F5 登记、灰度四层防线与后续路线 |
 
 以上设计文档已收录进 [在线文档站](https://mingkiiiiing.github.io/codeaudit-agent/)（mkdocs-material，源文件 `docs-site/` 与 `docs/`，由 `.github/workflows/docs.yml` 自动构建发布）。
 
@@ -366,9 +368,10 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 python -m pytest tests -q                                   # 全量（零网络、零真实 LLM）；或 make test
 python -m pytest tests/unit/server tests/unit/cli -q        # 服务与 CLI
 python -m pytest tests/unit/demo -q                         # 演示夹具一致性（diff 可 apply、生成单测过硬闸门、靶点唯一）
+python -m bench.adversarial.run_adversarial                 # 对抗与滥用八场景（约 5 分钟）；或 make adversarial
 ```
 
-全量 **990+ 项自动化测试（单元 + 联调）**：单元测试覆盖各模块与规则正反例，`tests/integration/` 提供 34 个跨阶段联调用例（全离线 < 5 分钟）。
+全量 **1070+ 项自动化测试（单元 + 联调 + 性质）**：单元测试覆盖各模块与规则正反例，`tests/integration/` 提供跨阶段联调用例（全离线 < 5 分钟），`tests/property/` 为算法不变量（审计确定性、健康分单调性、分页过滤不变量、干净语料误报），`tests/integration/test_gray_release.py` 为灰度保障（旧版报告兼容渲染、特性开关 A/B 等价、API 路由面冻结）。对抗与滥用测试（`bench/adversarial/`，真实 HTTP）覆盖恶意 zip 军火库、参数滥用、任务洪泛、SSE 悬挂、超大上传、沙箱逃逸与提示注入取证，报告归档 [bench/results/adversarial_w9.md](bench/results/adversarial_w9.md)。
 
 ## License
 
