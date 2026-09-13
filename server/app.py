@@ -4,13 +4,16 @@
 source_path, do_fix, do_tests, task, config}]（payload 组装只取白名单键，task 不外泄）。
 后台任务通过 asyncio.create_task 执行 audit.orchestrator.pipeline.run_audit；
 模块级引用 run_audit 便于测试注入假流水线（monkeypatch.setattr(server.app, "run_audit", ...)）。
+服务治理（契约 v2.1）：后台任务经模块级 _RUN_GATE 信号量排队执行（超出的停留 queued），
+非终态任务总数达 _MAX_PENDING_AUDITS 时新建任务返回 429；上传按 256 KB 分块流式落盘，
+超限立即 413 并停止读取（不再整包缓冲进内存）。
 """
 
 from __future__ import annotations
 
 import asyncio
-import io
 import json
+import os
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -43,6 +46,32 @@ _SPA_DIST = _ROOT / "frontend" / "dist"
 
 # 上传 zip 大小上限（模块级常量，便于测试 monkeypatch 成小值）
 _UPLOAD_MAX_BYTES = 200 * 1024 * 1024
+
+# F2 流式上传：分块读取的 chunk 大小（256 KB；模块级常量，便于测试 monkeypatch 验证多块路径）
+_UPLOAD_CHUNK_BYTES = 262144
+
+
+def _int_from_env(name: str, default: int, minimum: int) -> int:
+    """解析环境变量为整数：缺省 / 解析失败 / 低于下限（含负数与非法值）均回落默认值。"""
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        return default
+    return value if value >= minimum else default
+
+
+# F5 准入控制上限（模块级常量，便于测试 monkeypatch；运行时按模块全局读取）：
+# - 同时运行中的任务上限（后台任务经 _RUN_GATE 排队，超出的停留既有 queued 状态）；
+# - 非终态（queued+running）任务总数上限，达到后 POST 建任务返回 429。
+_MAX_RUNNING_AUDITS = _int_from_env("CODEAUDIT_MAX_RUNNING", 4, minimum=1)
+_MAX_PENDING_AUDITS = _int_from_env("CODEAUDIT_MAX_PENDING", 20, minimum=_MAX_RUNNING_AUDITS)
+
+# 运行闸门（模块级全局，与 _TASKS 同层；create_app 每次建实例但任务表模块级共享，
+# gate 亦同）。容量在创建时固化，测试排队语义可直接 monkeypatch 替换为新 Semaphore。
+_RUN_GATE = asyncio.Semaphore(_MAX_RUNNING_AUDITS)
 
 # 内存任务表：{audit_id: {"status": queued|running|done|failed, "report": AuditReport|None,
 #                         "events": list[dict], "error": str|None, "config": AuditConfig,
@@ -84,6 +113,20 @@ def _require_done_report(audit_id: str) -> tuple[dict[str, Any], AuditReport]:
     return entry, report
 
 
+def _count_active_audits() -> int:
+    """统计非终态（queued+running）任务数（F5 准入判断与 /api/health 同一口径）。"""
+    return sum(1 for e in AUDITS.values() if e.get("status") not in _TERMINAL_STATUSES)
+
+
+def _ensure_pending_capacity() -> None:
+    """F5 准入检查：非终态任务数达到上限时拒绝新建任务（429），不落任何表项或文件。"""
+    if _count_active_audits() >= _MAX_PENDING_AUDITS:
+        raise HTTPException(
+            status_code=429,
+            detail=f"服务器并发审计数已达上限（{_MAX_PENDING_AUDITS}），请稍后重试",
+        )
+
+
 class CreateAuditRequest(BaseModel):
     """POST /api/audits 请求体。"""
 
@@ -107,10 +150,17 @@ async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
     R4-9：finally 兜底保证任何异常路径（含 asyncio.CancelledError 等
     BaseException）都落终态 failed，任务表不残留 running 僵尸项；
     取消异常记录后原样向外传播（保持取消语义）。
+    F5：进入 running 前先经模块级 _RUN_GATE 排队（超出的任务停留既有
+    queued 状态）；acquire 成功后的全部执行段以 finally 严格配对 release
+    防闸门泄漏——acquire 被 cancel 时未获得闸门，不 release，DELETE 排队
+    任务仍走既有兜底落「任务已取消」。
     """
     entry = AUDITS[audit_id]
-    entry["status"] = "running"
+    acquired = False
     try:
+        await _RUN_GATE.acquire()
+        acquired = True
+        entry["status"] = "running"
         report = await run_audit(config, _emitter_for(entry["events"]))
         entry["report"] = report
         entry["status"] = "done"
@@ -122,6 +172,8 @@ async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
     finally:
         if entry["status"] not in _TERMINAL_STATUSES:
             entry["status"] = "failed"
+        if acquired:
+            _RUN_GATE.release()
 
 
 def _prune_audits() -> None:
@@ -201,8 +253,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
-        """健康检查：版本号 + 任务表规模（active=非终态任务数）。"""
-        active = sum(1 for e in AUDITS.values() if e.get("status") not in _TERMINAL_STATUSES)
+        """健康检查：版本号 + 任务表规模（active=非终态任务数，与 F5 准入同口径）。"""
+        active = _count_active_audits()
         return {
             "status": "ok",
             "version": _AUDIT_VERSION,
@@ -246,6 +298,7 @@ def create_app() -> FastAPI:
         config = AuditConfig.from_env(
             source_path=str(source), do_fix=req.do_fix, do_tests=req.do_tests
         )
+        _ensure_pending_capacity()
         _start_audit(audit_id, config)
         return {"audit_id": audit_id}
 
@@ -255,23 +308,42 @@ def create_app() -> FastAPI:
         do_fix: Annotated[bool, Form()] = False,
         do_tests: Annotated[bool, Form()] = False,
     ) -> dict[str, str]:
-        """上传 zip 源码包建任务：落盘 <work_root>/uploads/<audit_id>.zip 后走既有创建流程。"""
+        """上传 zip 源码包建任务：流式落盘 <work_root>/uploads/<audit_id>.zip 后走既有创建流程。
+
+        F2：按 256 KB 分块读取累计写入磁盘临时文件（.part），累计超
+        _UPLOAD_MAX_BYTES 立即 413 并停止读取剩余 body——不再把整个文件
+        缓冲进内存；成功路径 os.replace 到最终路径，落盘字节与请求体逐字节
+        一致。F5：准入 429 在任何读盘/落盘之前判定。
+        """
         filename = (file.filename or "").lower()
         if not filename.endswith(".zip"):
             raise HTTPException(status_code=400, detail=f"仅支持 .zip 上传，收到：{file.filename}")
-        data = await file.read()
-        if len(data) > _UPLOAD_MAX_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"上传文件过大：{len(data)} 字节，上限 {_UPLOAD_MAX_BYTES} 字节",
-            )
-        if not zipfile.is_zipfile(io.BytesIO(data)):
-            raise HTTPException(status_code=400, detail="上传内容不是合法的 zip 文件")
+        _ensure_pending_capacity()
         audit_id = new_audit_id()
         work_root = AuditConfig.from_env().work_root
         zip_path = Path(work_root) / "uploads" / f"{audit_id}.zip"
+        part_path = zip_path.with_name(f"{audit_id}.zip.part")
         zip_path.parent.mkdir(parents=True, exist_ok=True)
-        zip_path.write_bytes(data)
+        received = 0
+        try:
+            with part_path.open("wb") as sink:
+                while True:
+                    chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    received += len(chunk)
+                    if received > _UPLOAD_MAX_BYTES:
+                        raise HTTPException(
+                            status_code=413,
+                            detail=f"上传文件过大：{received} 字节，上限 {_UPLOAD_MAX_BYTES} 字节",
+                        )
+                    sink.write(chunk)
+            if not zipfile.is_zipfile(part_path):
+                raise HTTPException(status_code=400, detail="上传内容不是合法的 zip 文件")
+        except BaseException:
+            part_path.unlink(missing_ok=True)  # 失败路径不留半截文件
+            raise
+        part_path.replace(zip_path)
         config = AuditConfig.from_env(
             source_path=str(zip_path), do_fix=do_fix, do_tests=do_tests
         )

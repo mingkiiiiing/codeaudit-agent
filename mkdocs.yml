@@ -2,7 +2,7 @@
 #
 # 结构说明：
 #   - docs_dir 取 docs-site/（站点自有页面：首页、CLI 速查、SARIF、PR 实践、Roadmap）；
-#   - docs/00~12 设计文档不复制进仓库第二份，由 gen-files 插件在构建期镜像为 design/<同名文件>，
+#   - docs/ 全部设计文档不复制进仓库第二份，由 gen-files 插件在构建期镜像为 design/<同名文件>，
 #     源文件保持兄弟相对关系，文档互链不受影响；nav 中 design/ 前缀的路径即来源于此；
 #   - `mkdocs build --strict`：失效链接、缺失 nav 文件、配置告警一律判为构建失败（docs.yml 已启用）。
 site_name: CodeAudit Agent
@@ -45,7 +45,7 @@ plugins:
   - search
   - gen-files:
       scripts:
-        - docs-site/gen_design_pages.py   # 构建期把 docs/00~12 设计文档镜像为 design/<同名文件>
+        - docs-site/gen_design_pages.py   # 构建期把 docs/ 全部设计文档镜像为 design/<同名文件>
 
 markdown_extensions:
   - admonition
@@ -77,6 +77,9 @@ nav:
       - 10 Wave5 质量攻坚: design/10-Wave5总体方案-质量攻坚.md
       - 11 Wave6 方案: design/11-Wave6总体方案-依赖治理与发布.md
       - 12 Wave7 方案: design/12-Wave7总体方案-赛题合规与提速.md
+      - 13 Wave8 方案: design/13-Wave8总体方案-Web前后端.md
+      - 14 Wave9 方案: design/14-Wave9总体方案-测试体系补全与灰度发布.md
+      - 15 Wave10 方案: design/15-Wave10总体方案-服务治理与灰度基建.md
   - CLI 速查: cli.md
   - 规则手册: rules.md
   - CI 集成:

@@ -458,7 +458,8 @@ async def a3_flood_task_table(client: httpx.AsyncClient, tmp: Path, quick: bool)
         f"total={h.get('audits', {}).get('total')}（FIFO 淘汰应把终态表压回 ≤50）",
     )
 
-    # F5 观察：10 路真实并发任务运行期 active 无上限（不做失败断言，仅记录）。
+    # F5 准入实证（W10 契约 v2.1）：并发提交 25 路（> 默认 pending 上限 20）——
+    # 超限请求必须被 429 拒绝或排队（不允许无界接纳），被接纳者全部落终态，active 峰值有界。
     # 采样器先于上传启动（后台任务并发采样），否则短任务在上传阶段即完成会漏采峰值。
     if not quick:
         from bench.stress.generator import generate_project
@@ -483,21 +484,50 @@ async def a3_flood_task_table(client: httpx.AsyncClient, tmp: Path, quick: bool)
                 except (asyncio.TimeoutError, TimeoutError):
                     pass
 
-        async def _big() -> str:
+        async def _big() -> tuple[int, str | None]:
             resp = await _upload(client, big_zip, "big.zip")
-            return resp.json()["audit_id"]
+            if resp.status_code == 200:
+                return 200, resp.json().get("audit_id")
+            return resp.status_code, None
 
         sampler = asyncio.create_task(_sampler())
-        big_ids = list(await asyncio.gather(*[_big() for _ in range(10)]))
-        while True:
-            states = await asyncio.gather(*[client.get(f"/api/audits/{i}") for i in big_ids])
-            if all(s.json().get("status") in ("done", "failed") for s in states):
-                break
-            await asyncio.sleep(0.25)
+        outcomes = list(await asyncio.gather(*[_big() for _ in range(25)]))
+        big_ids = [aid for code, aid in outcomes if code == 200 and aid]
+        denied = sum(1 for code, _ in outcomes if code == 429)
+        r.check(
+            "f5_submitted_all_resolved",
+            len(big_ids) + denied == 25,
+            f"接纳 {len(big_ids)} + 拒绝 {denied} != 25",
+        )
+        r.check(
+            "f5_no_5xx",
+            all(code < 500 for code, _ in outcomes),
+            str(sorted({code for code, _ in outcomes})),
+        )
+        r.check(
+            "f5_active_bounded",
+            active_peak <= 20,
+            f"active（queued+running 口径）峰值={active_peak}，契约上界=20",
+        )
+        r.metrics["f5_submitted"] = 25
+        r.metrics["f5_accepted"] = len(big_ids)
+        r.metrics["f5_denied_429"] = denied
+        r.metrics["f5_active_peak"] = active_peak
+        r.metrics["f5_active_series"] = actives
+        if big_ids:
+            deadline = time.perf_counter() + 180
+            while time.perf_counter() < deadline:
+                states = await asyncio.gather(*[client.get(f"/api/audits/{i}") for i in big_ids])
+                if all(s.json().get("status") in ("done", "failed") for s in states):
+                    break
+                await asyncio.sleep(0.25)
+            r.check(
+                "f5_accepted_all_terminal",
+                all(s.json().get("status") in ("done", "failed") for s in states),
+                str([s.json().get("status") for s in states]),
+            )
         stop.set()
         await sampler
-        r.metrics["f5_concurrent_peak_active"] = active_peak
-        r.metrics["f5_active_series"] = actives
         r.metrics["f5_wall_sec"] = round(time.perf_counter() - t1, 1)
         for i in big_ids:
             await client.delete(f"/api/audits/{i}")
@@ -620,7 +650,18 @@ async def a6_oversize_upload(client: httpx.AsyncClient, tmp: Path, quick: bool, 
         "server_rss_after_mb": round(rss_after[0], 1) if rss_after else None,
         "server_rss_peak_mb": round(rss_after[1], 1) if rss_after else None,
     }
+    # W10 F2 修复后：流式分块 + 提前 413，上传前后**当前工作集**增量应远小于上传体
+    # （W9 基线增量 3.3MB）。PeakWorkingSetSize 是进程生命周期峰值（A1-A5 场景已推高，
+    # 与本上传无关），仅记录不判定。
     r.check("oversize_413", resp.status_code == 413, f"got {resp.status_code}")
+    if rss_before and rss_after:
+        delta = rss_after[0] - rss_before[0]
+        r.metrics["oversize"]["server_rss_delta_mb"] = round(delta, 1)
+        r.check(
+            "f2_rss_no_blowup",
+            delta < 50,
+            f"210MB 上传前后当前工作集增量 {delta:+.1f}MB（阈值 <50MB；历史峰值 {rss_after[1]:.1f}MB 仅为进程生命周期参考）",
+        )
 
     # 60MB 高压缩比 zip（盘上 ~60KB）×3：应正常 done
     p = tmp / "fat.zip"
@@ -676,16 +717,21 @@ async def a7_sandbox_escape(tmp: Path) -> ScenarioResult:
         timeout_sec=60,
     )
     tail_lines = res.stdout_tail.count("\n")
+    # W10 F4 修复后：tail 首行为 [output truncated] 标记 + 80 行真实输出（≤81 行）
     r.check(
         "output_bomb_tail_only",
-        res.exit_code == 0 and tail_lines <= 80 and len(res.stdout_tail) < 100_000,
-        f"exit={res.exit_code} tail_lines={tail_lines} tail_bytes={len(res.stdout_tail)}",
+        res.exit_code == 0
+        and tail_lines <= 81
+        and len(res.stdout_tail) < 100_000
+        and res.truncated is True,
+        f"exit={res.exit_code} truncated={res.truncated} tail_lines={tail_lines} tail_bytes={len(res.stdout_tail)}",
     )
     r.metrics["output_bomb"] = {
         "exit_code": res.exit_code,
         "duration_sec": res.duration_sec,
         "tail_lines": tail_lines,
-        "note": "F4：输出经 PIPE 全量读入内存后才截尾，200MB 级输出会造成瞬时 RSS 峰值",
+        "truncated": res.truncated,
+        "note": "W10 F4 已修复：输出限量排空（8MB 上限），tail 带 [output truncated] 标记",
     }
 
     # 白名单外框架
@@ -816,8 +862,8 @@ def _render_md(env: dict[str, str], results: list[ScenarioResult]) -> str:
             key_bits.append(f"密文回传={m.get('f1_secret_leaked_in_report')}")
         elif r.name == "A3_flood_task_table":
             key_bits.append(f"{m.get('flood_count')} 空任务，表上限={m.get('health_after_flood', {}).get('audits', {}).get('total')}")
-            if "f5_concurrent_peak_active" in m:
-                key_bits.append(f"F5 并发峰值 active={m.get('f5_concurrent_peak_active')}")
+            if "f5_denied_429" in m:
+                key_bits.append(f"F5 准入：25 路接纳 {m.get('f5_accepted')}/拒 429×{m.get('f5_denied_429')}/峰值 active={m.get('f5_active_peak')}")
         elif r.name == "A4_churn":
             key_bits.append(f"{m.get('rounds')} 轮抖动")
             key_bits.append(f"幽灵 DELETE={m.get('ghost_delete_codes')}")
@@ -860,10 +906,10 @@ def _render_md(env: dict[str, str], results: list[ScenarioResult]) -> str:
         "| 编号 | 发现 | 状态 | 建议 |",
         "|---|---|---|---|",
         "| F1 | REST API 无鉴权，source_path 可指向任意本地目录，报告回传源码片段 | 取证确认（本地工具设计如此） | 部署形态加鉴权 / source_path 白名单根目录 |",
-        "| F2 | 上传先 `await file.read()` 全量入内存再校验大小，210MB 上传服务端 RSS 同量级抬升 | 取证确认（413 语义正确） | 流式读取并在超限时提前中断 |",
+        "| F2 | 上传全量入内存后校验大小 | **已修复（W10）**：流式分块 + 提前 413 | 本轮 A6 复跑验证 RSS 回落 |",
         "| F3 | Windows 沙箱无文件系统隔离，子进程可写 cwd 之外 | 取证确认（文档已声明） | 生产换 Docker `--network none --memory` |",
-        "| F4 | 沙箱输出经 PIPE 全量缓冲，200MB 级 stdout 造成瞬时内存峰值 | 取证确认（tail 截断正确） | 流式限量读取（读满 N MB 即放弃） |",
-        "| F5 | 无任务准入控制：并发 running 数、建任务速率均无上限；10 路并发审计期间服务端事件循环被 CPU 密集任务饿死（23s 内 health 仅响应 2 次） | 取证确认（A3：10 路全接纳，10×200 无一拒绝） | 队列深度限制 + 最大并发数 + 429；CPU 密集阶段移进程池 |",
+        "| F4 | 沙箱输出 PIPE 全量缓冲 | **已修复（W10）**：8MB 限量排空 + truncated 标记 | 本轮 A7 复跑验证标记语义 |",
+        "| F5 | 无任务准入控制 | **已修复（W10）**：running 信号量（默认 4）+ pending 上限（默认 20）+ 429 | 本轮 A3 复跑验证准入实证；CPU 密集移进程池仍列后续 |",
         "",
         "## 诚实边界",
         "",

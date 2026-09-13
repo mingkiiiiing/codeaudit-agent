@@ -20,6 +20,7 @@ async def test_run_captures_stdout_and_exit_code(tmp_path: Path):
     assert res.timed_out is False
     assert res.stdout_tail.strip() == "ok"
     assert res.duration_sec > 0
+    assert res.truncated is False  # W10 F4：小输出不误标
 
 
 async def test_run_captures_stderr(tmp_path: Path):
@@ -92,3 +93,30 @@ async def test_empty_command_raises(tmp_path: Path):
     executor = SandboxExecutor()
     with pytest.raises(SandboxError):
         await executor.run([], cwd=tmp_path)
+
+
+async def test_large_stdout_truncated_but_process_exits_normally(tmp_path: Path):
+    """W10 F4：约 50MB stdout 触发限量；排空语义下进程正常退出（不被 PIPE 写阻塞误杀）。"""
+    executor = SandboxExecutor()
+    code = "for _ in range(500000):\n    print('A' * 100)"  # 500000 * 101B ≈ 50MB > 8MB 限量
+    res = await executor.run([PY, "-c", code], cwd=tmp_path, timeout_sec=60)
+    assert res.exit_code == 0  # 核心：继续读但丢弃，子进程不被 PIPE 阻塞到超时击杀
+    assert res.timed_out is False
+    assert res.truncated is True
+    assert res.stdout_tail.startswith("[output truncated]")
+    tail_lines = res.stdout_tail.splitlines()
+    assert len(tail_lines) <= 81  # 标记行 + 最多 80 行 tail
+    assert set(tail_lines[-1]) <= {"A"}  # 末行仍是真实输出内容
+
+
+async def test_large_stderr_truncated(tmp_path: Path):
+    """W10 F4：约 20MB stderr 同样限量排空并标记；未超限的 stdout 不受影响。"""
+    executor = SandboxExecutor()
+    code = "import sys\nfor _ in range(200000):\n    sys.stderr.write('B' * 100 + '\\n')"  # ≈ 20MB
+    res = await executor.run([PY, "-c", code], cwd=tmp_path, timeout_sec=60)
+    assert res.exit_code == 0
+    assert res.timed_out is False
+    assert res.truncated is True
+    assert res.stderr_tail.startswith("[output truncated]")
+    assert len(res.stderr_tail.splitlines()) <= 81
+    assert "[output truncated]" not in res.stdout_tail  # stdout 未超限，不误标

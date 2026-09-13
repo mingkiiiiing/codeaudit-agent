@@ -1,7 +1,7 @@
 # CodeAudit Agent 常用任务（Windows Git Bash / macOS / Linux 通用）
 # 注意：本文件必须使用 tab 缩进。
 
-.PHONY: install test lint demo serve web adversarial clean
+.PHONY: install test lint demo serve web adversarial soak canary clean
 
 ## 安装可编辑模式 + 开发依赖（pytest 等）
 install:
@@ -30,6 +30,14 @@ web:
 ## 对抗与滥用测试八场景（真实 HTTP + 沙箱取证，约 5 分钟，离线；报告进 bench/results/）
 adversarial:
 	python -m bench.adversarial.run_adversarial
+
+## Soak 持续混合负载压测（默认 300s；120s 冒烟口径：python -m bench.stress.run_soak --quick）
+soak:
+	python -m bench.stress.run_soak --duration 300
+
+## 金丝雀双版本回放（git worktree 取旧 tag 起双服务，归一化 diff；默认 v0.5.0 vs HEAD）
+canary:
+	python -m bench.canary.replay
 
 ## 清理演示工作区与本地缓存（不动源码）
 clean:

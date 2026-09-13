@@ -11,6 +11,11 @@ SandboxResult 返回而非抛异常；未知测试框架抛 SandboxError（属�
 W7-A3：新增 node-test（node 18+ 内置 test runner，命令 [node, --test, target]，
 零第三方依赖）；test_runner_available() 供 fix/testgen 阶段在执行前探测可用性
 （探测失败走诚实降级：JS/TS 修复验证降级 syntax-ok、单测生成跳过该语言目标）。
+
+W10-A2（F4 沙箱输出限量）：_drain 改为限量排空——累计读取达 _OUTPUT_LIMIT_BYTES
+（8MB）后继续读但丢弃（防止子进程写满 PIPE 永久阻塞），内存上限 ≈ LIMIT + 一个
+chunk；被限量的流在 tail 首行带 [output truncated] 标记行，SandboxResult.truncated
+置 True（诚实降级可见）。
 """
 
 from __future__ import annotations
@@ -31,16 +36,30 @@ __all__ = ["SandboxExecutor", "SandboxResult", "TEST_FRAMEWORKS", "test_runner_a
 
 TEST_FRAMEWORKS = ("pytest", "jest", "node-test")
 
+# W10 F4：单流输出限量。累计读取达该字节数后继续读但丢弃（排空语义），
+# 防止被审项目海量输出（如 200MB 测试日志）把服务端瞬时内存打到同量级。
+_OUTPUT_LIMIT_BYTES = 8 * 1024 * 1024
+# 限量排空的读取粒度（64KB）：内存占用上限 ≈ LIMIT + 一个 chunk。
+_OUTPUT_CHUNK_BYTES = 64 * 1024
+# 限量标记行：出现在被限量流的 tail 首行，使诚实降级对调用方可见。
+_TRUNCATED_MARKER = "[output truncated]"
+
 
 @dataclass
 class SandboxResult:
-    """一次沙箱执行的产物；exit_code 为 None 表示进程尚未退出（理论上不出现）。"""
+    """一次沙箱执行的产物；exit_code 为 None 表示进程尚未退出（理论上不出现）。
+
+    truncated（W10 F4）：stdout 或 stderr 任一超过 _OUTPUT_LIMIT_BYTES 被限量
+    排空（超出部分读取后丢弃）时置 True，且对应 tail 首行带 [output truncated]
+    标记行。尾部默认值字段，向后兼容。
+    """
 
     exit_code: int | None = None
     stdout_tail: str = ""
     stderr_tail: str = ""
     timed_out: bool = False
     duration_sec: float = 0.0
+    truncated: bool = False
 
 
 def _decode(data: bytes) -> str:
@@ -61,6 +80,15 @@ def _tail(text: str, max_lines: int) -> str:
     if len(lines) <= max_lines:
         return text
     return "\n".join(lines[-max_lines:])
+
+
+def _mark_truncated(text: str, truncated: bool) -> str:
+    """被限量的流在 tail 首行插入 [output truncated] 标记行（诚实降级可见）。"""
+    if not truncated:
+        return text
+    if not text:
+        return _TRUNCATED_MARKER
+    return f"{_TRUNCATED_MARKER}\n{text}"
 
 
 def test_runner_available(framework: str) -> bool:
@@ -123,12 +151,32 @@ class SandboxExecutor:
                 duration_sec=0.0,
             )
 
-        async def _drain(stream: Any) -> bytes:
+        async def _drain(stream: Any) -> tuple[bytes, bool]:
+            """限量排空一个输出流，返回（已保存字节, 是否丢弃过数据）。
+
+            关键语义：累计读取达到 _OUTPUT_LIMIT_BYTES 后必须**继续读但丢弃**，
+            不能停止读取——否则子进程写满 PIPE 缓冲后会永久阻塞，直至被超时
+            击杀。"排空但丢弃"同时保证内存有界（≈ LIMIT + 一个 chunk）与子
+            进程能正常退出（exit_code 不被误杀）。
+            """
             if stream is None:
-                return b""
-            with contextlib.suppress(Exception):
-                return await stream.read()
-            return b""
+                return b"", False
+            chunks: list[bytes] = []
+            total = 0
+            discarded = False
+            try:
+                while True:
+                    chunk = await stream.read(_OUTPUT_CHUNK_BYTES)
+                    if not chunk:
+                        break
+                    if total < _OUTPUT_LIMIT_BYTES:
+                        chunks.append(chunk)
+                        total += len(chunk)
+                    else:
+                        discarded = True
+            except Exception:
+                return b"".join(chunks), discarded
+            return b"".join(chunks), discarded
 
         out_task = asyncio.create_task(_drain(proc.stdout))
         err_task = asyncio.create_task(_drain(proc.stderr))
@@ -141,15 +189,16 @@ class SandboxExecutor:
                 proc.kill()  # Windows 下为 TerminateProcess
             with contextlib.suppress(Exception):
                 await proc.wait()
-        stdout = await out_task
-        stderr = await err_task
+        stdout, stdout_truncated = await out_task
+        stderr, stderr_truncated = await err_task
         duration = time.monotonic() - start
         return SandboxResult(
             exit_code=proc.returncode,
-            stdout_tail=_tail(_decode(stdout), self._tail_lines),
-            stderr_tail=_tail(_decode(stderr), self._tail_lines),
+            stdout_tail=_mark_truncated(_tail(_decode(stdout), self._tail_lines), stdout_truncated),
+            stderr_tail=_mark_truncated(_tail(_decode(stderr), self._tail_lines), stderr_truncated),
             timed_out=timed_out,
             duration_sec=round(duration, 3),
+            truncated=stdout_truncated or stderr_truncated,
         )
 
     async def run_tests(self, framework: str, cwd: Path, target: str = "") -> SandboxResult:

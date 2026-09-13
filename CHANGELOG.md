@@ -6,14 +6,28 @@
 
 ## [未发布]
 
-Wave 9：测试体系补全（压力 / 并发 / 算法 / 恶意 / 灰度五类矩阵）+ 全面代码审查。方案与风险登记见 [docs/14](docs/14-Wave9总体方案-测试体系补全与灰度发布.md)。
+Wave 9 + Wave 10：测试体系补全（W9）与服务治理 + 灰度基建（W10）。契约 v2.1 微增，全部向后兼容；W9 见 [docs/14](docs/14-Wave9总体方案-测试体系补全与灰度发布.md)，W10 见 [docs/15](docs/15-Wave10总体方案-服务治理与灰度基建.md)。
 
-### Added
+### Added（Wave 10）
 
-- **对抗与滥用测试运行器**（`bench/adversarial/run_adversarial.py`，`make adversarial`）：八场景真实 HTTP + 库层双口径——恶意 zip 军火库（路径逃逸 / 1GB 声明量炸弹 / 坏 zip / 空 zip / 奇葩文件名 / 40 层深嵌套 / 二进制与 3MB 单行 .py，含 marker 全树逃逸扫描）、参数与路径滥用矩阵（20 探针精确 4xx）、任务表洪泛（60 任务 FIFO 淘汰 + 10 路并发无准入观察）、create→DELETE 抖动竞态、100 路 SSE 中途 DELETE 收流、210MB 不可压缩上传（413 + 服务端 RSS 取证）、沙箱逃逸四件套（超时击杀 / 200MB 输出炸弹 / 白名单拒绝 / 越出 cwd 写文件取证）、提示注入离线实证（注入 payload 不影响规则通道对真缺陷的判定）。报告见 [bench/results/adversarial_w9.md](bench/results/adversarial_w9.md)。
+- **任务准入控制（F5 清偿，契约 v2.1）**：全局信号量限制同时运行的任务数（`CODEAUDIT_MAX_RUNNING`，默认 4），超出的任务停留在既有 queued 状态排队执行；非终态任务总数达上限（`CODEAUDIT_MAX_PENDING`，默认 20）时 `POST /api/audits` 与 `/api/audits/upload` 返回 **429**（`服务器并发审计数已达上限（N），请稍后重试`）——契约 v2 其余响应码不变。排队中任务 DELETE 语义不变（取消 + 「任务已取消」）。
+- **金丝雀双版本回放工具**（`bench/canary/replay.py`，`make canary`）：git worktree 检出旧 tag 起双端口服务，固定请求集（health / 列表 / mini_app 上传审计至 done / 报告三格式 / issues）双发对拍，归一化（键级剥离 audit_id/created_at/duration_sec/schema_version + 值级替换任务 ID）后 diff——diff 非空即语义漂移，阻断发布（退出码 1）。自验：v0.5.0 vs HEAD 7/7 项一致 PASS。
+- **Soak 持续混合负载压测**（`bench/stress/run_soak.py`，`make soak`）：2 Hz 读负载 + 8s 周期双素材任务提交 + 30s SSE 拍点 + 10s RSS/health 采样；判定四准则（无 5xx / 接纳任务终态率 100% / RSS 稳态斜率 < 1 MB/min / 结束 total ≤ 50）；报告内置 RSS 诊断节（全窗口 vs 稳态窗口斜率、RSS-任务数相关性）。
+- **沙箱输出限量 + truncated 标记（F4 清偿）**：`_drain` 改为 8MB 限量排空（超限后继续读但丢弃，杜绝子进程 PIPE 写阻塞误杀），`SandboxResult` 新增 `truncated` 字段，被限量的 tail 首行标注 `[output truncated]`；`run()/run_tests()` 签名与既有语义不变。
+- 文档站 nav 补登记 Wave 8/9/10 三份方案文档（mkdocs strict 构建通过）。
+
+### Changed（Wave 10）
+
+- **流式上传（F2 清偿）**：`POST /api/audits/upload` 改为 256KB 分块落盘（`.part` 临时文件 + `os.replace` 原子提交），累计超 200MB 立即 413 并停止读取——不再全量缓冲进内存（W9 对抗基线 210MB 上传 RSS 峰值 660MB，复跑验证回落，见 bench/results/adversarial_w10.md）；400/413/取消路径临时文件零残留，落盘字节逐一致语义不变。
+- adversarial runner 适配契约 v2.1：A3 场景 F5 段升级为准入实证（25 路并发 > pending 上限，校验无 5xx / active 峰值 ≤ 20 / 被接纳者全终态）、A6 场景新增 RSS 回落校验（>400MB 判失败）、A7 场景适配 truncated 标记语义；风险登记表 F2/F4/F5 状态更新为已修复。
+- soak RSS 判定口径修订（W10-A5 集成裁决）：剔除前 60s 预热样本（冷启动懒加载导入属一次性抬升非泄漏），稳态样本不足回落全窗口；全窗口斜率与 RSS-任务数相关性继续如实报告，每任务 ~0.15MB 缓爬的长窗口归因列 W11 待办。
+
+### Added（Wave 9）
+
+- **对抗与滥用测试运行器**（`bench/adversarial/run_adversarial.py`，`make adversarial`）：八场景真实 HTTP + 库层双口径——恶意 zip 军火库（路径逃逸 / 1GB 声明量炸弹 / 坏 zip / 空 zip / 奇葩文件名 / 40 层深嵌套 / 二进制与 3MB 单行 .py，含 marker 全树逃逸扫描）、参数与路径滥用矩阵（20 探针精确 4xx）、任务表洪泛（60 任务 FIFO 淘汰 + 并发准入实证）、create→DELETE 抖动竞态、100 路 SSE 中途 DELETE 收流、210MB 不可压缩上传（413 + 服务端 RSS 取证）、沙箱逃逸四件套（超时击杀 / 200MB 输出炸弹 / 白名单拒绝 / 越出 cwd 写文件取证）、提示注入离线实证（注入 payload 不影响规则通道对真缺陷的判定）。报告见 [bench/results/adversarial_w9.md](bench/results/adversarial_w9.md) 与复跑 [adversarial_w10.md](bench/results/adversarial_w10.md)。
 - **算法不变量测试**（`tests/property/test_algorithm_invariants.py`，进 CI）：审计确定性（同输入两次问题清单逐字段一致）、健康分单调性（追加 critical 不升分，50 组随机性质 + 值域边界）、干净语料零 critical/high 误报、SARIF 2.1.0 结构不变量、summary/issues 计数自洽、过滤与分页端到端不变量（severity 归一化语义、offset 游走拼回无重无漏）。
 - **灰度发布保障测试**（`tests/integration/test_gray_release.py`，进 CI）：旧版报告（v0.3 形态，缺 v1.7 字段）在当前代码可反序列化 + md/html/SARIF 三格式渲染 + 往返不漂移；特性开关 A/B 等价性（rule_scan_workers 串行 vs 并行、ingest 硬链接 vs 复制，语义快照相等）；API 路由面冻结（openapi paths 与契约 v2 清单精确相等，多删都红）。
-- **审查发现登记 F1–F5**（docs/14 §1）：无鉴权任意路径审计（取证：仓库外目录可审计且报告回传源码片段）、上传全量缓冲（取证：210MB 上传 RSS 峰值同量级，413 语义正确）、Windows 沙箱无文件系统隔离（取证：子进程可写 cwd 外）、沙箱输出无界缓冲（tail 截断正确但瞬时内存峰值）、任务无准入控制（10 路并发全部接纳）。修复排期见 docs/14 §6。
+- **审查发现登记 F1–F5**（docs/14 §1）：无鉴权任意路径审计（取证：仓库外目录可审计且报告回传源码片段）、上传全量缓冲、Windows 沙箱无文件系统隔离、沙箱输出无界缓冲、任务无准入控制（F2/F4/F5 已于 W10 清偿，F1/F3 属本地工具设计边界继续登记）。
 
 ## [0.5.0] - 2026-09-13
 

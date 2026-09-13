@@ -369,6 +369,8 @@ python -m pytest tests -q                                   # 全量（零网络
 python -m pytest tests/unit/server tests/unit/cli -q        # 服务与 CLI
 python -m pytest tests/unit/demo -q                         # 演示夹具一致性（diff 可 apply、生成单测过硬闸门、靶点唯一）
 python -m bench.adversarial.run_adversarial                 # 对抗与滥用八场景（约 5 分钟）；或 make adversarial
+python -m bench.stress.run_soak --duration 300              # Soak 持续混合负载 + RSS 泄漏判定；或 make soak
+python -m bench.canary.replay                               # 金丝雀双版本回放 diff（灰度防线 L2）；或 make canary
 ```
 
 全量 **1070+ 项自动化测试（单元 + 联调 + 性质）**：单元测试覆盖各模块与规则正反例，`tests/integration/` 提供跨阶段联调用例（全离线 < 5 分钟），`tests/property/` 为算法不变量（审计确定性、健康分单调性、分页过滤不变量、干净语料误报），`tests/integration/test_gray_release.py` 为灰度保障（旧版报告兼容渲染、特性开关 A/B 等价、API 路由面冻结）。对抗与滥用测试（`bench/adversarial/`，真实 HTTP）覆盖恶意 zip 军火库、参数滥用、任务洪泛、SSE 悬挂、超大上传、沙箱逃逸与提示注入取证，报告归档 [bench/results/adversarial_w9.md](bench/results/adversarial_w9.md)。
