@@ -186,7 +186,9 @@ def test_sse_emits_done_for_failed_task(monkeypatch):
     assert payloads[-1]["type"] == "done"
 
 
-def test_index_page_served(tmp_path):
+def test_index_page_served(tmp_path, monkeypatch):
+    """无 SPA 构建产物时根路径回退单文件演示页（显式指向不存在的 dist，保证确定性）。"""
+    monkeypatch.setattr(server_app, "_SPA_DIST", tmp_path / "no-dist")
     client = TestClient(server_app.create_app())
     resp = client.get("/")
     assert resp.status_code == 200

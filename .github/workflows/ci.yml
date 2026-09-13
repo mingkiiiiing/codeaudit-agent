@@ -71,3 +71,37 @@ jobs:
         # 后续如需上传 Coveralls/Codecov 或生成徽章，可在此追加步骤。
         if: matrix.with-cov == 'true'
         run: pytest -q --tb=short --cov=audit --cov-report=term
+
+  # W8：前端（frontend/，React + Vite）质量门禁——类型检查、单测、构建三关。
+  # 与 Python 矩阵相互独立；npm 缓存按 package-lock.json 哈希。
+  frontend:
+    name: frontend (typecheck + test + build)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Unit tests (vitest run)
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build (tsc + vite build)
+        working-directory: frontend
+        run: npm run build

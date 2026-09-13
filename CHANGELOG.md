@@ -4,6 +4,22 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-09-13
+
+Wave 8：Web 前后端。配套前端从单文件演示页升级为工程化 React 工作台（`frontend/`，React 18 + TypeScript + Vite + Ant Design 5 + ECharts），REST API 扩展为契约 v2（任务列表 / 删除 / zip 上传 / 重构方案 / 架构理解 / 健康检查），`python cli.py serve` 单进程同时服务 API 与前端构建产物。技术选型经 GitHub 开源调研后锁定（antd 99.5k★ / ECharts 67.3k★ / DefectDojo 交互范式参考），方案与任务分解见 [docs/13](docs/13-Wave8总体方案-Web前后端.md)。
+
+### Added
+
+- **前端工作台 `frontend/`**（W8-A2 / W8-A3）：三页式 SPA——「仪表盘」（任务列表：状态标签、创建时间、查看 / 删除，非终态任务 5s 自动刷新）、「新建审计」（服务端本地路径 / zip 拖拽上传双入口 + 修复与单测开关）、「任务详情」（运行中：七阶段 Steps 进度 + SSE 实时事件日志（断流自动降级轮询）；完成后：健康分 gauge 与严重度分布（ECharts）、问题列表（severity / category 服务端过滤 + 关键词过滤 + 展开详情与代码片段）、修复补丁 diff 视图、重构方案卡片、架构理解通用渲染、报告三格式下载）。中文界面，antd zhCN，类型化 API 客户端与后端契约逐字对齐。
+- **REST API 契约 v2**（W8-A1）：`GET /api/health`、`GET /api/audits`（分页任务列表，新→旧）、`DELETE /api/audits/{id}`（终态移除 / 运行中先取消）、`POST /api/audits/upload`（multipart zip，魔数与 200MB 上限校验，413 / 400 明确报错）、`GET /api/audits/{id}/refactors`（重构方案，暴露 0.4.0 已有但未上 API 的 RefactorProposal）、`GET /api/audits/{id}/understand`（架构卡片）。SPA 静态托管：`frontend/dist` 存在时根路径与客户端路由兜底到 SPA，否则回退单文件演示页（保留为零构建入口）；开发态 CORS 精确放行 Vite 5173 端口。
+- **Web 压测基线**（`bench/stress/run_stress_web.py`）：真实 HTTP 口径四场景——读端点突发（32 并发 × 560 请求）、并发审计（6 任务同时提交到终态）、SSE 并发流（24 连接依赖历史回放）、zip 上传（12 次 + 非 zip 负样本必须 400）；数据见 [bench/results/stress_web_w8.md](bench/results/stress_web_w8.md)。
+- **CI 前端 job**：typecheck（tsc --noEmit）+ vitest + vite build 三关，与 Python 三矩阵并行。
+
+### Changed
+
+- 任务表条目新增 `created_at / source_path / do_fix / do_tests`（列表与详情端点可见）；依赖新增 `python-multipart`（multipart 上传运行时必需）。
+- 任务列表 / 删除为**内存态**（进程重启即清空），如实标注，持久化留作后续版本。
+
 ## [0.4.0] - 2026-09-12
 
 Wave 7：赛题合规收口与算法提速。补齐赛题要求的最后一块功能拼图（自动生成重构方案），打通 JS/TS 修复与单测验证闭环，并行/硬链接提速以可选开关落地并附诚实压测对比。合规矩阵 10 项对照的最终状态见 [docs/12 §7](docs/12-Wave7总体方案-赛题合规与提速.md)。

@@ -1,7 +1,7 @@
 # CodeAudit Agent 常用任务（Windows Git Bash / macOS / Linux 通用）
 # 注意：本文件必须使用 tab 缩进。
 
-.PHONY: install test lint demo serve clean
+.PHONY: install test lint demo serve web clean
 
 ## 安装可编辑模式 + 开发依赖（pytest 等）
 install:
@@ -19,9 +19,13 @@ lint:
 demo:
 	python demo/run_demo.py
 
-## 启动 Web 服务（REST API + SSE 进度 + 演示页），浏览器打开 http://127.0.0.1:8000
+## 启动 Web 服务（REST API + SSE 进度 + 审计工作台/演示页），浏览器打开 http://127.0.0.1:8000
 serve:
 	python cli.py serve --host 127.0.0.1 --port 8000
+
+## 构建审计工作台（React SPA）到 frontend/dist；serve 检测到 dist 时优先托管（需 node ≥ 18）
+web:
+	cd frontend && npm install && npm run build
 
 ## 清理演示工作区与本地缓存（不动源码）
 clean:

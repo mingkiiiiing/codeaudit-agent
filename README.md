@@ -27,7 +27,7 @@ python demo/run_demo.py          # 或 make demo
 - **修复闭环**：对 critical / high 问题生成 unified diff，`git apply --check` 后在沙箱中重解析语法、运行项目现有测试，只有验证通过的 Patch 才标记 `verified`，其余回退 `needs-review`，不阻断流程。0.4.0 起 **JavaScript / TypeScript 同样进入修复与单测验证闭环**（`node --check` 语法验证 + `node --test` 单测验证，node 不可用时诚实降级标注）。
 - **单测生成**：对已验证 Patch 涉及的目标函数生成 pytest 用例，沙箱运行，失败带 traceback 重试（≤2 次），仍失败则剔除；生成文件只写入 `<src>/tests/generated/`，可整目录删除。
 - **重构方案生成器**（0.4.0）：确定性启发式 + LLM 增强双层——确定性层零 LLM 可出（长函数分解、重复代码聚类、热点模块拆分、循环依赖提示，从已有索引与规则命中聚合），LLM 层深化每条方案的理由与步骤（未配置 Key 安全降级）；审计报告新增**「重构方案」章节**，逐条给出目标 / 类型 / 理由 / 落地步骤。
-- **三端入口**：CLI（`run / index / report / serve`）、REST API（异步任务 + SSE 进度）、单文件 Web 演示页（任务创建、阶段进度、健康分仪表盘、问题过滤与详情、Patch diff 视图）。输出 JSON + Markdown + HTML 三种报告。
+- **四端入口**（0.5.0）：CLI（`run / index / report / serve`）、REST API（异步任务 + SSE 进度 + 契约 v2：任务列表 / 删除 / zip 上传 / 重构方案 / 架构理解）、**React 审计工作台**（`frontend/`：仪表盘任务列表、zip 拖拽上传、七阶段 SSE 进度、健康分与严重度图表、问题过滤与详情、Patch diff、重构方案，构建产物由 `serve` 直接托管）、单文件 Web 演示页（零构建回退入口）。输出 JSON + Markdown + HTML 三种报告。
 - **CI 集成**（0.2.0）：`--format sarif` 生成 SARIF 2.1.0 报告，可上传 GitHub Security tab；`--check --fail-on` 把审计结果变成 PR 硬门禁；`--diff` 增量审计 + 基线抑制，实现「存量豁免、增量把关」。
 - **工程约束**：文件级并发、token 预算熔断、增量缓存；单阶段失败只记入报告不中断审计；支持 Python / JavaScript / TypeScript。
 
@@ -37,7 +37,7 @@ python demo/run_demo.py          # 或 make demo
 flowchart TB
     CLI["CLI（cli.py）"] --> ORCH
     API["REST API（server/app.py）"] --> ORCH
-    WEB["Web 演示页（web/index.html）"] --> ORCH
+    WEB["Web 前端（frontend/ React 工作台 · web/ 单文件演示页）"] --> API
 
     subgraph ORCH["七阶段流水线（audit/orchestrator）"]
         direction TB
@@ -117,6 +117,7 @@ make test      # python -m pytest tests -q
 make lint      # ruff check .
 make demo      # python demo/run_demo.py（离线全闭环演示）
 make serve     # python cli.py serve（Web 服务模式）
+make web       # cd frontend && npm install && npm run build（审计工作台构建）
 ```
 
 ### CLI
@@ -160,11 +161,14 @@ python cli.py report ./reports/report.json --format html --out ./reports/report.
 | `--baseline <file>` / `--report-baseline <file>` | 加载 / 生成存量问题基线，命中指纹的问题被抑制并计入 `stats.suppressed` |
 | `--config <file>` | 显式配置文件；缺省自动发现 `.codeaudit.toml` / `pyproject.toml [tool.codeaudit]` |
 
-### REST API 与 Web 演示页
+### Web 工作台与 REST API
 
 ```bash
-python cli.py serve --host 127.0.0.1 --port 8000     # 浏览器打开 http://127.0.0.1:8000
+cd frontend && npm install && npm run build    # 构建审计工作台到 frontend/dist（node ≥ 18）
+python cli.py serve --host 127.0.0.1 --port 8000   # 浏览器打开 http://127.0.0.1:8000 即工作台
 ```
+
+开发态热更新：`cd frontend && npm run dev`（Vite 5173 端口，`/api` 代理到 8000 的后端）。`frontend/dist` 不存在时 `serve` 自动回退到零依赖单文件演示页（`web/index.html`）；工作台与演示页能力对齐，工作台更完整（任务列表 / zip 上传 / 重构方案 / 架构理解）。
 
 ```bash
 # 创建任务（异步），返回 audit_id
@@ -185,6 +189,14 @@ curl -s "http://127.0.0.1:8000/api/audits/<audit_id>/report?format=md"
 curl -s http://127.0.0.1:8000/api/audits/<audit_id>/summary
 curl -s "http://127.0.0.1:8000/api/audits/<audit_id>/issues?severity=high&category=bug&limit=20&offset=0"
 curl -s http://127.0.0.1:8000/api/audits/<audit_id>/patches
+
+# 契约 v2（0.5.0）：健康检查 / 任务列表 / zip 上传 / 删除 / 重构方案 / 架构理解
+curl -s http://127.0.0.1:8000/api/health
+curl -s "http://127.0.0.1:8000/api/audits?limit=20"
+curl -s -X POST -F "file=@my-project.zip" -F "do_fix=false" http://127.0.0.1:8000/api/audits/upload
+curl -s -X DELETE http://127.0.0.1:8000/api/audits/<audit_id>
+curl -s http://127.0.0.1:8000/api/audits/<audit_id>/refactors
+curl -s http://127.0.0.1:8000/api/audits/<audit_id>/understand
 ```
 
 | 端点 | 说明 |
@@ -328,14 +340,15 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 │   ├── sandbox/            # subprocess 沙箱：超时、资源限制
 │   ├── config.py           # AuditConfig（环境变量 + 覆盖）
 │   └── models.py           # AuditReport / Issue / Patch / TestCase 等数据模型
-├── server/app.py           # FastAPI：异步任务、SSE、报告与仪表盘 API
-├── web/index.html          # 单文件演示前端（零依赖）
+├── server/app.py           # FastAPI：异步任务、SSE、契约 v2 API、SPA 托管
+├── frontend/               # React 审计工作台（Vite + TS + antd + ECharts；npm run build → dist/ 由 serve 托管）
+├── web/index.html          # 单文件演示前端（零依赖回退入口）
 ├── cli.py                  # 命令行入口：run / index / report / serve
 ├── bench/                  # Benchmark：金标构建、匹配、指标、消融、真跑（bench/run.py）与压测（bench/stress/）
 ├── scripts/                # 构建与 CI 辅助脚本（打包就绪自检 check_build.py 等）
 ├── demo/                   # 离线全闭环演示：run_demo.py + mini_app 靶项目（见 demo/README.md）
 ├── tests/                  # 单元测试（tests/unit/**）、联调测试（tests/integration/**）与样例工程（tests/samples/demo_proj）
-├── docs/                   # 设计文档 00~12
+├── docs/                   # 设计文档 00~13（13 为 Wave 8 Web 前后端方案）
 ├── docs-site/              # 文档站自有页面：首页 / CLI 速查 / 规则手册 / SARIF / PR 实践 / Roadmap（+ 构建镜像脚本）
 ├── mkdocs.yml              # 文档站配置（mkdocs-material，见 requirements-docs.txt）
 ├── .github/                # CI / Release / Docs 工作流、issue 与 PR 模板、CODEOWNERS、Dependabot

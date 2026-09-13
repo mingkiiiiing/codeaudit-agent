@@ -32,3 +32,7 @@ ci_jobs*.json
 site/
 r1outer/
 r1test/
+
+# W8：GUI 黑盒测试截图（联调验收证据，本地留存不入库）
+gui-test-screenshots/
+frontend/dist/
