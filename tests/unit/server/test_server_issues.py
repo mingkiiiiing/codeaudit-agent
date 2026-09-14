@@ -1,6 +1,7 @@
 """W2-A6 新端点自测：/issues 过滤分页、/patches、/summary 与 404/400 一致性。
 
-直接向共享任务表 AUDITS 注入"已完成"任务（不触发流水线），零网络。
+直接向注入的 TaskStore（conftest autouse store fixture）预置"已完成/运行中"任务
+（不触发流水线，经 seed_task 工厂落库），零网络。W11 适配：AUDITS 内存表 → store。
 """
 
 from __future__ import annotations
@@ -57,17 +58,11 @@ def _make_report() -> AuditReport:
 
 
 @pytest.fixture(autouse=True)
-def seeded_audits():
-    """每个用例前注入 1 个已完成 + 1 个运行中的任务，用例后清空。"""
-    server_app.AUDITS.clear()
-    server_app.AUDITS[DONE_ID] = {
-        "status": "done", "report": _make_report(), "events": [], "error": None, "config": None,
-    }
-    server_app.AUDITS[RUNNING_ID] = {
-        "status": "running", "report": None, "events": [], "error": None, "config": None,
-    }
+def seeded_audits(seed_task):
+    """每个用例前注入 1 个已完成 + 1 个运行中的任务（W11：经 store 落库）。"""
+    seed_task(DONE_ID, status="done", report=_make_report(), created_at="2026-01-01T00:00:01+08:00")
+    seed_task(RUNNING_ID, status="running", created_at="2026-01-01T00:00:02+08:00")
     yield
-    server_app.AUDITS.clear()
 
 
 @pytest.fixture

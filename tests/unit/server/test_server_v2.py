@@ -1,14 +1,16 @@
 """W8-A1 API 契约 v2.0 增量端点自测：health、任务列表、zip 上传、DELETE、
 understand、refactors、SPA 托管与 CORS。
 
-风格对齐既有测试：假流水线注入（monkeypatch server.app.run_audit）、直接注入
-共享任务表、零网络；上传用 zipfile 真造小 zip 并重定向 work_root 到 tmp_path。
+风格对齐既有测试：假流水线注入（monkeypatch server.app.run_audit）、经 conftest
+seed_task 工厂向注入的 TaskStore 预置任务（W11 适配：AUDITS 内存表 → store）、
+零网络；上传用 zipfile 真造小 zip 并重定向 work_root 到 tmp_path。需要等待任务
+完成/挂起的用例以上下文管理器持有 TestClient（跨请求存活的 portal）。
 """
 
 from __future__ import annotations
 
-import asyncio
 import io
+import threading
 import time
 import zipfile
 
@@ -16,7 +18,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from audit import __version__
-from audit.config import AuditConfig
 from audit.models import (
     ArchitectureCard,
     AuditReport,
@@ -26,14 +27,6 @@ from audit.models import (
     Severity,
 )
 from server import app as server_app
-
-
-@pytest.fixture(autouse=True)
-def clean_audits():
-    """每个用例前后清空共享任务表，避免串扰。"""
-    server_app.AUDITS.clear()
-    yield
-    server_app.AUDITS.clear()
 
 
 @pytest.fixture
@@ -67,19 +60,6 @@ def fake_pipeline(monkeypatch):
 
 
 @pytest.fixture
-def work_root_tmp(monkeypatch, tmp_path):
-    """把 from_env 的 work_root 重定向到 tmp_path，上传落盘不污染仓库工作区。"""
-    real_from_env = AuditConfig.from_env.__func__
-
-    def patched(cls, source_path=None, **overrides):
-        overrides.setdefault("work_root", str(tmp_path))
-        return real_from_env(cls, source_path=source_path, **overrides)
-
-    monkeypatch.setattr(AuditConfig, "from_env", classmethod(patched))
-    return tmp_path
-
-
-@pytest.fixture
 def client() -> TestClient:
     return TestClient(server_app.create_app())
 
@@ -96,13 +76,16 @@ def _wait_status(client: TestClient, audit_id: str, status: str, timeout: float 
 
 
 def _wait_running(audit_id: str, timeout: float = 5.0) -> dict:
+    """条件等待注入 store 中某任务进入 running（轮询 0.02s，非固定 sleep 同步）。"""
+    store = server_app._get_store()
     deadline = time.time() + timeout
+    entry: dict | None = None
     while time.time() < deadline:
-        entry = server_app.AUDITS.get(audit_id)
+        entry = store.get(audit_id)
         if entry and entry["status"] == "running":
             return entry
         time.sleep(0.02)
-    raise AssertionError(f"任务未进入 running，当前表：{server_app.AUDITS.get(audit_id)}")
+    raise AssertionError(f"任务未进入 running，当前行：{entry}")
 
 
 def _make_zip_bytes(content: str = "x = 1\n") -> bytes:
@@ -110,14 +93,6 @@ def _make_zip_bytes(content: str = "x = 1\n") -> bytes:
     with zipfile.ZipFile(buf, "w") as zf:
         zf.writestr("mini_app/main.py", content)
     return buf.getvalue()
-
-
-def _done_entry(report: AuditReport | None) -> dict:
-    return {"status": "done", "report": report, "events": [], "error": None, "config": None}
-
-
-def _running_entry() -> dict:
-    return {"status": "running", "report": None, "events": [], "error": None, "config": None}
 
 
 def _minimal_report(audit_id: str = "v2rep01") -> AuditReport:
@@ -145,10 +120,12 @@ def test_health_empty_table(client):
     }
 
 
-def test_health_counts_active_and_total(client):
-    server_app.AUDITS["run1"] = _running_entry()
-    server_app.AUDITS["queue1"] = {"status": "queued", "report": None, "events": [], "error": None}
-    server_app.AUDITS["done1"] = _done_entry(None)
+def test_health_counts_active_and_total(seed_task):
+    """active 口径 = store 非终态计数（W11 起持久化，多 worker 下即全局计数）。"""
+    seed_task("run1", status="running", created_at="2026-01-01T00:00:01+08:00")
+    seed_task("queue1", status="queued", created_at="2026-01-01T00:00:02+08:00")
+    seed_task("done1", status="done", created_at="2026-01-01T00:00:03+08:00")
+    client = TestClient(server_app.create_app())
     data = client.get("/api/health").json()
     assert data["audits"] == {"active": 2, "total": 3}
 
@@ -160,31 +137,35 @@ def test_list_audits_empty(client):
     assert client.get("/api/audits").json() == {"total": 0, "audits": []}
 
 
-def test_list_audits_newest_first_with_pagination(fake_pipeline, client, tmp_path):
-    id1 = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
-    id2 = client.post("/api/audits", json={"source_path": str(__file__)}).json()["audit_id"]
+def test_list_audits_newest_first_with_pagination(fake_pipeline, tmp_path):
+    with TestClient(server_app.create_app()) as client:
+        id1 = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
+        id2 = client.post("/api/audits", json={"source_path": str(__file__)}).json()["audit_id"]
+        # 等两个任务都落终态再断言列表状态（条件等待，无固定 sleep）
+        _wait_status(client, id1, "done")
+        _wait_status(client, id2, "done")
 
-    data = client.get("/api/audits").json()
-    assert data["total"] == 2
-    assert [a["audit_id"] for a in data["audits"]] == [id2, id1]  # 新→旧
-    item = data["audits"][0]
-    assert set(item) == {
-        "audit_id",
-        "status",
-        "created_at",
-        "source_path",
-        "do_fix",
-        "do_tests",
-        "error",
-    }
-    assert "task" not in item and "config" not in item and "events" not in item
-    assert item["created_at"]  # ISO 串非空
-    assert item["status"] == "done" and item["error"] is None
+        data = client.get("/api/audits").json()
+        assert data["total"] == 2
+        assert [a["audit_id"] for a in data["audits"]] == [id2, id1]  # 新→旧
+        item = data["audits"][0]
+        assert set(item) == {
+            "audit_id",
+            "status",
+            "created_at",
+            "source_path",
+            "do_fix",
+            "do_tests",
+            "error",
+        }
+        assert "task" not in item and "config" not in item and "config_json" not in item
+        assert item["created_at"]  # ISO 串非空
+        assert item["status"] == "done" and item["error"] is None
 
-    # 分页：limit=1&offset=1 取到较旧的 id1，total 不变
-    page = client.get("/api/audits", params={"limit": 1, "offset": 1}).json()
-    assert page["total"] == 2
-    assert [a["audit_id"] for a in page["audits"]] == [id1]
+        # 分页：limit=1&offset=1 取到较旧的 id1，total 不变
+        page = client.get("/api/audits", params={"limit": 1, "offset": 1}).json()
+        assert page["total"] == 2
+        assert [a["audit_id"] for a in page["audits"]] == [id1]
 
 
 def test_list_audits_invalid_pagination_returns_400(client):
@@ -196,45 +177,47 @@ def test_list_audits_invalid_pagination_returns_400(client):
 # ---------------------------------------------------------------- GET /api/audits/{id} 增补字段
 
 
-def test_get_audit_detail_includes_v2_fields(fake_pipeline, client, tmp_path):
-    audit_id = client.post(
-        "/api/audits", json={"source_path": str(tmp_path), "do_fix": True, "do_tests": True}
-    ).json()["audit_id"]
-    data = _wait_status(client, audit_id, "done")
-    assert data["created_at"] and "T" in data["created_at"]
-    assert data["source_path"] == str(tmp_path)
-    assert data["do_fix"] is True
-    assert data["do_tests"] is True
-    assert "task" not in data  # 内部键不得泄漏
+def test_get_audit_detail_includes_v2_fields(fake_pipeline, tmp_path):
+    with TestClient(server_app.create_app()) as client:
+        audit_id = client.post(
+            "/api/audits", json={"source_path": str(tmp_path), "do_fix": True, "do_tests": True}
+        ).json()["audit_id"]
+        data = _wait_status(client, audit_id, "done")
+        assert data["created_at"] and "T" in data["created_at"]
+        assert data["source_path"] == str(tmp_path)
+        assert data["do_fix"] is True
+        assert data["do_tests"] is True
+        assert "task" not in data  # 内部键不得泄漏
 
 
 # ---------------------------------------------------------------- POST /api/audits/upload
 
 
-def test_upload_zip_creates_audit_and_persists_file(fake_pipeline, work_root_tmp, client):
+def test_upload_zip_creates_audit_and_persists_file(fake_pipeline, work_root_tmp, tmp_path):
     zip_bytes = _make_zip_bytes()
-    resp = client.post(
-        "/api/audits/upload",
-        files={"file": ("src.zip", zip_bytes, "application/zip")},
-        data={"do_fix": "true"},
-    )
-    assert resp.status_code == 200
-    audit_id = resp.json()["audit_id"]
-    assert audit_id
+    with TestClient(server_app.create_app()) as client:
+        resp = client.post(
+            "/api/audits/upload",
+            files={"file": ("src.zip", zip_bytes, "application/zip")},
+            data={"do_fix": "true"},
+        )
+        assert resp.status_code == 200
+        audit_id = resp.json()["audit_id"]
+        assert audit_id
 
-    # 落盘 <work_root>/uploads/<audit_id>.zip
-    stored = work_root_tmp / "uploads" / f"{audit_id}.zip"
-    assert stored.is_file()
-    assert stored.read_bytes() == zip_bytes
+        # 落盘 <work_root>/uploads/<audit_id>.zip
+        stored = work_root_tmp / "uploads" / f"{audit_id}.zip"
+        assert stored.is_file()
+        assert stored.read_bytes() == zip_bytes
 
-    # 假流水线收到的 config 指向落盘 zip，开关透传
-    data = _wait_status(client, audit_id, "done")
-    config = fake_pipeline[0]
-    assert config.source_path == str(stored)
-    assert config.do_fix is True and config.do_tests is False
-    assert data["source_path"] == str(stored)
-    entry = server_app.AUDITS[audit_id]
-    assert entry["do_fix"] is True and entry["created_at"]
+        # 假流水线收到的 config 指向落盘 zip，开关透传
+        data = _wait_status(client, audit_id, "done")
+        config = fake_pipeline[0]
+        assert config.source_path == str(stored)
+        assert config.do_fix is True and config.do_tests is False
+        assert data["source_path"] == str(stored)
+        entry = server_app._get_store().get(audit_id)
+        assert entry["do_fix"] is True and entry["created_at"]
 
 
 def test_upload_rejects_non_zip_extension(client):
@@ -273,56 +256,88 @@ def test_delete_unknown_returns_404(client):
     assert resp.json()["detail"] == "任务不存在：no-such-id"
 
 
-def test_delete_done_returns_204_and_removes_entry(fake_pipeline, client, tmp_path):
-    audit_id = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()["audit_id"]
-    _wait_status(client, audit_id, "done")
-    resp = client.delete(f"/api/audits/{audit_id}")
-    assert resp.status_code == 204
-    assert audit_id not in server_app.AUDITS
-    assert client.get(f"/api/audits/{audit_id}").status_code == 404
-    # 再删一次：已不存在 → 404
-    assert client.delete(f"/api/audits/{audit_id}").status_code == 404
-
-
-def test_delete_running_cancels_task_and_lands_failed(monkeypatch, tmp_path):
-    async def never_finish(config, emitter):
-        await asyncio.Event().wait()  # 永久等待，直到被取消
-
-    monkeypatch.setattr(server_app, "run_audit", never_finish)
-    # 以上下文管理器持有一个跨请求存活的 portal：否则每个请求各自起停事件循环，
-    # POST 返回时挂起的后台任务就会被清理取消，无法构造"运行中"前置状态。
+def test_delete_done_returns_204_and_removes_entry(fake_pipeline, tmp_path):
     with TestClient(server_app.create_app()) as client:
-        audit_id = client.post(
-            "/api/audits", json={"source_path": str(tmp_path)}
-        ).json()["audit_id"]
+        audit_id = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()[
+            "audit_id"
+        ]
+        _wait_status(client, audit_id, "done")
+        resp = client.delete(f"/api/audits/{audit_id}")
+        assert resp.status_code == 204
+        assert server_app._get_store().get(audit_id) is None
+        assert client.get(f"/api/audits/{audit_id}").status_code == 404
+        # 再删一次：已不存在 → 404
+        assert client.delete(f"/api/audits/{audit_id}").status_code == 404
+
+
+def test_delete_running_cooperatively_cancels_and_removes_entry(store, monkeypatch, tmp_path):
+    """W11 协作式取消：DELETE 移除表行即取消信号（不再 cancel 外层 task）。
+
+    假流水线 emit 一个事件后挂起在 threading.Event 上：DELETE（204）后行消失；
+    放行 → 下一个 emitter 事件边界 is_cancelled → CancelledError 兜底落 failed
+    （行已删，set_status 幽灵静默）→ 任务表无该行、无 running 残留、全部端点 404。
+    """
+    release = threading.Event()
+    thread_hit_boundary = threading.Event()
+
+    async def hang_after_emit(config, emitter):
+        try:
+            await emitter({"type": "progress", "stage": "ingest", "message": "挂起前"})
+            release.wait(timeout=10)  # 任务线程内可控挂起
+            await emitter({"type": "progress", "stage": "detect", "message": "取消后不应写入"})
+        finally:
+            thread_hit_boundary.set()  # 抵达取消边界（正常返回或 CancelledError 均置位）
+
+    monkeypatch.setattr(server_app, "run_audit", hang_after_emit)
+    with TestClient(server_app.create_app()) as client:
+        audit_id = client.post("/api/audits", json={"source_path": str(tmp_path)}).json()[
+            "audit_id"
+        ]
         entry = _wait_running(audit_id)
-        task = entry["task"]
-        assert task is not None
+        assert entry["status"] == "running"
+        # 条件等待第一段事件落库（running 置位与 emitter 首写之间无线程时序保证）
+        deadline = time.time() + 10
+        stages: list = []
+        while time.time() < deadline:
+            stages = [e.get("stage") for _seq, e in store.get_events(audit_id)]
+            if stages:
+                break
+            time.sleep(0.02)
+        assert stages == ["ingest"]
 
         resp = client.delete(f"/api/audits/{audit_id}")
         assert resp.status_code == 204
-        assert audit_id not in server_app.AUDITS  # 条目已移除
-        # 被移除的条目（以引用观察）落 failed + 取消 error，且不被取消异常回写覆盖
-        assert entry["status"] == "failed"
-        assert entry["error"] == "任务已取消"
-        # 后台任务确实被取消
-        deadline = time.time() + 5
-        while not task.done() and time.time() < deadline:
+        assert store.get(audit_id) is None  # 行消失即取消信号
+
+        release.set()
+        assert thread_hit_boundary.wait(timeout=10)  # 线程抵达下一个事件边界
+        # 等外层 task 完成（= to_thread 返回 = 幽灵回写已发生），句柄被 done callback 清理
+        deadline = time.time() + 10
+        while audit_id in server_app._RUNNING and time.time() < deadline:
             time.sleep(0.02)
-        assert task.cancelled() is True
+        assert audit_id not in server_app._RUNNING
+        # 取消路径的 failed 回写被幽灵静默：任务表保持无该行
+        assert store.get(audit_id) is None
+        assert store.get_events(audit_id) == []
+        # 删除后全部端点 404（SSE 收流语义：表项已不在）
+        assert client.get(f"/api/audits/{audit_id}").status_code == 404
+        assert client.get(f"/api/audits/{audit_id}/events").status_code == 404
+        assert client.get(f"/api/audits/{audit_id}/report").status_code == 404
+        assert client.delete(f"/api/audits/{audit_id}").status_code == 404
 
 
 # ---------------------------------------------------------------- /understand
 
 
-def test_understand_none_when_no_architecture(client):
-    server_app.AUDITS["und1"] = _done_entry(_minimal_report())
+def test_understand_none_when_no_architecture(seed_task):
+    seed_task("und1", status="done", report=_minimal_report())
+    client = TestClient(server_app.create_app())
     resp = client.get("/api/audits/und1/understand")
     assert resp.status_code == 200
     assert resp.json() == {"architecture": None}
 
 
-def test_understand_returns_card_dict(client):
+def test_understand_returns_card_dict(seed_task):
     card = ArchitectureCard(
         text="分层架构",
         tech_stack=["python"],
@@ -331,7 +346,8 @@ def test_understand_returns_card_dict(client):
     )
     report = _minimal_report()
     report.architecture = card
-    server_app.AUDITS["und2"] = _done_entry(report)
+    seed_task("und2", status="done", report=report)
+    client = TestClient(server_app.create_app())
     data = client.get("/api/audits/und2/understand").json()
     assert data["architecture"] == {
         "text": "分层架构",
@@ -342,11 +358,11 @@ def test_understand_returns_card_dict(client):
 
 
 @pytest.mark.parametrize("suffix", ["understand", "refactors"])
-def test_understand_refactors_404_semantics(client, suffix):
+def test_understand_refactors_404_semantics(client, seed_task, suffix):
     resp = client.get(f"/api/audits/no-such-id/{suffix}")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "任务不存在：no-such-id"
-    server_app.AUDITS["runn1"] = _running_entry()
+    seed_task("runn1", status="running", created_at="2026-01-01T00:00:02+08:00")
     resp = client.get(f"/api/audits/runn1/{suffix}")
     assert resp.status_code == 404
     assert resp.json()["detail"] == "任务未完成：running"
@@ -355,7 +371,7 @@ def test_understand_refactors_404_semantics(client, suffix):
 # ---------------------------------------------------------------- /refactors
 
 
-def test_refactors_lists_proposals_with_contract_fields(client):
+def test_refactors_lists_proposals_with_contract_fields(seed_task):
     p1 = RefactorProposal(
         id="RF-0001",
         title="拆分长函数",
@@ -371,8 +387,9 @@ def test_refactors_lists_proposals_with_contract_fields(client):
     p2 = RefactorProposal(id="RF-0002", title="去重", confidence=0.5)
     report = _minimal_report()
     report.refactor_proposals = [p1, p2]
-    server_app.AUDITS["ref1"] = _done_entry(report)
+    seed_task("ref1", status="done", report=report)
 
+    client = TestClient(server_app.create_app())
     resp = client.get("/api/audits/ref1/refactors")
     assert resp.status_code == 200
     data = resp.json()

@@ -1,17 +1,27 @@
-"""FastAPI 服务：创建/查询/取消删除审计任务、SSE 事件流、报告下载、SPA 托管与演示页回退。
+"""FastAPI 服务：创建/查询/删除审计任务、SSE 事件流、报告下载、SPA 托管与演示页回退。
 
-内存任务表 AUDITS: dict[audit_id -> {status, report, events, error, created_at,
-source_path, do_fix, do_tests, task, config}]（payload 组装只取白名单键，task 不外泄）。
-后台任务通过 asyncio.create_task 执行 audit.orchestrator.pipeline.run_audit；
-模块级引用 run_audit 便于测试注入假流水线（monkeypatch.setattr(server.app, "run_audit", ...)）。
-服务治理（契约 v2.1）：后台任务经模块级 _RUN_GATE 信号量排队执行（超出的停留 queued），
-非终态任务总数达 _MAX_PENDING_AUDITS 时新建任务返回 429；上传按 256 KB 分块流式落盘，
-超限立即 413 并停止读取（不再整包缓冲进内存）。
+W11 形态演进（契约 docs/16 §1.1/§1.2）：任务表由内存 AUDITS dict 迁移为 TaskStore
+（SQLite WAL，audit/taskstore.py）——服务重启后终态任务与报告仍可查询下载，启动
+（lifespan）时 sweep_interrupted 把遗留 queued/running 置 failed（服务重启中断）；
+审计任务经 asyncio.to_thread 在独立线程执行（线程内 asyncio.run(run_audit(...))，每任务
+独立事件循环，CPU 密集段不再饿死服务循环）；DELETE 改为协作式取消——移除表行即取消
+信号，任务线程在 emitter 事件边界发现 is_cancelled（行已删除/取消标志置位）即抛
+CancelledError，由 BaseException 兜底落 failed（行已被删则幽灵静默）。
+模块级 _STORE 惰性初始化：db 路径 env CODEAUDIT_DB_PATH 优先，否则 <work_root>/audits.db；
+测试经 monkeypatch.setattr(server.app, "_STORE", TaskStore(...)) 注入。模块级引用
+run_audit 便于测试注入假流水线（任务线程内经模块属性延迟取用，monkeypatch 同样生效）。
+服务治理（契约 v2.1/v2.2）：后台任务经模块级 _RUN_GATE 信号量排队执行（per-worker，
+超出的停留既有 queued 状态；多 worker 全局上限 = workers × gate 容量）；429 准入改走
+store.count_active()（多 worker 下即全局计数）；FIFO 容量淘汰经 store.prune(_AUDITS_MAX)
+只淘汰终态；SSE 轮询改从 store 按 seq 游标读取（回放/跟随语义不变）；上传按 256 KB
+分块流式落盘，超限立即 413 并停止读取（不再整包缓冲进内存）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import dataclasses
 import json
 import os
 import zipfile
@@ -36,6 +46,7 @@ from audit.config import AuditConfig
 from audit.models import AuditReport, Category, Severity
 from audit.orchestrator.pipeline import run_audit  # noqa: F401 —— 模块级引用，供测试注入替身
 from audit.report.render import render_html, render_markdown
+from audit.taskstore import TaskStore
 from audit.utils import new_audit_id
 
 # 项目根目录（web/ 静态演示页所在）
@@ -64,25 +75,31 @@ def _int_from_env(name: str, default: int, minimum: int) -> int:
 
 
 # F5 准入控制上限（模块级常量，便于测试 monkeypatch；运行时按模块全局读取）：
-# - 同时运行中的任务上限（后台任务经 _RUN_GATE 排队，超出的停留既有 queued 状态）；
-# - 非终态（queued+running）任务总数上限，达到后 POST 建任务返回 429。
+# - 同时运行中的任务上限（后台任务经 _RUN_GATE 排队，超出的停留既有 queued 状态；
+#   per-worker 口径，多 worker 下全局并发上限 = workers × 该值，契约 docs/16 §1.2）；
+# - 非终态（queued+running）任务总数上限，达到后 POST 建任务返回 429
+#   （W11 起经 store 计数，多 worker 下即全局准确）。
 _MAX_RUNNING_AUDITS = _int_from_env("CODEAUDIT_MAX_RUNNING", 4, minimum=1)
 _MAX_PENDING_AUDITS = _int_from_env("CODEAUDIT_MAX_PENDING", 20, minimum=_MAX_RUNNING_AUDITS)
 
-# 运行闸门（模块级全局，与 _TASKS 同层；create_app 每次建实例但任务表模块级共享，
+# 运行闸门（模块级全局，与 _TASKS/_RUNNING 同层；create_app 每次建实例但闸门模块级共享，
 # gate 亦同）。容量在创建时固化，测试排队语义可直接 monkeypatch 替换为新 Semaphore。
 _RUN_GATE = asyncio.Semaphore(_MAX_RUNNING_AUDITS)
 
-# 内存任务表：{audit_id: {"status": queued|running|done|failed, "report": AuditReport|None,
-#                         "events": list[dict], "error": str|None, "config": AuditConfig,
-#                         "created_at": ISO 串, "source_path": str, "do_fix": bool,
-#                         "do_tests": bool, "task": asyncio.Task|None}}
-AUDITS: dict[str, dict[str, Any]] = {}
+# 持久化任务存储（W11 §1.1）：惰性初始化（见 _get_store）；
+# 测试经 monkeypatch.setattr(server.app, "_STORE", TaskStore(...)) 注入替身实例。
+_STORE: TaskStore | None = None
 
 _TERMINAL_STATUSES = ("done", "failed")
 
-# 任务表上限（R1-6）：超过时在新建任务后按插入序淘汰最旧的终态项（FIFO 容量淘汰）
+# 任务表容量上限（R1-6）：新建任务后经 store.prune 淘汰最旧的终态行（FIFO 容量淘汰，
+# 只淘汰 done/failed，queued/running 不受影响——语义与内存表时代一致）
 _AUDITS_MAX = 50
+
+# 本 worker 的运行句柄：{audit_id: asyncio.Task}（W11 sticky 执行模型下本机任务登记，
+# 替代内存表时代的 entry["task"]；DELETE 不再 cancel 外层 task——cancel 杀不掉线程
+# 反而破坏协作取消语义，见 delete_audit 与 _run_audit_sync）。
+_RUNNING: dict[str, asyncio.Task] = {}
 
 # 后台任务引用（R1-7）：create_task 只返回弱引用，必须由本集合持有，
 # 任务结束的 done callback 中 discard，防止被 GC 中途回收。
@@ -94,6 +111,21 @@ _CATEGORY_VALUES = {c.value for c in Category}
 _DEFAULT_ISSUES_LIMIT = 50
 
 
+def _get_store() -> TaskStore:
+    """返回模块级任务存储（惰性初始化，进程一个实例）。
+
+    db 路径：env CODEAUDIT_DB_PATH 优先，否则 <work_root>/audits.db（work_root 取
+    AuditConfig.from_env().work_root，与上传/报告目录同一基座）。
+    """
+    global _STORE
+    if _STORE is None:
+        db_path = os.environ.get("CODEAUDIT_DB_PATH")
+        if not db_path:
+            db_path = str(Path(AuditConfig.from_env().work_root) / "audits.db")
+        _STORE = TaskStore(db_path)
+    return _STORE
+
+
 def _sev_str(severity: Any) -> str:
     return severity.value if isinstance(severity, Severity) else str(severity)
 
@@ -102,25 +134,24 @@ def _cat_str(category: Any) -> str:
     return category.value if isinstance(category, Category) else str(category)
 
 
-def _require_done_report(audit_id: str) -> tuple[dict[str, Any], AuditReport]:
+def _require_done_report(audit_id: str) -> AuditReport:
     """按既有 404 语义取已完成任务的报告：任务不存在 / 任务未完成。"""
-    entry = AUDITS.get(audit_id)
+    store = _get_store()
+    entry = store.get(audit_id)
     if entry is None:
         raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
-    report: AuditReport | None = entry["report"]
+    report = store.get_report(audit_id)
     if entry["status"] != "done" or report is None:
         raise HTTPException(status_code=404, detail=f"任务未完成：{entry['status']}")
-    return entry, report
-
-
-def _count_active_audits() -> int:
-    """统计非终态（queued+running）任务数（F5 准入判断与 /api/health 同一口径）。"""
-    return sum(1 for e in AUDITS.values() if e.get("status") not in _TERMINAL_STATUSES)
+    return report
 
 
 def _ensure_pending_capacity() -> None:
-    """F5 准入检查：非终态任务数达到上限时拒绝新建任务（429），不落任何表项或文件。"""
-    if _count_active_audits() >= _MAX_PENDING_AUDITS:
+    """F5 准入检查：非终态任务数达到上限时拒绝新建任务（429），不落任何表项或文件。
+
+    W11 起计数走 store.count_active()——多 worker 下即全局非终态任务数（契约 §1.2）。
+    """
+    if _get_store().count_active() >= _MAX_PENDING_AUDITS:
         raise HTTPException(
             status_code=429,
             detail=f"服务器并发审计数已达上限（{_MAX_PENDING_AUDITS}），请稍后重试",
@@ -135,113 +166,121 @@ class CreateAuditRequest(BaseModel):
     do_tests: bool = Field(False, description="是否生成单测（Wave 2）")
 
 
-def _emitter_for(events: list[dict[str, Any]]):
-    """构造把事件 append 进列表的 EventEmitter。"""
+def _wrapped_emitter(store: TaskStore, audit_id: str):
+    """构造任务工作线程内的事件发射器：事件边界检查协作取消 + 事件落库。
+
+    表项已被 DELETE 删除（或取消标志置位）时 is_cancelled 为 True → 抛
+    CancelledError，由 _run_audit_sync 的 BaseException 兜底落终态
+    （行已被删则 set_status 幽灵静默）——行消失即取消信号（契约 docs/16 §1.2）。
+    """
 
     async def emitter(event: dict[str, Any]) -> None:
-        events.append(dict(event))
+        if store.is_cancelled(audit_id):
+            raise asyncio.CancelledError()
+        store.append_event(audit_id, dict(event))
 
     return emitter
 
 
-async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
-    """后台执行审计任务：更新 AUDITS[audit_id] 的状态与产物。
+def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
+    """任务工作线程主体（W11 §1.2）：独立事件循环执行流水线，状态与产物落 store。
 
-    R4-9：finally 兜底保证任何异常路径（含 asyncio.CancelledError 等
-    BaseException）都落终态 failed，任务表不残留 running 僵尸项；
-    取消异常记录后原样向外传播（保持取消语义）。
-    F5：进入 running 前先经模块级 _RUN_GATE 排队（超出的任务停留既有
-    queued 状态）；acquire 成功后的全部执行段以 finally 严格配对 release
-    防闸门泄漏——acquire 被 cancel 时未获得闸门，不 release，DELETE 排队
-    任务仍走既有兜底落「任务已取消」。
+    run_audit 经 ``import server.app as _self`` 延迟取模块属性（而非闭包捕获模块级
+    全局），保证测试在任务线程启动后 monkeypatch.setattr(server.app, "run_audit", ...)
+    注入的假流水线同样生效。任何 BaseException（含 emitter 边界的 CancelledError）
+    兜底落 failed——R4-9：任务表不残留 running 僵尸项；行已被 DELETE 删除时
+    set_status 幽灵任务静默，不报错不回写。
     """
-    entry = AUDITS[audit_id]
+    import server.app as _self  # 运行期取模块属性，供测试注入替身（monkeypatch 生效）
+
+    store = _get_store()
+    try:
+        report = asyncio.run(_self.run_audit(config, _wrapped_emitter(store, audit_id)))
+    except BaseException as exc:  # noqa: BLE001 —— CancelledError 等异常路径也必须落终态
+        store.set_status(audit_id, "failed", error=f"{type(exc).__name__}: {exc}")
+        return
+    if report is not None:
+        store.set_report(audit_id, report)
+    store.set_status(audit_id, "done")
+
+
+async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
+    """后台执行审计任务（外层 task）：闸门排队 → 置 running → 线程执行。
+
+    W11 §1.2：审计任务经 asyncio.to_thread 迁到独立线程（线程内独立事件循环，
+    见 _run_audit_sync），服务事件循环不再被 CPU 密集段饿死。_RUN_GATE 语义保留：
+    acquire 在 to_thread 之前于事件循环内 await（超出的任务停留既有 queued 状态）；
+    acquired 标志 + finally 严格配对 release 防闸门泄漏——外层 task 被 cancel 时
+    （含排队中/执行中被取消）release 仍须执行。任务状态与产物的落库全部在
+    _run_audit_sync 内完成（DELETE 竞态由 store 的幽灵静默语义兜底）。
+    """
     acquired = False
     try:
         await _RUN_GATE.acquire()
         acquired = True
-        entry["status"] = "running"
-        report = await run_audit(config, _emitter_for(entry["events"]))
-        entry["report"] = report
-        entry["status"] = "done"
-    except BaseException as exc:  # noqa: BLE001 —— CancelledError 等异常路径也必须落终态
-        if audit_id in AUDITS:
-            # 表项已被 DELETE 移除（取消场景）时不回写，保留 DELETE 置入的 "任务已取消"
-            entry["error"] = f"{type(exc).__name__}: {exc}"
-        raise
+        _get_store().set_status(audit_id, "running")
+        await asyncio.to_thread(_run_audit_sync, audit_id, config)
     finally:
-        if entry["status"] not in _TERMINAL_STATUSES:
-            entry["status"] = "failed"
         if acquired:
             _RUN_GATE.release()
-
-
-def _prune_audits() -> None:
-    """任务表终态清理（R1-6）：超过上限时按插入序淘汰最旧的 done/failed 项。
-
-    只淘汰终态条目；running/queued 任务不受影响。淘汰后 SSE 轮询端
-    （event_stream 中 entry is None → return）自然收流。
-    """
-    if len(AUDITS) <= _AUDITS_MAX:
-        return
-    overflow = len(AUDITS) - _AUDITS_MAX
-    evicted = 0
-    for audit_id, entry in list(AUDITS.items()):
-        if evicted >= overflow:
-            break
-        if entry.get("status") in _TERMINAL_STATUSES:
-            AUDITS.pop(audit_id, None)
-            evicted += 1
-
-
-def _new_task_entry(config: AuditConfig) -> dict[str, Any]:
-    """构造任务表条目：契约 v2.0 新增 created_at/source_path/do_fix/do_tests/task 键。"""
-    return {
-        "status": "queued",
-        "report": None,
-        "events": [],
-        "error": None,
-        "config": config,
-        "created_at": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "source_path": config.source_path,
-        "do_fix": config.do_fix,
-        "do_tests": config.do_tests,
-        # create_task 的引用（便于按任务取消）；payload 组装只取白名单键，不外泄
-        "task": None,
-    }
 
 
 def _start_audit(audit_id: str, config: AuditConfig) -> None:
     """建任务公共流程（POST /api/audits 与 /api/audits/upload 共用）。
 
-    报告目录按任务隔离（R1-30）→ 登记任务表 → 容量淘汰 → 拉起后台流水线任务。
+    报告目录按任务隔离（R1-30）→ 任务行落 store → 容量淘汰（store.prune）→
+    拉起后台任务并登记本 worker 运行句柄（_RUNNING）。
     """
     if not config.out_dir:
         config.out_dir = str(Path(config.work_root) / audit_id / "reports")
-    AUDITS[audit_id] = _new_task_entry(config)
-    _prune_audits()
+    store = _get_store()
+    store.create(
+        audit_id,
+        created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
+        source_path=config.source_path,
+        do_fix=config.do_fix,
+        do_tests=config.do_tests,
+        config_json=json.dumps(dataclasses.asdict(config), ensure_ascii=False),
+    )
+    store.prune(_AUDITS_MAX)
     task = asyncio.create_task(_run_audit_task(audit_id, config))
-    AUDITS[audit_id]["task"] = task
+    _RUNNING[audit_id] = task
     _TASKS.add(task)
-    task.add_done_callback(_TASKS.discard)
+
+    def _on_done(done_task: asyncio.Task) -> None:
+        # R1-7：任务结束释放弱引用集与本 worker 运行句柄，防泄漏
+        _TASKS.discard(done_task)
+        if _RUNNING.get(audit_id) is done_task:
+            _RUNNING.pop(audit_id, None)
+
+    task.add_done_callback(_on_done)
 
 
-def _task_list_item(audit_id: str, entry: dict[str, Any]) -> dict[str, Any]:
-    """任务列表元素（契约 v2.0 白名单字段，不泄漏 task/config/events 等内部键）。"""
+def _task_list_item(task: dict[str, Any]) -> dict[str, Any]:
+    """任务列表元素（契约 v2.0 白名单字段，不泄漏 config_json 等内部列）。"""
     return {
-        "audit_id": audit_id,
-        "status": entry["status"],
-        "created_at": entry.get("created_at"),
-        "source_path": entry.get("source_path"),
-        "do_fix": entry.get("do_fix"),
-        "do_tests": entry.get("do_tests"),
-        "error": entry["error"],
+        "audit_id": task["audit_id"],
+        "status": task["status"],
+        "created_at": task.get("created_at"),
+        "source_path": task.get("source_path"),
+        "do_fix": task.get("do_fix"),
+        "do_tests": task.get("do_tests"),
+        "error": task.get("error"),
     }
 
 
 def create_app() -> FastAPI:
-    """构建 FastAPI 应用（每个测试可独立创建实例，任务表为模块级共享）。"""
-    app = FastAPI(title="CodeAudit Agent", version=_AUDIT_VERSION)
+    """构建 FastAPI 应用（每个测试可独立创建实例，任务存储为模块级共享）。"""
+
+    @contextlib.asynccontextmanager
+    async def _lifespan(_app: FastAPI):
+        # 启动 sweep（契约 docs/16 §1.1 重启语义）：遗留 queued/running → failed
+        # （error=服务重启中断）；终态任务与报告重启后仍可查询与下载。
+        # uvicorn 实例/import string 两种形态与 TestClient 上下文管理器都会执行 lifespan。
+        _get_store().sweep_interrupted()
+        yield
+
+    app = FastAPI(title="CodeAudit Agent", version=_AUDIT_VERSION, lifespan=_lifespan)
 
     # 契约 v2.0：仅放行开发态 Vite dev server 的两个源
     app.add_middleware(
@@ -254,16 +293,17 @@ def create_app() -> FastAPI:
     @app.get("/api/health")
     async def health() -> dict[str, Any]:
         """健康检查：版本号 + 任务表规模（active=非终态任务数，与 F5 准入同口径）。"""
-        active = _count_active_audits()
+        store = _get_store()
+        active = store.count_active()
         return {
             "status": "ok",
             "version": _AUDIT_VERSION,
-            "audits": {"active": active, "total": len(AUDITS)},
+            "audits": {"active": active, "total": store.list(0, 0)[0]},
         }
 
     @app.get("/api/audits")
     async def list_audits(limit: str = "", offset: str = "") -> dict[str, Any]:
-        """任务列表（内存态）：按创建时间新→旧排序，limit/offset 分页。
+        """任务列表（持久化于 store）：按创建时间新→旧排序，limit/offset 分页。
 
         limit 缺省/0 表示不分页返回全部；total 始终为任务总数。
         """
@@ -277,14 +317,11 @@ def create_app() -> FastAPI:
         if n_offset < 0:
             raise HTTPException(status_code=400, detail="offset 不能为负数")
 
-        items = list(enumerate(AUDITS.items()))
-        # created_at 降序；同一秒内并列时按插入序后建者在前（新→旧语义）
-        items.sort(key=lambda t: (t[1][1].get("created_at") or "", t[0]), reverse=True)
-        total = len(items)
+        total, items = _get_store().list(0, 0)
         page = items[n_offset : n_offset + n_limit] if n_limit else items[n_offset:]
         return {
             "total": total,
-            "audits": [_task_list_item(aid, entry) for _, (aid, entry) in page],
+            "audits": [_task_list_item(task) for task in page],
         }
 
     @app.post("/api/audits")
@@ -352,7 +389,8 @@ def create_app() -> FastAPI:
 
     @app.get("/api/audits/{audit_id}")
     async def get_audit(audit_id: str) -> dict[str, Any]:
-        entry = AUDITS.get(audit_id)
+        store = _get_store()
+        entry = store.get(audit_id)
         if entry is None:
             raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
         payload: dict[str, Any] = {
@@ -364,45 +402,40 @@ def create_app() -> FastAPI:
             "do_fix": entry.get("do_fix"),
             "do_tests": entry.get("do_tests"),
         }
-        if entry["status"] == "done" and entry["report"] is not None:
-            payload["report"] = entry["report"].to_dict()
+        report = store.get_report(audit_id)
+        if entry["status"] == "done" and report is not None:
+            payload["report"] = report.to_dict()
         return payload
 
     @app.delete("/api/audits/{audit_id}")
     async def delete_audit(audit_id: str) -> Response:
-        """删除任务：未知 404；终态直接移除；运行中先取消任务再移除（均 204）。
+        """删除任务：未知 404；其余（终态与非终态）直接物理删除任务行与全部事件（204）。
 
-        运行中：task.cancel() + 状态置 failed / error=任务已取消；表项随之移除，
-        SSE 轮询端因 entry is None 自然收流。
+        W11 协作式取消（契约 docs/16 §1.2）：表行消失即取消信号——执行线程在下一个
+        emitter 事件边界发现 is_cancelled（表项已删除）即抛 CancelledError 兜底落
+        failed（行已被删则幽灵静默）；不再 cancel 外层 task（cancel 杀不掉线程反而
+        破坏语义）。SSE 轮询端因 entry is None 自然收流。
         """
-        entry = AUDITS.get(audit_id)
-        if entry is None:
+        if not _get_store().delete(audit_id):
             raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
-        if entry["status"] not in _TERMINAL_STATUSES:
-            task = entry.get("task")
-            if task is not None:
-                task.cancel()
-            entry["status"] = "failed"
-            entry["error"] = "任务已取消"
-        AUDITS.pop(audit_id, None)
         return Response(status_code=204)
 
     @app.get("/api/audits/{audit_id}/events")
     async def audit_events(audit_id: str) -> EventSourceResponse:
-        if audit_id not in AUDITS:
+        if not _get_store().exists(audit_id):
             raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
 
         async def event_stream():
+            store = _get_store()
             idx = 0
             while True:
-                entry = AUDITS.get(audit_id)
-                if entry is None:  # 表项被清理
+                # 回放历史事件 / 跟随新事件（seq 游标读 store；0.05s 轮询，测试友好）
+                for seq, event in store.get_events(audit_id, after_seq=idx):
+                    yield {"data": json.dumps(event, ensure_ascii=False)}
+                    idx = seq
+                entry = store.get(audit_id)
+                if entry is None:  # 表项被删除或容量淘汰 → 收流
                     return
-                events = entry["events"]
-                # 回放历史事件 / 跟随新事件（0.05s 轮询，测试友好）
-                while idx < len(events):
-                    yield {"data": json.dumps(events[idx], ensure_ascii=False)}
-                    idx += 1
                 if entry["status"] in _TERMINAL_STATUSES:
                     yield {"data": json.dumps({"type": "done"}, ensure_ascii=False)}
                     return
@@ -412,12 +445,7 @@ def create_app() -> FastAPI:
 
     @app.get("/api/audits/{audit_id}/report")
     async def get_report(audit_id: str, format: str = "json"):  # noqa: A002
-        entry = AUDITS.get(audit_id)
-        if entry is None:
-            raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
-        report: AuditReport | None = entry["report"]
-        if entry["status"] != "done" or report is None:
-            raise HTTPException(status_code=404, detail=f"任务未完成：{entry['status']}")
+        report = _require_done_report(audit_id)
         fmt = format.lower()
         if fmt == "json":
             return JSONResponse(content=report.to_dict())
@@ -438,7 +466,7 @@ def create_app() -> FastAPI:
         offset: str = "",
     ) -> dict[str, Any]:
         """分页问题列表：支持 severity / category 过滤（供仪表盘问题表）。"""
-        _, report = _require_done_report(audit_id)
+        report = _require_done_report(audit_id)
 
         sev = severity.strip().lower()
         if sev and sev not in _SEVERITY_VALUES:
@@ -479,7 +507,7 @@ def create_app() -> FastAPI:
     @app.get("/api/audits/{audit_id}/patches")
     async def list_patches(audit_id: str) -> dict[str, Any]:
         """修复补丁列表：含 diff 原文与应用状态。"""
-        _, report = _require_done_report(audit_id)
+        report = _require_done_report(audit_id)
         return {
             "total": len(report.patches),
             "patches": [p.to_dict() for p in report.patches],
@@ -493,7 +521,7 @@ def create_app() -> FastAPI:
         与服务端任务 ID 是两个体系，前端所有 API 链接都按任务 ID 组装，
         此处若返回报告内部 ID 会导致报告下载链接 404。
         """
-        _, report = _require_done_report(audit_id)
+        report = _require_done_report(audit_id)
         stats = report.stats
         return {
             "audit_id": audit_id,
@@ -515,7 +543,7 @@ def create_app() -> FastAPI:
     @app.get("/api/audits/{audit_id}/understand")
     async def get_understand(audit_id: str) -> dict[str, Any]:
         """架构理解卡片（契约 v1.7）：无架构产物时 architecture 为 null。"""
-        _, report = _require_done_report(audit_id)
+        report = _require_done_report(audit_id)
         return {
             "architecture": report.architecture.to_dict() if report.architecture else None
         }
@@ -524,7 +552,7 @@ def create_app() -> FastAPI:
     async def list_refactors(audit_id: str) -> dict[str, Any]:
         """重构方案列表（契约 v1.7 字段：id/title/target/kind/rationale/steps/
         benefits/related_issues/source/confidence）。"""
-        _, report = _require_done_report(audit_id)
+        report = _require_done_report(audit_id)
         return {
             "total": len(report.refactor_proposals),
             "proposals": [p.to_dict() for p in report.refactor_proposals],

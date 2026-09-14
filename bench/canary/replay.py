@@ -130,9 +130,15 @@ class ServerHandle:
 
     def start(self) -> None:
         self._log_file = self.log_path.open("wb")
+        # 环境隔离：两端服务各用独立任务库（CODEAUDIT_DB_PATH，W11-A5 收口修复）——
+        # 新版持久化后若连默认 <cwd>/.codeaudit/audits.db，历史遗留任务会污染
+        # 「空表」与 health 计数断言（假阳性 FAIL）；旧版不识别该变量，注入无害。
+        env = dict(os.environ)
+        env["CODEAUDIT_DB_PATH"] = str(self.log_path.parent / f"canary_{self.label}.db")
         self.proc = subprocess.Popen(
             [sys.executable, "cli.py", "serve", "--host", "127.0.0.1", "--port", str(self.port)],
             cwd=str(self.cwd),  # Windows 下显式传 str(Path)
+            env=env,
             stdout=self._log_file,
             stderr=subprocess.STDOUT,
         )

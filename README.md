@@ -320,6 +320,8 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 | [12-Wave7总体方案-赛题合规与提速](docs/12-Wave7总体方案-赛题合规与提速.md) | Wave 7 目标（赛题合规审计矩阵 / 重构方案生成器 / JS/TS 闭环 / 提速实验）、§7 发布记录（10 项合规最终状态） |
 | [13-Wave8总体方案-Web前后端](docs/13-Wave8总体方案-Web前后端.md) | Wave 8 目标（React 工作台 / REST API 契约 v2 / Web 压测）、联调修复与视觉验收记录 |
 | [14-Wave9总体方案-测试体系补全与灰度发布](docs/14-Wave9总体方案-测试体系补全与灰度发布.md) | Wave 9 五类测试矩阵（压力 / 并发 / 算法 / 恶意 / 灰度）、审查发现 F1–F5 登记、灰度四层防线与后续路线 |
+| [15-Wave10总体方案-服务治理与灰度基建](docs/15-Wave10总体方案-服务治理与灰度基建.md) | Wave 10 契约 v2.1（准入控制 / 流式上传 / 沙箱限量）、金丝雀回放、soak 压测与集成裁决 |
+| [16-Wave11总体方案-持久化与多worker形态演进](docs/16-Wave11总体方案-持久化与多worker形态演进.md) | Wave 11 契约 v2.2（任务持久化 / 线程池执行 / 协作取消 / 多 worker）、内存归因诊断、任务分解 |
 
 以上设计文档已收录进 [在线文档站](https://mingkiiiiing.github.io/codeaudit-agent/)（mkdocs-material，源文件 `docs-site/` 与 `docs/`，由 `.github/workflows/docs.yml` 自动构建发布）。
 

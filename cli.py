@@ -10,7 +10,7 @@
                    [--version]
   python cli.py index <source_path> [--work-root DIR]
   python cli.py report <report_json> [--format md|html] [--out PATH]
-  python cli.py serve [--host 127.0.0.1] [--port 8000]
+  python cli.py serve [--host 127.0.0.1] [--port 8000] [--workers 1]
 
 退出码约定（docs/09 §3）：0 完成/门禁通过 ｜ 1 运行错误 ｜ 2 bench 保留 ｜ 3 --check 门禁失败。
 """
@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -217,17 +218,72 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def _per_worker_concurrency() -> int:
+    """读取每 worker 并发上限（env ``CODEAUDIT_MAX_RUNNING``，默认 4，最小 1）。
+
+    与 ``server/app.py`` 的 ``_MAX_RUNNING_AUDITS`` 同口径——这里独立读 env，
+    避免为打印横幅而耦合 server 模块私有名。
+    """
+    raw = os.environ.get("CODEAUDIT_MAX_RUNNING", "")
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 4
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
-    """serve 子命令：启动 FastAPI 服务（SSE 进度 + Web 演示页）。"""
+    """serve 子命令：启动 FastAPI 服务（SSE 进度 + Web 演示页）。
+
+    ``--workers N``（默认 1）：
+
+    - N=1：保持现状 ``uvicorn.run(create_app(), ...)`` 实例启动——单 worker 是
+      默认与推荐形态，行为零变化；
+    - N>1：实验特性，以 import string 形式启动（``"server.app:app"``，模块底部
+      已有模块级 ``app = create_app()``）——实例形式与 workers>1 不兼容；跨
+      worker 可见性依赖任务持久化（W11 TaskStore）。全局并发上限 =
+      workers × 每 worker 上限（CODEAUDIT_MAX_RUNNING，默认 4）；
+    - N<1：参数错误，中文报错并返回退出码 2。
+    """
+    if args.workers < 1:
+        print(
+            f"[错误] --workers 必须 >= 1，收到：{args.workers}。"
+            "单 worker（默认值 1）是推荐形态；多 worker 为实验特性。",
+            file=sys.stderr,
+        )
+        return 2
+
     import uvicorn
 
     from server.app import create_app
 
     print("========== CodeAudit Agent 服务 ==========")
     print(f"监听地址：http://{args.host}:{args.port}")
+    print(f"worker 数：{args.workers}")
+    if args.workers > 1:
+        per_worker = _per_worker_concurrency()
+        print(
+            f"[实验特性] 多 worker 模式（workers={args.workers}）："
+            "任务由接收请求的 worker 执行，其他 worker 经持久化存储只读可见"
+            "（需 W11 任务持久化生效）。"
+        )
+        print(
+            f"[实验特性] 全局并发上限 = workers × 每 worker 上限"
+            f"（CODEAUDIT_MAX_RUNNING）= {args.workers} × {per_worker}"
+            f" = {args.workers * per_worker}"
+        )
     print("演示页： /　｜　创建任务： POST /api/audits　｜　按 Ctrl+C 停止")
     print("==========================================")
-    uvicorn.run(create_app(), host=args.host, port=args.port, log_level="info")
+    if args.workers > 1:
+        # workers>1 与实例形式不兼容：必须传 import string（模块级 app = create_app()）。
+        uvicorn.run(
+            "server.app:app",
+            host=args.host,
+            port=args.port,
+            workers=args.workers,
+            log_level="info",
+        )
+    else:
+        uvicorn.run(create_app(), host=args.host, port=args.port, log_level="info")
     return 0
 
 
@@ -325,6 +381,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_serve = sub.add_parser("serve", help="启动 Web 服务（REST API + SSE 进度 + 演示页）")
     p_serve.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     p_serve.add_argument("--port", type=int, default=8000, help="监听端口（默认 8000）")
+    p_serve.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="worker 进程数（默认 1；>1 为实验特性，跨 worker 可见性依赖任务持久化）",
+    )
     p_serve.set_defaults(func=cmd_serve)
 
     return parser

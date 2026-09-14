@@ -6,7 +6,19 @@
 
 ## [未发布]
 
-Wave 9 + Wave 10：测试体系补全（W9）与服务治理 + 灰度基建（W10）。契约 v2.1 微增，全部向后兼容；W9 见 [docs/14](docs/14-Wave9总体方案-测试体系补全与灰度发布.md)，W10 见 [docs/15](docs/15-Wave10总体方案-服务治理与灰度基建.md)。
+Wave 9 + Wave 10 + Wave 11：测试体系补全（W9）、服务治理与灰度基建（W10）、形态演进（W11）。契约 v2.1/v2.2 微增，全部向后兼容；W9 见 [docs/14](docs/14-Wave9总体方案-测试体系补全与灰度发布.md)，W10 见 [docs/15](docs/15-Wave10总体方案-服务治理与灰度基建.md)，W11 见 [docs/16](docs/16-Wave11总体方案-持久化与多worker形态演进.md)。
+
+### Added（Wave 11）
+
+- **任务持久化（契约 v2.2）**：新模块 `audit/taskstore.py`——SQLite WAL 任务存储（标准库零依赖，线程锁串行化写），任务、事件流、报告全部落库（`<work_root>/audits.db`，`CODEAUDIT_DB_PATH` 可覆盖）；**服务重启后终态任务与报告仍可查询下载**（新能力），遗留非终态启动时 sweep 为 failed（`服务重启中断`）；FIFO 容量淘汰迁移到 store。启动 sweep 经 FastAPI lifespan 执行（导入零副作用）。
+- **线程池执行**：审计任务从共享事件循环迁到独立线程（`asyncio.to_thread`，每任务独立事件循环）——根治 CPU 密集段饿死服务循环的问题（W9 观察到的 POST 响应推迟、health 失联不复现），读端点在重审计负载下全程可响应。
+- **协作式取消（语义诚实声明）**：DELETE 不再瞬时打断线程，改为事件边界取消——执行协程每次 emit 前检查取消标志/表项存在性（表项被删即取消），七阶段均频繁 emit，典型亚秒级生效；DELETE 的 HTTP 语义不变（204 + 全端点 404 + SSE 收流）。
+- **多 worker（实验特性）**：`codeaudit serve --workers N`（默认 1）——N>1 以 import string 形式启动 uvicorn 多进程，sticky 执行模型（任务由接收 worker 执行），SQLite 跨 worker 可见性经双 worker 冒烟实证（跨进程建/查/删/报告全通）；429 准入计数升级为全局口径（count_active 走 store），并发上限 = workers × 每 worker 上限。
+- **内存归因诊断工具**（`bench/memdiag/run_memdiag.py`）：逐任务 tracemalloc 快照 diff + RSS 采样——**结论：库层（纯规则）RSS 稳态斜率 ≈ 0**，soak 观察的每任务缓爬不在 audit/* 复现（归因服务端簿记层，W11 持久化改造后由 soak 复跑复核）；报告见 [bench/results/memdiag_w11.md](bench/results/memdiag_w11.md)。
+
+### Changed（Wave 11）
+
+- SSE 事件流改 store seq 游标读取（回放/跟随语义不变）；既有 server/integration 用例随持久化迁移适配（断言语义未放宽，适配清单见 docs/16 收口记录）；`bench/stress` 场景 5 清理逻辑随形态更新（db 随场景临时目录销毁）。
 
 ### Added（Wave 10）
 

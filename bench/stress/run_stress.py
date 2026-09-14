@@ -607,7 +607,7 @@ def _isolated_offline_env(work_dir: Path) -> Iterator[None]:
 
 def scenario_server_concurrency(data_dir: Path, work_dir: Path) -> ScenarioResult:
     """同时创建 5 个不同小项目的审计任务：全部 done、报告互不串扰、记录总耗时。"""
-    from server.app import AUDITS, create_app
+    from server.app import create_app
 
     from bench.stress.generator import generate_project, load_manifest
 
@@ -680,7 +680,8 @@ def scenario_server_concurrency(data_dir: Path, work_dir: Path) -> ScenarioResul
             "issue_files_in_project": belongs,
             "issues": len(issues),
         })
-        AUDITS.pop(audit_id, None)  # 清理本场景任务表，防跨场景/跨测试泄漏
+        # W11 起任务表持久化到场景临时目录下的 audits.db，随 work_dir 整体销毁，
+        # 无需逐任务清理（内存表时代的跨场景/跨测试泄漏问题不复存在）
 
     result.seconds = total_wall
     result.metrics = {
@@ -690,7 +691,7 @@ def scenario_server_concurrency(data_dir: Path, work_dir: Path) -> ScenarioResul
         "no_crosstalk": no_crosstalk,
         "total_wall_sec": round(total_wall, 3),
         "tasks_detail": per_task,
-        "note": "CPU 密集的规则扫描在同一事件循环内串行推进，总耗时≈各任务之和（并发价值在 IO/LLM 场景）",
+        "note": "W11 起任务在独立线程执行（to_thread，每任务独立事件循环），不再饿死服务循环；总耗时受 GIL 与 C 扩展释放 GIL 程度影响",
     }
     if not all_done or not no_crosstalk:
         result.status = "error"

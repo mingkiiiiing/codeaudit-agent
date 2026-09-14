@@ -75,3 +75,23 @@
   禁固定 sleep）。
 - 多 worker 仅冒烟不进压测基线；若 uvicorn spawn 模式在 Windows 出问题，如实记录并保持
   默认 workers=1。
+
+## 5. 收口记录（W11-A5 验收）
+
+五关全绿：全量 pytest 1124 项（含 A1 27 存储用例 + A2 5 store 用例，hygiene 首跑与
+adversarial 并行撞时序、单独复跑通过）+ ruff 零告警 + adversarial 八场景 + soak 300s
+四准则 + canary 7/7（v0.5.0 vs W11 HEAD 语义零漂移）。冒烟：双 worker 跨进程可见性、
+重启恢复、删除语义全通。
+
+收口期三处裁决（均为工具/口径修正，非行为放宽）：
+
+1. **adversarial A3 场景首次在真实 HTTP 层实证 429 准入**：线程池化后 POST 不再被事件
+   循环饿死串行化，25 路并发提交 → 接纳 20 + 429×5，active 峰值恰为契约上界 20
+   （W10 时 denied=0 是饿死伪影）。
+2. **canary 增加任务库隔离**：新版服务注入独立 `CODEAUDIT_DB_PATH`——持久化后若连默认
+   db，历史遗留任务会污染「空表」与 health 断言（首跑 FAIL 5/7 即此假阳性，核心的报告
+   三格式与 issues 本就 5/5 PASS）。
+3. **memdiag 归因结论**：库层（纯规则）RSS 稳态斜率 ≈ 0（+0.032 MB/轮），soak 观察的
+   每任务 ~0.15–0.27 MB 缓爬不在 audit/* 复现，归因服务端簿记层且量级微小、有 FIFO 50
+   容量兜底；soak W11 复跑稳态斜率 0.968 < 1.0 达标（r=0.80 相关性仍在，长窗口归因
+   保留为 W12 待办，非阻断）。
