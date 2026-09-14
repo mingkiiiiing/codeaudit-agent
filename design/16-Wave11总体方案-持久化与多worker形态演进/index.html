@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/">
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/">
       
       
-        <link rel="prev" href="../13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/">
+        <link rel="prev" href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/">
       
       
-        <link rel="next" href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/">
+        <link rel="next" href="../../cli/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>14 Wave9 方案 - CodeAudit Agent</title>
+        <title>16 Wave11 方案 - CodeAudit Agent</title>
       
     
     
@@ -72,7 +72,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#wave-9" class="md-skip">
+        <a href="#wave-11-worker-rss" class="md-skip">
           跳转至
         </a>
       
@@ -108,7 +108,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              14 Wave9 方案
+              16 Wave11 方案
             
           </span>
         </div>
@@ -721,37 +721,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    14 Wave9 方案
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -767,103 +740,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. 审查结论摘要
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. 测试矩阵全景（五类 × 资产清单）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. 压测设计（口径约定）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. 灰度发布方案（四层防线）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-wave-9" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. Wave 9 交付物清单
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. 后续路线（建议排期）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. 运行速查
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -901,10 +777,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    16 Wave11 方案
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -920,6 +823,120 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-v22-wave" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 契约 v2.2 微增（本 Wave 的行为变化，向后兼容）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. 契约 v2.2 微增（本 Wave 的行为变化，向后兼容）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-taskstoresqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 任务持久化（TaskStore，SQLite）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 线程池执行 + 协作式取消
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 多 worker（实验特性）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 任务分解与目录所有权（四人并行 + 集成人收口）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-w11-a5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 集成收口清单（W11-A5）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 风险与回退
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-w11-a5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 收口记录（W11-A5 验收）
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1150,13 +1167,52 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1" class="md-nav__link">
+  <a href="#1-v22-wave" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. 审查结论摘要
+        1. 契约 v2.2 微增（本 Wave 的行为变化，向后兼容）
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="1. 契约 v2.2 微增（本 Wave 的行为变化，向后兼容）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11-taskstoresqlite" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 任务持久化（TaskStore，SQLite）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 线程池执行 + 协作式取消
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#13-worker" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.3 多 worker（实验特性）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1164,7 +1220,7 @@
   <a href="#2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. 测试矩阵全景（五类 × 资产清单）
+        2. 任务分解与目录所有权（四人并行 + 集成人收口）
       
     </span>
   </a>
@@ -1172,10 +1228,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3" class="md-nav__link">
+  <a href="#3-w11-a5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. 压测设计（口径约定）
+        3. 集成收口清单（W11-A5）
       
     </span>
   </a>
@@ -1186,7 +1242,7 @@
   <a href="#4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. 灰度发布方案（四层防线）
+        4. 风险与回退
       
     </span>
   </a>
@@ -1194,32 +1250,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#5-wave-9" class="md-nav__link">
+  <a href="#5-w11-a5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. Wave 9 交付物清单
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. 后续路线（建议排期）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. 运行速查
+        5. 收口记录（W11-A5 验收）
       
     </span>
   </a>
@@ -1243,213 +1277,138 @@
 
 
 
-<h1 id="wave-9">Wave 9 总体方案——测试体系补全（压力 / 并发 / 算法 / 恶意 / 灰度）与后续路线<a class="headerlink" href="#wave-9" title="Permanent link">&para;</a></h1>
+<h1 id="wave-11-worker-rss">Wave 11 总体方案——形态演进：任务持久化、多 worker、线程池执行与 RSS 归因<a class="headerlink" href="#wave-11-worker-rss" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>2026-09-13 ｜ 状态：已执行 ｜ 关联：docs/10（质量攻坚）、docs/12（合规与提速）、docs/13（Web 前后端）</p>
-<p>本轮目标：对 0.5.0 做一次全面审查，补齐五类测试资产（压力 / 并发 / 算法 / 恶意 / 灰度），
-登记 adversarial 审查发现，并给出灰度发布方案与 Wave 9+ 路线。</p>
+<p>2026-09-14 ｜ 状态：开发中 ｜ 前置：docs/14（F1–F5 登记）、docs/15（W10 治理与灰度基建）</p>
+<p>本 Wave 解决 W9/W10 压测暴露的三个形态限制：任务表内存态（重启即失、无法多 worker）、
+审计任务跑在共享事件循环（CPU 密集段饿死循环，POST 响应被推迟、health 失联——A3 场景
+25 路 denied=0 的根因）、以及每任务 ~0.15–0.27 MB 的 RSS 缓爬（r=0.68，疑似每任务缓存，
+未归因）。在线 GLM 评估（等 key）与 Docker 沙箱不在本 Wave。</p>
 </blockquote>
-<h2 id="1">1. 审查结论摘要<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
-<p>代码审查覆盖 server/app.py（HTTP 面）、audit/ingest（zip 接入）、audit/sandbox（子进程沙箱）、
-audit/orchestrator（流水线）与既有测试 / 压测资产。总体判断：<strong>架构分层清晰、防御性编程
-到位</strong>（zip 炸弹声明量前置校验、路径逃逸成员跳过、任务表 FIFO 容量淘汰、弱引用任务集、
-BaseException 兜底终态、白名单测试框架、输出截尾），1060 项既有 pytest 全绿。本轮新发现
-5 项风险（F1–F5），<strong>无一是崩溃级缺陷</strong>，全部属于"本地单机工具形态下的已知设计边界"，
-但都会在多人 / 公网部署形态下升级为真实攻击面，登记如下：</p>
-<table>
-<thead>
-<tr>
-<th>编号</th>
-<th>发现</th>
-<th>位置</th>
-<th>危害形态</th>
-<th>状态</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>F1</td>
-<td>REST API 无鉴权，<code>source_path</code> 可指向任意本地目录，报告回传源码片段</td>
-<td><code>server/app.py</code> create_audit</td>
-<td>未授权读取任意本地代码（含密钥注释）</td>
-<td>取证确认（A2），本地工具设计如此</td>
-</tr>
-<tr>
-<td>F2</td>
-<td>上传先 <code>await file.read()</code> 全量入内存再校验 200MB 上限</td>
-<td><code>server/app.py</code> upload_audit</td>
-<td>并发大上传 → 服务端内存抬升 / OOM</td>
-<td>取证确认（A6，RSS 峰值同量级）</td>
-</tr>
-<tr>
-<td>F3</td>
-<td>Windows 沙箱无文件系统隔离，子进程可写 cwd 之外</td>
-<td><code>audit/sandbox/executor.py</code></td>
-<td>恶意被审项目的"现有测试"可写任意路径</td>
-<td>取证确认（A7）；文档已声明，生产建议 Docker</td>
-</tr>
-<tr>
-<td>F4</td>
-<td>沙箱输出经 PIPE 全量缓冲后才截尾（80 行）</td>
-<td><code>audit/sandbox/executor.py</code> _drain</td>
-<td>GB 级 stdout → 瞬时内存峰值</td>
-<td>取证确认（A7，200MB 输出炸弹）</td>
-</tr>
-<tr>
-<td>F5</td>
-<td>无任务准入控制：建任务速率、并发 running 数均无上限；10 路并发审计期间服务端事件循环被 CPU 密集任务饿死（23s 内 health 仅响应 2 次，即 CPU 耗尽实证）</td>
-<td><code>server/app.py</code> _start_audit</td>
-<td>任务洪泛 → CPU/磁盘耗尽、健康检查失联</td>
-<td>取证确认（A3：10 路全接纳，10×200 无一拒绝）</td>
-</tr>
-</tbody>
-</table>
-<p>既有防御（本轮对抗测试实证有效）：zip 路径逃逸成员（<code>../</code>、绝对路径、盘符）双防线
-（自研跳过 + CPython 清洗）、1GB 声明量解压炸弹拒绝、坏 zip/空 zip 不崩、奇葩文件名
-（Unicode/emoji/保留名/结尾点）不崩、Windows 保留名任务落 failed 终态、参数滥用矩阵
-（非法分页/过滤/格式/ID 注入）全部精确 4xx、create-delete 抖动竞态无 5xx、100 路 SSE
-中途 DELETE 全部收流不悬挂。</p>
-<h2 id="2">2. 测试矩阵全景（五类 × 资产清单）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>类别</th>
-<th>已有资产（0.5.0 前）</th>
-<th>本轮新增（W9）</th>
-<th>规划（W10+）</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><strong>算法正确性</strong></td>
-<td>bench/ goldset + mini_bench（P/R 对拍 GOLDEN_ISSUES）；test_sarif_semantics</td>
-<td><code>tests/property/test_algorithm_invariants.py</code>：T1 确定性（同输入两次问题清单逐字段一致）/ T2 健康分单调性（追加 critical 不升分，50 组随机性质）/ T3 干净语料零 critical/high 误报 / T4 SARIF 结构不变量 / T5 summary 与 issues 计数自洽 / T6 过滤与分页不变量（端到端）</td>
-<td>在线 GLM 通道注入鲁棒性评估（等 key）；规则 FPR 分语料统计；大库上 goldset 扩容</td>
-</tr>
-<tr>
-<td><strong>并发</strong></td>
-<td>test_api_concurrency（3 路无串扰、超限不崩、LRU 淘汰）；run_stress 场景 5；run_stress_web S2/S3</td>
-<td>A4 create→立即 DELETE 抖动竞态 30 轮 + 幽灵 DELETE；A5 100 路 SSE + 运行中 DELETE 悬挂检测</td>
-<td>多 worker（uvicorn workers&gt;1）形态重跑；持久化任务表后重跑；同一 SQLite 索引并发读写边界</td>
-</tr>
-<tr>
-<td><strong>压力</strong></td>
-<td>run_stress 六场景（ingest+index / 规则吞吐 / LLM 并发扩展 / 预算熔断 / server 并发 / R1-8 N+1）；run_stress_web 四场景（读突发 304 RPS / 6 并发审计 / 24 路 SSE / 上传 12 次）</td>
-<td>A3 洪泛 60 任务 + 10 路并发真实任务；A6 210MB 不可压缩上传（413 + RSS 取证）、60MB 高压缩比 ×3</td>
-<td>S9 soak 持续混合负载 + RSS 曲线（泄漏判定）；S10 深队列 20 任务公平性；S11 多 worker 吞吐对比</td>
-</tr>
-<tr>
-<td><strong>恶意性</strong></td>
-<td>单测层：坏 zip / 炸弹守卫 / 忽略目录 / 规模守卫 / 失败清理</td>
-<td><code>bench/adversarial/run_adversarial.py</code> 八场景（A1 军火库 / A2 参数滥用+越权取证 / A3 洪泛 / A4 抖动 / A5 SSE / A6 超大上传 / A7 沙箱逃逸 / A8 提示注入离线实证）</td>
-<td>zip 本地头伪造等结构层深攻；A8 在线版（真实 GLM 下注入对 Review/Verify Agent 的影响）；Docker 沙箱形态回归</td>
-</tr>
-<tr>
-<td><strong>灰度</strong></td>
-<td>（无）</td>
-<td><code>tests/integration/test_gray_release.py</code>：C1 旧版报告契约向后兼容（v0.3 形态 dict 在当前代码可反序列化 + 三格式渲染 + 往返不漂移）/ C2 特性开关 A/B 等价（rule_scan_workers 1 vs 4、硬链接 vs 复制，语义快照相等）/ C3 API 路由面冻结（openapi paths 与契约 v2 清单精确相等）</td>
-<td>L2 金丝雀双版本回放（§4）；报告 schema_version 演进策略固化</td>
-</tr>
-</tbody>
-</table>
-<p><strong>CI 接入口径</strong>：<code>tests/property</code>、<code>tests/integration/test_gray_release.py</code> 随既有 pytest 矩阵
-自动执行（新增 11 用例，约 5s）；<code>bench/adversarial</code> 为重型工具（真实子进程 + 210MB 素材），
-与既有 bench/stress 系列同口径——本地 / 手动跑，报告归档 <code>bench/results/</code>，不进 CI。</p>
-<h2 id="3">3. 压测设计（口径约定）<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
-<p>沿用 W5/W8 两代压测的既定口径，W9 补齐对抗维度后完整分层如下：</p>
+<h2 id="1-v22-wave">1. 契约 v2.2 微增（本 Wave 的行为变化，向后兼容）<a class="headerlink" href="#1-v22-wave" title="Permanent link">&para;</a></h2>
+<h3 id="11-taskstoresqlite">1.1 任务持久化（TaskStore，SQLite）<a class="headerlink" href="#11-taskstoresqlite" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>管线级</strong>（run_stress.py）：合成项目 200/2000 文件档，指标 = 各阶段耗时、KLOC 吞吐、
-  内存峰值（tracemalloc）、规则命中集合指纹（并行等价性校验）。</li>
-<li><strong>服务级</strong>（run_stress_web.py）：真实 HTTP（httpx 异步 + uvicorn 单 worker），指标 =
-  RPS / p50/p95/p99（客户端口径）/ 错误数 / 任务端到端延迟 / SSE 首帧与收流。</li>
-<li><strong>对抗级</strong>（run_adversarial.py，W9）：不追吞吐，追<strong>失效模式</strong>——每个场景的通过判据是
-  "服务存活 + 任务落终态 + 无 5xx + 无越界落地文件 + marker 全树扫描无逃逸"，另带
-  取证类指标（RSS 峰值、并发峰值 active、密文是否回传）。</li>
-<li><strong>诚实边界</strong>：所有压测均离线（FakeLLM / 纯规则）；单 worker 内存态任务表；多 worker /
-  持久化后的数字不引用本轮报告。</li>
+<li>新模块 <code>audit/taskstore.py</code>：<code>TaskStore(db_path)</code>——标准库 SQLite，WAL 模式，
+  <code>check_same_thread=False</code> + 内部写锁（事件循环线程与任务工作线程并发访问）。</li>
+<li>两张表：<code>audits</code>（audit_id PK / status / error / created_at / source_path / do_fix /
+  do_tests / config_json / report_json）与 <code>events</code>（audit_id+seq 复合主键 / event_json）。</li>
+<li>server 的内存 <code>AUDITS</code> dict 移除，全部读写走 store；store 路径 env
+  <code>CODEAUDIT_DB_PATH</code>（默认 <code>&lt;work_root&gt;/audits.db</code>）；测试经 <code>monkeypatch.setattr(server.app, "_STORE", ...)</code> 注入。</li>
+<li><strong>重启语义</strong>：服务启动时 <code>sweep_interrupted()</code> 把遗留 queued/running 置
+  failed（error=<code>服务重启中断</code>）——终态任务与报告重启后仍可查询与下载（新能力）。</li>
+<li><strong>FIFO 容量淘汰</strong>迁移到 store（<code>prune(keep=50)</code>，只淘汰终态，语义不变）。</li>
 </ul>
-<h2 id="4">4. 灰度发布方案（四层防线）<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
-<p>本项目形态是"本地工具 + 可选自托管服务"，灰度按四层设计，前三层已有自动化落点：</p>
+<h3 id="12">1.2 线程池执行 + 协作式取消<a class="headerlink" href="#12" title="Permanent link">&para;</a></h3>
 <ul>
-<li><strong>L0 契约冻结（CI 绊网，已落地）</strong>：API 路由面冻结（C3：openapi paths 与冻结清单精确
-  相等，多删都红）；报告 <code>schema_version</code> 字段 + 旧版报告向后兼容渲染（C1）；SARIF 2.1.0
-  语义测试（既有）。任何契约变更必须显式改清单 / 升版本号，CI 拦截意外漂移。</li>
-<li><strong>L1 双路对拍（开关等价，已落地）</strong>：实验开关（rule_scan_workers、link_same_volume）
-  切换不改语义（C2 语义快照相等）。灰度放量期间新旧代码路径并行跑同一请求集，结果
-  diff 为空是放行前置条件。</li>
-<li><strong>L2 金丝雀双版本回放（规划 W10）</strong>：同机起 vN-1 与 vN 两端口（git worktree 取旧 tag），
-  用固定请求集（读端点 + mini_app 审计 + zip 上传）双发，diff 响应体（剥离时间戳 / audit_id /
-  duration 类字段）。差异非空 → 阻断发布。脚本化 <code>bench/canary/replay.py</code>，判据复用 L1 的
-  归一化函数。</li>
-<li><strong>L3 用户侧灰度（能力已具备）</strong>：<code>--diff</code> 增量审计 + 基线抑制（"存量豁免、增量把关"）、
-  <code>--check --fail-on</code> PR 门禁、报告三格式向后兼容。这是产品语义上的灰度：新版本只对
-  增量代码生效，存量告警按基线豁免。</li>
-<li><strong>回滚判据</strong>（自托管形态）：健康分漂移 &gt; 5 分（同一代码库两版本对拍）、SSE 收流率
-  &lt; 100%、5xx 率 &gt; 0、任务终态落 failed 比例 &gt; 基线 +2pp，任一命中即回滚。</li>
+<li>审计任务从共享事件循环迁到独立线程：<code>asyncio.to_thread(_run_audit_sync, ...)</code>，
+  线程内 <code>asyncio.run(run_audit(config, emitter))</code>——每任务独立循环，CPU 密集段不再饿死
+  服务循环（POST 响应、health、SSE 全程可响应）。</li>
+<li><strong>取消语义变化（诚实声明）</strong>：DELETE 不再能瞬时打断线程，改为协作式——
+  <code>request_cancel</code> 置标志；任务 emitter 在每次事件边界检查（标志置位 <strong>或</strong> 表项已被
+  物理删除 → 抛 CancelledError，既有 BaseException 兜底落 failed）。取消延迟 =
+  到下一个阶段事件边界的间隔（七阶段均频繁 emit，典型亚秒级）。<code>DELETE</code> 的 HTTP 语义
+  不变（204 + 表项移除 + SSE 收流）。</li>
+<li>429/gate：<code>count_active</code> 改走 store（多 worker 下即<strong>全局</strong>准确）；<code>_RUN_GATE</code>
+  保持 per-worker（全局并发上限 = workers × 4），文档如实标注。</li>
+<li>事件持久化后 SSE 轮询改从 store 按 seq 游标读取，回放/跟随语义不变。</li>
 </ul>
-<h2 id="5-wave-9">5. Wave 9 交付物清单<a class="headerlink" href="#5-wave-9" title="Permanent link">&para;</a></h2>
+<h3 id="13-worker">1.3 多 worker（实验特性）<a class="headerlink" href="#13-worker" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>codeaudit serve --workers N</code>（默认 1）：N&gt;1 时以 import string 形式启动
+  <code>uvicorn.run("server.app:app", workers=N)</code>（实例形式与 workers&gt;1 不兼容）。</li>
+<li>sticky 执行模型：任务由接收请求的 worker 执行；其他 worker 经 SQLite 只读可见
+  （列表/详情/报告/SSE）。跨 worker DELETE 经 <code>request_cancel</code> 标志生效。</li>
+<li>多 worker 为实验特性：单 worker 仍是默认与推荐形态；全套压测基线以单 worker 口径
+  出具，多 worker 冒烟验证跨 worker 可见性即可。</li>
+</ul>
+<h2 id="2">2. 任务分解与目录所有权（四人并行 + 集成人收口）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
+<th>任务</th>
+<th>职务</th>
+<th>所有权（只许改这些路径）</th>
 <th>交付物</th>
-<th>路径</th>
-<th>规模</th>
-<th>状态</th>
+<th>验收</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>对抗与滥用测试运行器</td>
-<td><code>bench/adversarial/run_adversarial.py</code></td>
-<td>八场景，真实 HTTP + 库层</td>
-<td>✅ 全绿（报告见 bench/results/adversarial_w9.md）</td>
+<td>W11-A1</td>
+<td>存储层工程师</td>
+<td><code>audit/taskstore.py</code>（骨架已给，填实现）、<code>tests/unit/taskstore/</code></td>
+<td>TaskStore 完整实现 + 单测</td>
+<td>骨架全部签名落地；并发读写单测（线程池压 store）全绿</td>
 </tr>
 <tr>
-<td>算法不变量测试</td>
-<td><code>tests/property/test_algorithm_invariants.py</code></td>
-<td>6 组性质用例</td>
-<td>✅ 全绿（进 CI）</td>
+<td>W11-A2</td>
+<td>服务端工程师</td>
+<td><code>server/app.py</code>、<code>tests/unit/server/</code></td>
+<td>AUDITS→store、to_thread 执行、协作取消、SSE 游标化、启动 sweep、429 全局化</td>
+<td>既有 server 用例全绿（允许按 1.2 调整取消相关断言）；新增重启恢复/跨线程取消用例</td>
 </tr>
 <tr>
-<td>灰度保障测试</td>
-<td><code>tests/integration/test_gray_release.py</code></td>
-<td>3 组防线用例</td>
-<td>✅ 全绿（进 CI）</td>
+<td>W11-A3</td>
+<td>入口与多 worker 工程师</td>
+<td><code>cli.py</code>、<code>tests/unit/cli/</code></td>
+<td><code>serve --workers N</code> + import string 启动 + 多 worker 冒烟验证（跨 worker 建/查/删）</td>
+<td>单 worker 行为不变；N=2 冒烟：worker0 建任务 worker1 可查可删</td>
 </tr>
 <tr>
-<td>本方案文档</td>
-<td><code>docs/14-...md</code></td>
-<td>本文件</td>
-<td>✅</td>
+<td>W11-A4</td>
+<td>内存诊断工程师</td>
+<td><code>bench/memdiag/</code>（新建）</td>
+<td><code>run_memdiag.py</code>：N 个任务逐个 tracemalloc 快照 diff + RSS 采样，top 增长归因报告</td>
+<td>报告落 <code>bench/results/memdiag_w11.md</code>；给出泄漏点定位或"无单点泄漏"结论</td>
+</tr>
+<tr>
+<td>W11-A5</td>
+<td>集成人（主线）</td>
+<td><code>docs/</code>、<code>CHANGELOG.md</code>、<code>README.md</code>、<code>Makefile</code>、<code>bench/adversarial/</code>、<code>bench/stress/</code></td>
+<td>契约、骨架、收口联调、三路复跑（adversarial/soak/canary）、修复、发布</td>
+<td>五关全绿后 commit</td>
 </tr>
 </tbody>
 </table>
-<h2 id="6">6. 后续路线（建议排期）<a class="headerlink" href="#6" title="Permanent link">&para;</a></h2>
-<p><strong>W10（下一轮，修复 + 收口）</strong>——把本轮登记的风险按性价比排序修复：</p>
+<p><strong>依赖解耦</strong>：A2 的单测不得依赖 A1 的实现——在 <code>tests/unit/server/</code> 自建内存版假 store
+（实现 <code>audit/taskstore.py</code> 骨架的接口即可）；集成时全量跑真 store。A3/A4 与 A1/A2 无依赖。</p>
+<h2 id="3-w11-a5">3. 集成收口清单（W11-A5）<a class="headerlink" href="#3-w11-a5" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>F2 流式上传</strong>（高优）：<code>upload_audit</code> 改为分块读取累计计数，超 200MB 立即中断返回
-   413，不再全量缓冲；A6 场景复跑验证 RSS 峰值回落。</li>
-<li><strong>F5 准入控制</strong>（高优）：<code>asyncio.Semaphore(max_running)</code> + 队列深度上限（超限 429），
-   A3 场景补断言（超限请求被拒）。</li>
-<li><strong>F4 沙箱输出限量</strong>（中优）：_drain 读满上限字节即放弃剩余输出，防输出炸弹内存峰值。</li>
-<li><strong>L2 金丝雀回放脚本</strong>（中优）：<code>bench/canary/replay.py</code>，双版本双端口请求回放 diff。</li>
-<li><strong>S9 soak 压测</strong>（中优）：5–10 分钟混合负载 + RSS 采样曲线，判定无泄漏后再谈多 worker。</li>
-<li>F1/F3 登记不修（本地工具设计边界），在 README 安全章节明示部署边界。</li>
+<li>全量 pytest + ruff；既有 1082 项中 server/CLI 相关用例按契约 1.1/1.2 适配（适配点须逐条记录）。</li>
+<li>adversarial 复跑（重点：A4 抖动、A5 SSE DELETE 收流在协作取消下的语义、A6 上传、
+   A3 准入的全局计数行为）；soak 复跑（RSS 归因结论回填判定）；canary 完整回放
+   （v0.5.0 vs W11 HEAD——持久化不得改变报告语义）。</li>
+<li>重启恢复冒烟：建任务至 done → 重启服务 → 列表/报告仍可查。</li>
+<li>多 worker 冒烟（A3 交付）：--workers 2 跨 worker 可见性。</li>
+<li>CHANGELOG / README / Makefile 收口，commit + push。</li>
 </ol>
-<p><strong>W11+（形态演进）</strong>：多 worker + 任务表持久化（SQLite/文件）→ 全套压测 / 并发 / 对抗
-重跑出基线；在线 GLM 评估（等 key，含 A8 在线版注入鲁棒性）；Docker 沙箱执行器替换
-（F3 根治）；报告 schema_version 升版演练（2.0 → 旧版渲染兼容矩阵）。</p>
-<h2 id="7">7. 运行速查<a class="headerlink" href="#7" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><span class="c1"># 全量 pytest（含本轮新增 property / gray_release，约 3 分钟）</span>
-python<span class="w"> </span>-m<span class="w"> </span>pytest<span class="w"> </span>tests<span class="w"> </span>-q
-
-<span class="c1"># 对抗八场景（真实服务子进程 + 210MB 素材，约 4–6 分钟，离线）</span>
-python<span class="w"> </span>-m<span class="w"> </span>bench.adversarial.run_adversarial<span class="w"> </span>--port<span class="w"> </span><span class="m">8903</span><span class="w"> </span>--out<span class="w"> </span>bench/results/adversarial_w9.md
-
-<span class="c1"># 既有压测（口径不变）</span>
-python<span class="w"> </span>-m<span class="w"> </span>bench.stress.run_stress<span class="w">          </span><span class="c1"># 管线级六场景</span>
-python<span class="w"> </span>-m<span class="w"> </span>bench.stress.run_stress_web<span class="w">      </span><span class="c1"># 服务级四场景</span>
-</code></pre></div>
+<h2 id="4">4. 风险与回退<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
+<ul>
+<li>store 迁移是本 Wave 最大风险：既有 server 用例大量直接操作 <code>AUDITS</code> dict——允许 A2
+  适配这些用例，但<strong>断言语义不得放宽</strong>（404/429/取消/淘汰语义逐条保留）。</li>
+<li>协作式取消的延迟语义若被既有用例断言为"立即终态"，允许改为"轮询等待终态"（条件等待，
+  禁固定 sleep）。</li>
+<li>多 worker 仅冒烟不进压测基线；若 uvicorn spawn 模式在 Windows 出问题，如实记录并保持
+  默认 workers=1。</li>
+</ul>
+<h2 id="5-w11-a5">5. 收口记录（W11-A5 验收）<a class="headerlink" href="#5-w11-a5" title="Permanent link">&para;</a></h2>
+<p>五关全绿：全量 pytest 1124 项（含 A1 27 存储用例 + A2 5 store 用例，hygiene 首跑与
+adversarial 并行撞时序、单独复跑通过）+ ruff 零告警 + adversarial 八场景 + soak 300s
+四准则 + canary 7/7（v0.5.0 vs W11 HEAD 语义零漂移）。冒烟：双 worker 跨进程可见性、
+重启恢复、删除语义全通。</p>
+<p>收口期三处裁决（均为工具/口径修正，非行为放宽）：</p>
+<ol>
+<li><strong>adversarial A3 场景首次在真实 HTTP 层实证 429 准入</strong>：线程池化后 POST 不再被事件
+   循环饿死串行化，25 路并发提交 → 接纳 20 + 429×5，active 峰值恰为契约上界 20
+   （W10 时 denied=0 是饿死伪影）。</li>
+<li><strong>canary 增加任务库隔离</strong>：新版服务注入独立 <code>CODEAUDIT_DB_PATH</code>——持久化后若连默认
+   db，历史遗留任务会污染「空表」与 health 断言（首跑 FAIL 5/7 即此假阳性，核心的报告
+   三格式与 issues 本就 5/5 PASS）。</li>
+<li><strong>memdiag 归因结论</strong>：库层（纯规则）RSS 稳态斜率 ≈ 0（+0.032 MB/轮），soak 观察的
+   每任务 ~0.15–0.27 MB 缓爬不在 audit/* 复现，归因服务端簿记层且量级微小、有 FIFO 50
+   容量兜底；soak W11 复跑稳态斜率 0.968 &lt; 1.0 达标（r=0.80 相关性仍在，长窗口归因
+   保留为 W12 待办，非阻断）。</li>
+</ol>
 
 
 
@@ -1485,7 +1444,7 @@ python<span class="w"> </span>-m<span class="w"> </span>bench.stress.run_stress_
       <nav class="md-footer__inner md-grid" aria-label="页脚" >
         
           
-          <a href="../13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 13 Wave8 方案">
+          <a href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 15 Wave10 方案">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1495,20 +1454,20 @@ python<span class="w"> </span>-m<span class="w"> </span>bench.stress.run_stress_
                 上一页
               </span>
               <div class="md-ellipsis">
-                13 Wave8 方案
+                15 Wave10 方案
               </div>
             </div>
           </a>
         
         
           
-          <a href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-footer__link md-footer__link--next" aria-label="下一页: 15 Wave10 方案">
+          <a href="../../cli/" class="md-footer__link md-footer__link--next" aria-label="下一页: CLI 速查">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 下一页
               </span>
               <div class="md-ellipsis">
-                15 Wave10 方案
+                CLI 速查
               </div>
             </div>
             <div class="md-footer__button md-icon">
