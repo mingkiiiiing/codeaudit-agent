@@ -194,12 +194,18 @@ class SandboxExecutor:
         self,
         default_timeout: float = 60.0,
         tail_lines: int = 80,
-        use_docker: bool = True,
+        use_docker: bool = False,
     ) -> None:
         """use_docker 仅表达意愿：实际走 Docker = use_docker AND docker_available()。
 
         探测失败（本机无 docker CLI / 守护进程不可用）时静默降级子进程路径，
         SandboxResult.backend 如实标注，不告警不抛异常。
+
+        W13 收口裁决（CI 实证）：默认 False（opt-in 实验特性）。GitHub Actions 的
+        ubuntu runner 预装 Docker，自动启用会把命令包装进 python:3.12-slim 容器，
+        而宿主解释器路径（sys.executable 指向 hostedtoolcache）与 node 在容器内
+        不存在 → 全部 127 失败。容器化需要配套镜像（python+node 双运行时）与路径
+        映射策略，属后续演进；当前仅显式 use_docker=True 且镜像自足时可用。
         """
         self._default_timeout = max(0.1, float(default_timeout))
         self._tail_lines = max(1, int(tail_lines))

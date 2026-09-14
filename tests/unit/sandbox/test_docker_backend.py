@@ -125,7 +125,7 @@ async def test_docker_available_wraps_run_argv(tmp_path: Path, monkeypatch):
     _mock_docker_present_with_fake_cli(tmp_path, monkeypatch, capture)
     workdir = tmp_path / "work"
     workdir.mkdir()
-    res = await SandboxExecutor().run(["inner-cmd", "inner-arg"], cwd=workdir)
+    res = await SandboxExecutor(use_docker=True).run(["inner-cmd", "inner-arg"], cwd=workdir)
     assert res.backend == "docker"
     assert res.exit_code == 0
     assert res.timed_out is False
@@ -146,7 +146,7 @@ async def test_docker_image_env_override(tmp_path: Path, monkeypatch):
     capture = tmp_path / "docker_argv.txt"
     _mock_docker_present_with_fake_cli(tmp_path, monkeypatch, capture)
     monkeypatch.setenv("CODEAUDIT_DOCKER_IMAGE", "registry.example/codeaudit:latest")
-    res = await SandboxExecutor().run(["echo", "hi"], cwd=tmp_path)
+    res = await SandboxExecutor(use_docker=True).run(["echo", "hi"], cwd=tmp_path)
     assert res.backend == "docker"
     raw = capture.read_text(encoding="utf-8", errors="replace")
     assert "registry.example/codeaudit:latest" in raw
@@ -157,7 +157,7 @@ async def test_docker_run_failure_returned_honestly(tmp_path: Path, monkeypatch)
     """docker run 自身失败（如镜像拉取失败 exit_code=125）→ 如实返回，不重试不降级。"""
     capture = tmp_path / "docker_argv.txt"
     _mock_docker_present_with_fake_cli(tmp_path, monkeypatch, capture, exit_code=125)
-    res = await SandboxExecutor().run(["echo", "hi"], cwd=tmp_path)
+    res = await SandboxExecutor(use_docker=True).run(["echo", "hi"], cwd=tmp_path)
     assert res.backend == "docker"
     assert res.exit_code == 125
     assert res.timed_out is False
@@ -167,7 +167,7 @@ async def test_run_tests_goes_through_docker_wrap(tmp_path: Path, monkeypatch):
     """run_tests 与 run 共用 Docker 包装：pytest 命令原样透传进容器。"""
     capture = tmp_path / "docker_argv.txt"
     _mock_docker_present_with_fake_cli(tmp_path, monkeypatch, capture)
-    res = await SandboxExecutor().run_tests("pytest", tmp_path, target="test_x.py")
+    res = await SandboxExecutor(use_docker=True).run_tests("pytest", tmp_path, target="test_x.py")
     assert res.backend == "docker"
     assert res.exit_code == 0
     raw = capture.read_text(encoding="utf-8", errors="replace")
@@ -178,6 +178,19 @@ async def test_run_tests_goes_through_docker_wrap(tmp_path: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 # 开关与缓存：use_docker=False 强制 subprocess；reset_docker_cache 生效
 # ---------------------------------------------------------------------------
+
+
+async def test_default_off_even_when_docker_available(tmp_path: Path, monkeypatch):
+    """W13 收口裁决回归：默认参数即便 docker 可用也必须走 subprocess。
+
+    CI 实证：GitHub Actions ubuntu runner 预装 Docker，自动启用会把宿主
+    sys.executable 包装进容器导致全部 127。Docker 后端必须显式 opt-in。
+    """
+    _mock_docker_present_with_fake_cli(tmp_path, monkeypatch, tmp_path / "unused.txt")
+    res = await SandboxExecutor().run([sys.executable, "-c", "print('default-off')"], cwd=tmp_path)
+    assert res.backend == "subprocess"
+    assert res.exit_code == 0
+    assert "default-off" in res.stdout_tail
 
 
 async def test_use_docker_false_forces_subprocess(tmp_path: Path, monkeypatch):
