@@ -105,7 +105,7 @@ export GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4   # 可选，默认值
 export GLM_MODEL=glm-5.3-flash               # 可选，默认值
 ```
 
-> 本工具**不自动加载 `.env` 文件**（dotenv 产品化在 Roadmap），只从进程环境变量取值：`.env` 仅作变量模板，实际运行前需在当前 shell `export`，或由 CI secrets 注入。
+> **`.env` 自动加载（0.6/W12 起）**：`from_env` 会自动发现并加载当前工作目录的 `.env`（零依赖解析：支持 `#` 注释、`export ` 前缀、首尾引号；只认 GLM_/CODEAUDIT_ 白名单键；解析失败静默跳过）。**真实环境变量逐键优先于 `.env`**——已 `export` 的值不会被覆盖。因此拿到 Key 后 `cp .env.example .env` 填入即可直接使用，无需 export。注意：`.env` 已被 gitignore，绝不要提交。
 
 未设置 `GLM_API_KEY` 时流水线自动进入**纯规则离线模式**（进度事件提示"LLM 未配置，运行纯规则模式"），仅静态规则通道工作，不发起任何网络请求；也可用 `--no-llm` 显式强制。修复与单测生成依赖 LLM，离线模式下这两个阶段会被跳过并在报告中注明（想看离线闭环效果请跑 `python demo/run_demo.py`，见上文「快速体验」）。
 
@@ -322,6 +322,7 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 | [14-Wave9总体方案-测试体系补全与灰度发布](docs/14-Wave9总体方案-测试体系补全与灰度发布.md) | Wave 9 五类测试矩阵（压力 / 并发 / 算法 / 恶意 / 灰度）、审查发现 F1–F5 登记、灰度四层防线与后续路线 |
 | [15-Wave10总体方案-服务治理与灰度基建](docs/15-Wave10总体方案-服务治理与灰度基建.md) | Wave 10 契约 v2.1（准入控制 / 流式上传 / 沙箱限量）、金丝雀回放、soak 压测与集成裁决 |
 | [16-Wave11总体方案-持久化与多worker形态演进](docs/16-Wave11总体方案-持久化与多worker形态演进.md) | Wave 11 契约 v2.2（任务持久化 / 线程池执行 / 协作取消 / 多 worker）、内存归因诊断、任务分解 |
+| [17-Wave12总体方案-在线GLM安全治理与评估体系](docs/17-Wave12总体方案-在线GLM安全治理与评估体系.md) | Wave 12 在线审查（Key 脱敏 / .env 自动加载 / 预算熔断硬化）、注入鲁棒性实测、在线评估套件、RSS 有界增长结论 |
 
 以上设计文档已收录进 [在线文档站](https://mingkiiiiing.github.io/codeaudit-agent/)（mkdocs-material，源文件 `docs-site/` 与 `docs/`，由 `.github/workflows/docs.yml` 自动构建发布）。
 

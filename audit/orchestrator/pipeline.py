@@ -6,6 +6,10 @@
   保证本包在只有契约层的仓库状态下可独立测试。
 - 单阶段失败只记入 ctx.extra["stage_errors"]，审计永不整体失败。
 - 各阶段开始/结束均通过 emitter 发进度事件。
+- 全局 token 预算闸门（F8 / W12-A3）：llm 客户端统一包装 _BudgetGateLLM，
+  调用前按 config.token_budget 熔断（抛 AgentBudgetError 走各消费方既有降级
+  路径），首次熔断发"预算"warning 事件；熔断后 fix/testgen 纯 LLM 阶段跳过，
+  done 事件携带 degraded + budget_tripped 标志。
 """
 
 from __future__ import annotations
@@ -17,7 +21,8 @@ from typing import Any, Awaitable, Callable
 
 from audit.config import AuditConfig
 from audit.confkit import apply_baseline, apply_diff_filter, changed_files, load_baseline, write_baseline
-from audit.llm.base import FakeLLMClient, LLMClient
+from audit.errors import AgentBudgetError
+from audit.llm.base import FakeLLMClient, LLMClient, LLMResponse
 from audit.models import AuditReport, count_by_severity
 from audit.pipeline import EventEmitter, PipelineContext
 from audit.utils import new_audit_id
@@ -76,6 +81,125 @@ def _make_llm(config: AuditConfig) -> tuple[LLMClient, str | None]:
     if not config.llm_available:
         return FakeLLMClient(), "LLM 未配置，运行纯规则模式"
     return FakeLLMClient(), "LLM review 未启用，运行纯规则模式"
+
+
+class _BudgetGateLLM(LLMClient):
+    """全局 token 预算闸门（F8 / W12-A3）：包装底层 LLM 客户端做调用前熔断。
+
+    背景（docs/17 §1.2 F8）：既有熔断只有 agent 级一处（SimpleAgentRuntime 的
+    轮次检查，stop_reason="budget"），且仅 tools 审查路径消费 config.token_budget
+    （还按文件重置为 //10）；simple 审查 / verify / understand 增强 / refactor
+    增强 / fix / testgen 均直接调用 llm.chat，全局预算完全不受控——在线模式下
+    预算形同虚设。本闸门在编排层统一收口：
+
+    - 计量：每次调用完成后从 resp.usage 累加 prompt+completion tokens（与
+      runtime 同口径）。已在途的调用允许完成并计入，不中断已发出的请求；
+    - 熔断点：发起新调用前，已耗尽（spent >= budget）或 budget<=0（零/负
+      预算视为禁用 LLM）→ 抛 AgentBudgetError；各消费方（检测引擎逐文件、
+      verify 逐条、各阶段兜底）按既有异常路径诚实降级，流水线不中断；
+    - 语义差异说明：runtime 的轮次检查用严格 `>`（保证循环至少完成一轮，
+      属既有对外语义，保持不变）；编排层闸门是跨阶段总闸，若同样用 `>` 则
+      恰好用尽后还会再放行一次调用、预算必然被突破，故此处用 `>=`；
+    - 告警：首次熔断时经 emitter 发 warning 事件（文案含"预算"），挂
+      stage="init" 通道（与"LLM 未配置"警告同口径，避免钉死业务阶段），
+      并把 budget_tripped / budget_used_tokens 写入 ctx.extra，供 done 事件
+      携带降级标志、报告统计保持真实口径（usage_totals 委托底层客户端）。
+    """
+
+    def __init__(
+        self,
+        inner: LLMClient,
+        budget: int,
+        emitter: EventEmitter,
+        extra: dict[str, Any],
+    ) -> None:
+        self._inner = inner
+        self._budget = int(budget)
+        self._emitter = emitter
+        self._extra = extra
+        self.spent_tokens = 0  # 已完成调用累计消耗（prompt+completion）
+        self.rejected_calls = 0  # 熔断后被拒绝的调用次数（诊断用）
+
+    @property
+    def budget(self) -> int:
+        return self._budget
+
+    @property
+    def tripped(self) -> bool:
+        return bool(self._extra.get("budget_tripped", False))
+
+    async def chat(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        json_mode: bool = False,
+        temperature: float = 0.2,
+    ) -> LLMResponse:
+        if self._budget <= 0 or self.spent_tokens >= self._budget:
+            # 调用前已耗尽（含零/负预算防御）：熔断并拒绝本次调用
+            if not self.tripped:
+                await self._trip()
+            self.rejected_calls += 1
+            raise AgentBudgetError(
+                f"Token 预算熔断：已消耗 {self.spent_tokens} tokens（预算 {self._budget}），"
+                f"本次 LLM 调用被拒绝（累计第 {self.rejected_calls} 次），降级为本地结果"
+            )
+        resp = await self._inner.chat(messages, tools=tools, json_mode=json_mode, temperature=temperature)
+        usage = resp.usage or {}
+        self.spent_tokens += int(usage.get("prompt_tokens", 0) or 0) + int(
+            usage.get("completion_tokens", 0) or 0
+        )
+        if not self.tripped and self.spent_tokens >= self._budget:
+            # 预算恰好用尽：即时告警置位（此后任何新调用都会被拒绝）
+            await self._trip()
+        return resp
+
+    def usage_totals(self) -> dict[str, int]:
+        """委托底层客户端：报告统计保持真实口径（熔断拒绝的调用不计入）。"""
+        return self._inner.usage_totals()
+
+    async def aclose(self) -> None:
+        """释放底层客户端资源（run_audit 的 finally 统一收口）。"""
+        await _close_quietly(self._inner)
+
+    async def _trip(self) -> None:
+        """首次熔断：置标志、写 ctx.extra、发"预算"warning 事件（仅一次）。"""
+        self._extra["budget_tripped"] = True
+        self._extra["budget_used_tokens"] = self.spent_tokens
+        self._extra["budget_total"] = self._budget
+        try:
+            await self._emitter(
+                {
+                    "type": "progress",
+                    "stage": "init",
+                    "message": (
+                        f"Token 预算已耗尽：已消耗 {self.spent_tokens} tokens"
+                        f"（预算 {self._budget}），预算熔断生效，后续 LLM 调用将被拒绝并降级"
+                    ),
+                    "warning": True,
+                    "used_tokens": self.spent_tokens,
+                    "token_budget": self._budget,
+                }
+            )
+        except Exception:  # noqa: BLE001 —— 告警失败不影响熔断本身
+            pass
+
+
+def _budget_gate_of(ctx: PipelineContext) -> _BudgetGateLLM | None:
+    """取 ctx 上的预算闸门（非闸门客户端返回 None，如测试直接注入裸 LLM）。"""
+    return ctx.llm if isinstance(ctx.llm, _BudgetGateLLM) else None
+
+
+def _budget_fused(ctx: PipelineContext) -> bool:
+    """预算是否已熔断（或零/负预算注定熔断）：供后续 LLM 阶段门控跳过。
+
+    tripped 在"预算耗尽"时即置位（不必等到下一次调用被拒绝），因此
+    detect 恰好耗尽预算时，fix/testgen 也会被明确跳过并发事件。
+    """
+    gate = _budget_gate_of(ctx)
+    if gate is None:
+        return False
+    return gate.tripped or gate.budget <= 0
 
 
 def _make_review_fn(ctx: PipelineContext) -> Callable[..., Awaitable[list]]:
@@ -228,6 +352,11 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
         await emitter({"type": "progress", "stage": "init", "message": llm_warning, "warning": True})
 
     ctx = PipelineContext(config=config, workspace=workspace, llm=llm, emitter=emitter)
+    # F8（W12-A3）：全局 token 预算闸门——包装任何客户端（真实 GlmClient 与
+    # FakeLLM 同口径），调用前熔断 + 首次熔断发"预算"warning 事件；熔断标志
+    # 写入 ctx.extra，done 事件据此携带降级信息。
+    gate = _BudgetGateLLM(llm, config.token_budget, emitter, ctx.extra)
+    ctx.llm = gate
     ctx.extra["audit_id"] = audit_id
     # 原始项目名（剥掉 zip 后缀）：T2 工作副本目录名固定为 src，报告应展示真实项目名
     ctx.extra["project_name"] = src.name[: -len(".zip")] if src.name.endswith(".zip") else src.name
@@ -240,7 +369,8 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
         if index is not None:
             await _close_quietly(index)
         # R1-3：LLM 客户端（GlmClient 的 httpx 连接池）必须在结束时释放
-        await _close_quietly(llm)
+        # （闸门 aclose 委托底层客户端；直接关底层等价，统一走闸门收口）
+        await _close_quietly(gate)
 
 
 async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str) -> AuditReport:
@@ -372,18 +502,24 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
     else:
         await _skip_gated_stage(ctx, "refactor", "无索引与检测结果，不产出重构方案")
 
-    # -------- Stage 5: fix（契约 v1.2：模块存在则真实执行；R1-2：未 ingest 成功时门控）
+    # -------- Stage 5: fix（契约 v1.2：模块存在则真实执行；R1-2：未 ingest 成功时门控；
+    # F8：预算熔断后补丁生成为纯 LLM 阶段，继续执行只会逐条刷异常，明确跳过）
     if not config.do_fix:
         await ctx.emit("fix", "跳过（未启用 --fix）")
+    elif _budget_fused(ctx):
+        await ctx.emit("fix", "跳过：Token 预算已耗尽，不生成修复补丁", budget_tripped=True)
     elif ingest_ok:
         await _run_fix_stage(ctx)
     else:
         await _skip_gated_stage(ctx, "fix", "不生成修复补丁")
 
     # -------- Stage 6: testgen（契约 v1.2：模块存在则真实执行；R1-2 同类门控：
-    # 未 ingest 成功时 workspace 指向原始输入目录，写入生成测试会污染用户项目）
+    # 未 ingest 成功时 workspace 指向原始输入目录，写入生成测试会污染用户项目；
+    # F8：预算熔断后单测生成为纯 LLM 阶段，明确跳过）
     if not config.do_tests:
         await ctx.emit("testgen", "跳过（未启用 --tests）")
+    elif _budget_fused(ctx):
+        await ctx.emit("testgen", "跳过：Token 预算已耗尽，不生成单测", budget_tripped=True)
     elif ingest_ok:
         await _run_testgen_stage(ctx)
     else:
@@ -427,7 +563,17 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
 
     # done 事件（R4-10）：ingest 失败（降级运行）时携带 degraded 标志，
     # 供 CLI / Web 端明确提示"本次为降级审计"，而不是把空报告当成正常结果。
+    # F8（W12-A3）：预算熔断同样是降级运行——degraded 置位并附 budget_tripped /
+    # 实际消耗与预算值。used_tokens 取闸门最终累计值（而非熔断瞬间快照）：
+    # 熔断后已在途的调用仍会完成并计入，最终口径必须与报告 stats 一致。
     degraded: dict[str, Any] = {} if ingest_ok else {"degraded": True}
+    if ctx.extra.get("budget_tripped"):
+        gate = _budget_gate_of(ctx)
+        used = gate.spent_tokens if gate is not None else int(ctx.extra.get("budget_used_tokens", 0) or 0)
+        degraded["degraded"] = True
+        degraded["budget_tripped"] = True
+        degraded["used_tokens"] = used
+        degraded["token_budget"] = int(ctx.extra.get("budget_total", 0) or 0)
     await ctx.emit(
         "done",
         f"审计完成：summary={count_by_severity(ctx.issues)} issues={len(ctx.issues)}",

@@ -6,7 +6,23 @@
 
 ## [未发布]
 
-Wave 9 + Wave 10 + Wave 11：测试体系补全（W9）、服务治理与灰度基建（W10）、形态演进（W11）。契约 v2.1/v2.2 微增，全部向后兼容；W9 见 [docs/14](docs/14-Wave9总体方案-测试体系补全与灰度发布.md)，W10 见 [docs/15](docs/15-Wave10总体方案-服务治理与灰度基建.md)，W11 见 [docs/16](docs/16-Wave11总体方案-持久化与多worker形态演进.md)。
+Wave 9 + Wave 10 + Wave 11 + Wave 12：测试体系补全（W9）、服务治理与灰度基建（W10）、形态演进（W11）、在线 GLM 安全治理与评估体系（W12）。契约 v2.1/v2.2 微增 + F6–F9 清偿，全部向后兼容；W9–W12 方案分别见 docs/14–docs/17。
+
+### Added（Wave 12）
+
+- **在线 GLM 接入与评估体系**：真实 GLM Key 接入（`.env`，已 gitignore）——在线审计实测**双通道融合生效且 LLM 独立发现规则漏报缺陷**（mini_app：`textutil.py` slugify 空分隔符死循环 high）；**提示注入鲁棒性实测通过**（伪 SYSTEM/IGNORE ALL payload 零生效零回显，真缺陷全保留）；成本基准建立（mini_app 约 150s / 7–9 调用 / 3–5 万 tokens）。评估套件 `bench/eval/run_online_eval.py`（注入鲁棒性 / 离线 vs 在线增值 diff / 成本基准三场景；**显式 `--online` 才真实调 GLM**，双守卫防误烧 token；quick 实测 7/7 判据 PASS）。
+- **任务持久化（契约 v2.2）**：新模块 `audit/taskstore.py`——SQLite WAL 任务存储（标准库零依赖，线程锁串行化写），任务、事件流、报告全部落库（`<work_root>/audits.db`，`CODEAUDIT_DB_PATH` 可覆盖）；**服务重启后终态任务与报告仍可查询下载**（新能力），遗留非终态启动时 sweep 为 failed（`服务重启中断`）；FIFO 容量淘汰迁移到 store。启动 sweep 经 FastAPI lifespan 执行（导入零副作用）。
+- **线程池执行**：审计任务从共享事件循环迁到独立线程（`asyncio.to_thread`，每任务独立事件循环）——根治 CPU 密集段饿死服务循环的问题（W9 观察到的 POST 响应推迟、health 失联不复现），读端点在重审计负载下全程可响应。
+- **协作式取消（语义诚实声明）**：DELETE 不再瞬时打断线程，改为事件边界取消——执行协程每次 emit 前检查取消标志/表项存在性（表项被删即取消），七阶段均频繁 emit，典型亚秒级生效；DELETE 的 HTTP 语义不变（204 + 全端点 404 + SSE 收流）。
+- **多 worker（实验特性）**：`codeaudit serve --workers N`（默认 1）——N>1 以 import string 形式启动 uvicorn 多进程，sticky 执行模型（任务由接收 worker 执行），SQLite 跨 worker 可见性经双 worker 冒烟实证；429 准入计数升级为全局口径（count_active 走 store），并发上限 = workers × 每 worker 上限。
+- **内存归因结论（F9 清偿）**：`bench/memdiag/` 逐任务 tracemalloc + 600s 长窗 soak + 服务端 10 项逐证——**结论：有界增长非泄漏**（一次性预热 ~10MB + 稳态残差 ≤13KB/任务收敛于平台期，窗口加倍斜率减半；FIFO 50 兜底下上界 ≈85-90MB），零必须修复项。
+- **预算熔断在线语义硬化（F8 清偿）**：编排层全局预算闸门 `_BudgetGateLLM`（覆盖 simple 审查/verify/understand/refactor 增强/fix/testgen 全部 LLM 调用；此前仅 tools 路径受约束且按文件重置可烧 10 倍预算）——熔断发 warning、后续 fix/testgen 显式跳过、done 事件诚实标注 `degraded+budget_tripped`+最终累计账目；真实小预算（3000）实测熔断中途触发、调用冻结、报告正常产出（推理模型单笔 thinking 可超剩余预算属闸门"发起前设卡"语义的既定边界，诚实记录）。
+- 文档站 nav 补登记 Wave 8–12 方案文档（mkdocs strict 构建通过）。
+
+### Changed（Wave 12）
+
+- **F6 清偿（Key 脱敏）**：任务持久化的 `config_json` 落库前 `api_key` 替换为 `"<redacted>"`——运行时 Key 一律来自进程环境（`from_env`），store 任何路径取不到明文 Key（sqlite3 裸连全表扫 + 主库/WAL/SHM 字节级扫描用例固定）。
+- **F7 清偿（.env 自动加载）**：`AuditConfig.from_env` 自动发现并加载 CWD/`.env`（零依赖解析：注释/export 前缀/引号/坏行容错；同进程至多加载一次；**真实环境变量逐键优先**）；GLM_* 三键只合并进本次取值不写进程环境，CODEAUDIT_* 经 setdefault 传递（server 感知）；收口修复 `_get_store` 的加载时序（from_env 先行，否则 .env 的 CODEAUDIT_DB_PATH 静默失效）。
 
 ### Added（Wave 11）
 

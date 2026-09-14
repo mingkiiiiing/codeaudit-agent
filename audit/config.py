@@ -1,7 +1,22 @@
-"""审计配置（契约文件，勿改）。环境变量优先级高于默认值。
+"""审计配置。环境变量优先级高于默认值；from_env 自动加载 .env（W12-A1/F7）。
 
 契约 v1.4（docs/09 §3）：新增配置文件合成 from_sources()——
 合成优先级：默认值 < 配置文件（.codeaudit.toml / pyproject [tool.codeaudit]）< 环境变量(GLM_*) < CLI 显式参数。
+
+F7 .env 自动加载（docs/17 §2 W12-A1；早期版本"不自动加载 .env"的语义自 W12 起废止）：
+- 查找顺序：显式 env_file 参数 → CWD/.env；文件不存在静默跳过；
+- 解析：零依赖手写——KEY=VALUE、# 注释行、export KEY=VALUE 前缀、值的首尾引号
+  剥离（单双引号）、空行跳过；解析失败的行静默跳过；
+- 优先级（关键）：真实进程环境变量永远优先于 .env——.env 只补"进程环境尚不存在
+  的键"，绝不覆盖用户运行中修改的值；模块级 _ENV_LOADED 标志保证同进程至多实际
+  加载一次；
+- 写入策略分两层：GLM_* 三键只合并进本次 from_env 取值（不写 os.environ——避免
+  污染全局进程环境、误伤 from_sources 等其他环境消费者）；CODEAUDIT_* 三键以
+  setdefault 写入 os.environ（server 侧运行期直接读环境，必须经进程环境传递）；
+- 作用范围：只认白名单键 GLM_API_KEY / GLM_BASE_URL / GLM_MODEL /
+  CODEAUDIT_MAX_RUNNING / CODEAUDIT_MAX_PENDING / CODEAUDIT_DB_PATH，
+  其余键一律忽略（防 .env 意外注入无关环境变量）。注意 server 在 import 时固化
+  的模块常量（如并发准入上限）早于首次 from_env 调用，不受 .env 影响。
 """
 
 from __future__ import annotations
@@ -14,6 +29,75 @@ from typing import Any
 
 DEFAULT_BASE_URL = "https://open.bigmodel.cn/api/paas/v4"
 DEFAULT_MODEL = "glm-5.3-flash"
+
+# F7：.env 白名单——GLM_* 三键合并进本次 from_env 取值（不写 os.environ）；
+# CODEAUDIT_* 三键 setdefault 进 os.environ（server 侧直接读环境，须经进程环境传递）
+_DOTENV_GLM_KEYS = frozenset({"GLM_API_KEY", "GLM_BASE_URL", "GLM_MODEL"})
+_DOTENV_SERVER_KEYS = frozenset(
+    {"CODEAUDIT_MAX_RUNNING", "CODEAUDIT_MAX_PENDING", "CODEAUDIT_DB_PATH"}
+)
+_DOTENV_KEYS = _DOTENV_GLM_KEYS | _DOTENV_SERVER_KEYS
+
+# F7：同进程只加载一次标志（实际发生加载后才置位；见 _load_dotenv）
+_ENV_LOADED = False
+
+
+def _parse_dotenv_line(line: str) -> tuple[str, str] | None:
+    """解析 .env 单行为 (key, value)；空行/注释行/无 '=' 的坏行返回 None（静默跳过）。
+
+    支持：KEY=VALUE、export KEY=VALUE 前缀、值的首尾成对单/双引号剥离、
+    键值两侧空白容忍；值内含 '=' 时按第一个 '=' 切分。
+    """
+    text = line.strip()
+    if not text or text.startswith("#"):
+        return None
+    if text.startswith("export ") or text.startswith("export\t"):
+        text = text[len("export"):].lstrip()
+    key, sep, value = text.partition("=")
+    if not sep:
+        return None
+    key = key.strip()
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+        value = value[1:-1]
+    if not key:
+        return None
+    return key, value
+
+
+def _load_dotenv(env_file: str | Path | None) -> dict[str, str]:
+    """加载 .env（F7，零依赖手写解析），返回 .env 提供的 GLM_* 键值（供 from_env 合并）。
+
+    - 路径：显式 env_file 优先；缺省自动发现 CWD/.env；文件不存在/不可读返回空
+      dict 并静默跳过（不置标志，后续调用仍可重试）；
+    - 写入策略：CODEAUDIT_* 键以 setdefault 写入 os.environ（server 侧运行期直接读
+      环境，必须经进程环境传递，且绝不覆盖已有值）；GLM_* 键不写 os.environ——仅经
+      返回值合并进本次 from_env 取值，避免污染全局进程环境、误伤 from_sources 等
+      其他环境消费者（"真实环境变量优先"在 from_env 内逐键保证）；
+    - 模块级 _ENV_LOADED 标志保证同进程至多实际加载一次。线程安全性：GIL 下标志
+      读写近似原子；极端竞态下最坏重复解析一次，setdefault/合并均幂等，无实际危害。
+    """
+    global _ENV_LOADED
+    if _ENV_LOADED:
+        return {}
+    path = Path(env_file) if env_file is not None else Path.cwd() / ".env"
+    try:
+        # utf-8-sig：容忍带 BOM 的 .env（首键不被 \ufeff 破坏），无 BOM 时行为一致
+        text = path.read_text(encoding="utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return {}
+    merged: dict[str, str] = {}
+    for line in text.splitlines():
+        parsed = _parse_dotenv_line(line)
+        if parsed is None:
+            continue
+        key, value = parsed
+        if key in _DOTENV_SERVER_KEYS:
+            os.environ.setdefault(key, value)
+        elif key in _DOTENV_GLM_KEYS:
+            merged[key] = value
+    _ENV_LOADED = True
+    return merged
 
 
 @dataclass
@@ -68,13 +152,35 @@ class AuditConfig:
     rule_scan_workers: int = 1  # 0=自动（文件数≥100 时 min(4,cpu)）；1=串行（默认）；>1=指定并发度
 
     @classmethod
-    def from_env(cls, source_path: str | None = None, **overrides: object) -> "AuditConfig":
+    def from_env(
+        cls,
+        source_path: str | None = None,
+        *,
+        env_file: str | Path | None = None,
+        **overrides: object,
+    ) -> "AuditConfig":
+        """从进程环境构造配置；首次调用自动加载 .env（F7，语义见模块 docstring）。
+
+        取值优先级：显式 overrides（None 跳过）> 真实进程环境变量 > .env（仅补环境
+        尚不存在的键，且不落 os.environ）> 默认值。env_file：显式 .env 路径；None 时
+        自动发现 CWD/.env；文件不存在静默跳过；同进程至多实际加载一次
+        （_ENV_LOADED 标志）。
+        """
+        dotenv_values = _load_dotenv(env_file)
         env_map = {
             "api_key": ("GLM_API_KEY", ""),
             "base_url": ("GLM_BASE_URL", DEFAULT_BASE_URL),
             "model": ("GLM_MODEL", DEFAULT_MODEL),
         }
-        values = {k: os.environ.get(env, default) for k, (env, default) in env_map.items()}
+        values = {}
+        for key, (env, default) in env_map.items():
+            # 优先级：真实进程环境变量 > .env（仅补环境缺失键）> 默认值
+            if env in os.environ:
+                values[key] = os.environ[env]
+            elif env in dotenv_values:
+                values[key] = dotenv_values[env]
+            else:
+                values[key] = default
         if source_path is not None:
             values["source_path"] = source_path
         values.update({k: v for k, v in overrides.items() if v is not None})

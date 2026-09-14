@@ -116,12 +116,15 @@ def _get_store() -> TaskStore:
 
     db 路径：env CODEAUDIT_DB_PATH 优先，否则 <work_root>/audits.db（work_root 取
     AuditConfig.from_env().work_root，与上传/报告目录同一基座）。
+
+    W12 收口修复：from_env 调用必须先于 env 读取——from_env 触发 F7 的 .env 自动
+    加载（CODEAUDIT_* setdefault 进 os.environ），顺序颠倒会使 .env 中的
+    CODEAUDIT_DB_PATH 静默失效（实测 store 落默认路径）。
     """
     global _STORE
     if _STORE is None:
-        db_path = os.environ.get("CODEAUDIT_DB_PATH")
-        if not db_path:
-            db_path = str(Path(AuditConfig.from_env().work_root) / "audits.db")
+        work_root = str(Path(AuditConfig.from_env().work_root))
+        db_path = os.environ.get("CODEAUDIT_DB_PATH") or str(Path(work_root) / "audits.db")
         _STORE = TaskStore(db_path)
     return _STORE
 
@@ -190,6 +193,8 @@ def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
     注入的假流水线同样生效。任何 BaseException（含 emitter 边界的 CancelledError）
     兜底落 failed——R4-9：任务表不残留 running 僵尸项；行已被 DELETE 删除时
     set_status 幽灵任务静默，不报错不回写。
+    F6：入参 config 是创建请求时构造的原始对象（内存中带真实 api_key），
+    绝不自 store 的 config_json 反序列化——落库值已脱敏为 "<redacted>"。
     """
     import server.app as _self  # 运行期取模块属性，供测试注入替身（monkeypatch 生效）
 
@@ -234,13 +239,21 @@ def _start_audit(audit_id: str, config: AuditConfig) -> None:
     if not config.out_dir:
         config.out_dir = str(Path(config.work_root) / audit_id / "reports")
     store = _get_store()
+    # F6（docs/17 §1.2，W12-A1）：config_json 落库前脱敏——api_key 以 "<redacted>"
+    # 占位后再 asdict 序列化（db 中的值仅作审计痕迹）。
+    # 运行时语义保证：任务执行（_run_audit_task → to_thread(_run_audit_sync)）用的
+    # 是创建请求时构造的原始 config 对象（内存中带真实 Key，见下方 create_task 传参），
+    # 全程不读回 db 的 config_json——因此 store 里任何值都取不到明文 Key。
     store.create(
         audit_id,
         created_at=datetime.now().astimezone().isoformat(timespec="seconds"),
         source_path=config.source_path,
         do_fix=config.do_fix,
         do_tests=config.do_tests,
-        config_json=json.dumps(dataclasses.asdict(config), ensure_ascii=False),
+        config_json=json.dumps(
+            dataclasses.asdict(dataclasses.replace(config, api_key="<redacted>")),
+            ensure_ascii=False,
+        ),
     )
     store.prune(_AUDITS_MAX)
     task = asyncio.create_task(_run_audit_task(audit_id, config))
