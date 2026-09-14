@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/">
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/">
       
       
-        <link rel="prev" href="../14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/">
+        <link rel="prev" href="../17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/">
       
       
-        <link rel="next" href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/">
+        <link rel="next" href="../../cli/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>15 Wave10 方案 - CodeAudit Agent</title>
+        <title>18 Wave13 方案 - CodeAudit Agent</title>
       
     
     
@@ -72,7 +72,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#wave-10-f2f4f5-l2-soak" class="md-skip">
+        <a href="#wave-13-ci-docker-worker" class="md-skip">
           跳转至
         </a>
       
@@ -108,7 +108,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              15 Wave10 方案
+              18 Wave13 方案
             
           </span>
         </div>
@@ -749,37 +749,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    15 Wave10 方案
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-nav__link">
         
   
   
@@ -795,126 +768,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#1-v21-wave" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. 契约 v2.1 微增（本 Wave 的行为变化，全部向后兼容）
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="1. 契约 v2.1 微增（本 Wave 的行为变化，全部向后兼容）">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#11-f5-serverapppy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1.1 F5 准入控制（server/app.py）
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#12-f2-serverapppy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1.2 F2 流式上传（server/app.py）
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#13-f4-auditsandboxexecutorpy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1.3 F4 沙箱输出限量（audit/sandbox/executor.py）
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. 任务分解与目录所有权（四人并行 + 集成人收口）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-w10-a5" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. 集成收口清单（W10-A5）
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="3. 集成收口清单（W10-A5）">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#31" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.1 集成裁决记录（收口期两处口径修正，均为测量口径而非行为放宽）
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. 验收与发布
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -980,10 +833,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    18 Wave13 方案
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -999,6 +879,59 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 任务分解与目录所有权（四人并行 + 集成人收口）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-w13-a5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 集成收口清单（W13-A5）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 风险
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1229,60 +1162,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-v21-wave" class="md-nav__link">
+  <a href="#1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. 契约 v2.1 微增（本 Wave 的行为变化，全部向后兼容）
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="1. 契约 v2.1 微增（本 Wave 的行为变化，全部向后兼容）">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#11-f5-serverapppy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1.1 F5 准入控制（server/app.py）
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#12-f2-serverapppy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1.2 F2 流式上传（server/app.py）
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#13-f4-auditsandboxexecutorpy" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1.3 F4 沙箱输出限量（audit/sandbox/executor.py）
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. 任务分解与目录所有权（四人并行 + 集成人收口）
+        1. 任务分解与目录所有权（四人并行 + 集成人收口）
       
     </span>
   </a>
@@ -1290,38 +1173,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-w10-a5" class="md-nav__link">
+  <a href="#2-w13-a5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. 集成收口清单（W10-A5）
+        2. 集成收口清单（W13-A5）
       
     </span>
   </a>
-  
-    <nav class="md-nav" aria-label="3. 集成收口清单（W10-A5）">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#31" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3.1 集成裁决记录（收口期两处口径修正，均为测量口径而非行为放宽）
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
   
 </li>
       
         <li class="md-nav__item">
-  <a href="#4" class="md-nav__link">
+  <a href="#3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. 验收与发布
+        3. 风险
       
     </span>
   </a>
@@ -1345,119 +1211,75 @@
 
 
 
-<h1 id="wave-10-f2f4f5-l2-soak">Wave 10 总体方案——服务治理（F2/F4/F5 清偿）与灰度基建（L2 金丝雀 + soak）<a class="headerlink" href="#wave-10-f2f4f5-l2-soak" title="Permanent link">&para;</a></h1>
+<h1 id="wave-13-ci-docker-worker">Wave 13 总体方案——CI 在线评估、Docker 沙箱、多 worker 基线与前端降级展示<a class="headerlink" href="#wave-13-ci-docker-worker" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>2026-09-14 ｜ 状态：开发中 ｜ 前置：docs/14（审查发现 F1–F5 与 W10 排期）</p>
-<p>本 Wave 目标：把 docs/14 登记的三项可修风险（F2 上传全量缓冲 / F4 沙箱输出无界缓冲 /
-F5 无准入控制）按契约先行的方式清偿，并交付灰度方案中缺的两块基建（L2 金丝雀双版本
-回放、S9 soak 压测）。F1/F3 属本地工具设计边界，继续登记不修。</p>
+<p>2026-09-15 ｜ 状态：开发中 ｜ 前置：docs/17（W12）、v0.6.0 打版</p>
+<p>用户指令：四个候选方向全部实施，token 预算不设限（仍需账目记录）。</p>
 </blockquote>
-<h2 id="1-v21-wave">1. 契约 v2.1 微增（本 Wave 的行为变化，全部向后兼容）<a class="headerlink" href="#1-v21-wave" title="Permanent link">&para;</a></h2>
-<h3 id="11-f5-serverapppy">1.1 F5 准入控制（server/app.py）<a class="headerlink" href="#11-f5-serverapppy" title="Permanent link">&para;</a></h3>
-<ul>
-<li>新增模块级常量（环境变量可覆盖，便于测试与部署调参）：</li>
-<li><code>_MAX_RUNNING_AUDITS</code>：同时运行中的任务上限，默认 <strong>4</strong>（env <code>CODEAUDIT_MAX_RUNNING</code>，≥1）；</li>
-<li><code>_MAX_PENDING_AUDITS</code>：非终态（queued+running）任务总数上限，默认 <strong>20</strong>
-    （env <code>CODEAUDIT_MAX_PENDING</code>，≥ <code>_MAX_RUNNING_AUDITS</code>）。</li>
-<li>调度语义：后台任务经全局 <code>asyncio.Semaphore(_MAX_RUNNING_AUDITS)</code> 排队执行；
-  超出 semaphore 的任务停留既有契约状态 <strong>queued</strong>（v2 状态机天然支持，无新状态）。</li>
-<li>拒绝语义：POST <code>/api/audits</code> 与 POST <code>/api/audits/upload</code> 在建任务前检查
-  <code>active ≥ _MAX_PENDING_AUDITS</code> → <strong>429</strong>，detail=<code>服务器并发审计数已达上限（N），请稍后重试</code>。
-  契约 v2.0 的 200/400/404/413 全部不变，仅新增 429 一个可能响应码。</li>
-<li>取消语义不变：排队中的任务被 DELETE → <code>task.cancel()</code> 令 semaphore acquire 抛
-  CancelledError → 既有 BaseException 兜底落 failed + 「任务已取消」。</li>
-<li>健康检查 <code>/api/health</code> 的 <code>audits.active/total</code> 语义不变（active 本就含 queued）。</li>
-</ul>
-<h3 id="12-f2-serverapppy">1.2 F2 流式上传（server/app.py）<a class="headerlink" href="#12-f2-serverapppy" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>upload_audit</code> 改为分块读取（256 KB chunk 累计计数），累计超过 <code>_UPLOAD_MAX_BYTES</code>
-  立即返回 413 并停止读取剩余 body——不再把整个文件缓冲进内存。</li>
-<li>200/400/413 的语义与既有一致；落盘字节与请求体逐字节一致（既有用例
-  <code>test_upload_zip_creates_audit_and_persists_file</code> 不变即契约）。</li>
-</ul>
-<h3 id="13-f4-auditsandboxexecutorpy">1.3 F4 沙箱输出限量（audit/sandbox/executor.py）<a class="headerlink" href="#13-f4-auditsandboxexecutorpy" title="Permanent link">&para;</a></h3>
-<ul>
-<li><code>_drain</code> 改为限量排空：累计读取达 <code>_OUTPUT_LIMIT_BYTES</code>（默认 <strong>8 MB</strong>）后继续读但
-  <strong>丢弃</strong>（防止子进程 PIPE 写阻塞），内存占用上限 ≈ LIMIT + 一个 chunk。</li>
-<li><code>SandboxResult</code> 新增可选字段 <code>truncated: bool = False</code>（默认值，向后兼容）：
-  输出被限量时置 True，且 <code>stdout_tail/stderr_tail</code> 首行追加 <code>[output truncated]</code> 标记。</li>
-<li><code>run()/run_tests()</code> 签名与返回语义不变；既有用例（tail 80 行、超时击杀、白名单）全部不变。</li>
-</ul>
-<h2 id="2">2. 任务分解与目录所有权（四人并行 + 集成人收口）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<h2 id="1">1. 任务分解与目录所有权（四人并行 + 集成人收口）<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>任务</th>
 <th>职务</th>
-<th>所有权（只许改这些路径）</th>
+<th>所有权</th>
 <th>交付物</th>
 <th>验收</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>W10-A1</td>
-<td>服务治理后端</td>
-<td><code>server/app.py</code>、<code>tests/unit/server/</code>（新增用例可加新文件）</td>
-<td>F2 流式上传 + F5 准入控制 + 单测/联调用例</td>
-<td>既有 1071 项不红；新增 429/排队/流式 413 用例全绿</td>
+<td>W13-A1</td>
+<td>CI 工程师</td>
+<td><code>.github/workflows/online-eval.yml</code>（新建）、<code>bench/eval/run_online_eval.py</code>、<code>.github/workflows/ci.yml</code>（如需联动）</td>
+<td>在线评估 CI 化：workflow_dispatch 手动 + schedule 每周一 UTC 0:00 定时；secrets.GLM_API_KEY 存在才跑（不存在跳过并标注）；单场景注入鲁棒性 quick（≤7 万 tokens/次）；评估 FAIL（判据不过）→ workflow 红</td>
+<td>bench/eval 增加 <code>--ci</code> 模式（简洁输出/非零退出码语义化）；workflow YAML 语法校验；本地模拟 CI 环境跑通守卫路径</td>
 </tr>
 <tr>
-<td>W10-A2</td>
-<td>沙箱治理后端</td>
-<td><code>audit/sandbox/executor.py</code>、<code>tests/unit/sandbox/</code></td>
-<td>F4 限量排空 + truncated 标记 + 单测</td>
-<td>既有 sandbox 用例不红；50MB 输出用例 truncated=True 且正常退出</td>
+<td>W13-A2</td>
+<td>沙箱工程师</td>
+<td><code>audit/sandbox/executor.py</code>、<code>audit/config.py</code>（如需开关）、<code>tests/unit/sandbox/</code></td>
+<td>Docker 沙箱后端：<code>docker run --rm --network none --memory 512m --cpus 1 -v &lt;cwd&gt;:/work -w /work &lt;image&gt; &lt;cmd&gt;</code>；启动/调用前探测 docker 可用性（which + <code>docker info</code> 探针，缓存探测结果）；<strong>探测失败自动降级现有子进程路径并在 SandboxResult 标注 backend</strong>（诚实降级哲学）；镜像默认 <code>python:3.12-slim</code>（可配 CODEAUDIT_DOCKER_IMAGE）</td>
+<td>单测全 mock docker CLI（可用/不可用/调用参数断言：network none、memory 限制、卷挂载）；本机无 Docker 的降级路径实测；既有 sandbox 用例全绿</td>
 </tr>
 <tr>
-<td>W10-A3</td>
-<td>发布工具工程师</td>
-<td><code>bench/canary/</code>（新建）</td>
-<td><code>replay.py</code>：git worktree 取旧 tag 起双端口服务，固定请求集回放 + 归一化 diff</td>
-<td>自比对（旧=当前 HEAD~tag）diff 为空、退出码 0</td>
-</tr>
-<tr>
-<td>W10-A4</td>
+<td>W13-A3</td>
 <td>性能工程师</td>
-<td><code>bench/stress/run_soak.py</code>（新建）</td>
-<td>soak 压测：混合负载 + RSS 采样 + 泄漏判定</td>
-<td>报告落 <code>bench/results/soak_w10.md</code>；无 5xx、RSS 斜率 &lt; 1 MB/min</td>
+<td><code>bench/stress/run_soak_multiworker.py</code>（新建）、<code>bench/results/</code></td>
+<td>多 worker 压测基线：<code>--workers 2</code> 起真服务（cli.py serve --workers 2），单 worker 对照口径同 soak（混合负载/RSS/三态判定），额外观测：429 全局准入在多 worker 下的触发率、active 计数一致性、跨 worker SSE。产出 <code>bench/results/soak_multiworker_w13.md</code>（含单/多 worker 对照表）</td>
+<td>双 worker 600s（quick 300s）真实跑通；无 5xx；对照表完整；诚实边界（spawn 模式、sticky 执行）</td>
 </tr>
 <tr>
-<td>W10-A5</td>
+<td>W13-A4</td>
+<td>前端工程师</td>
+<td><code>frontend/src/</code>、<code>frontend/tests/</code>（如需）</td>
+<td>前端降级/预算可视化：①任务详情页——done 事件 <code>budget_tripped/degraded</code> → 醒目"预算熔断降级"警示条（含 used_tokens/token_budget）；②token 消耗卡片（stats 已有数据：llm_calls/prompt/completion）；③任务列表行降级标记（列表 API 需暴露的标记由现有 report 字段推导，若需后端字段改动改为前端从 /summary 推导，<strong>不改 server/ 契约</strong>）</td>
+<td>vitest 新增组件测试；<code>npm run build</code> 通过；类型检查零错误</td>
+</tr>
+<tr>
+<td>W13-A5</td>
 <td>集成人（主线）</td>
-<td><code>docs/</code>、<code>CHANGELOG.md</code>、<code>README.md</code>、<code>bench/adversarial/</code>、<code>Makefile</code></td>
-<td>契约文件、adversarial A3/A6 断言适配新契约并复跑、联调、全量压测、修复、发布</td>
-<td>全量 pytest + ruff + adversarial + soak + canary 五关全绿后 commit</td>
+<td><code>docs/</code>、<code>CHANGELOG.md</code>、<code>README.md</code>、<code>Makefile</code>、GitHub Secrets/Release、<code>mkdocs.yml</code></td>
+<td>v0.6.0 打版收尾（Release notes）；GitHub Secrets 配置 GLM_API_KEY；docs/18；派发收口；全量验收；commit</td>
+<td>六关 + 前端 build + CI 绿</td>
 </tr>
 </tbody>
 </table>
-<p>协作规约（沿袭 W1–W8）：契约先行（本文件即契约）、目录所有权隔离（禁越界改文件）、
-全程离线（禁触网）、诚实降级（探测失败标注而非崩溃）、中文 docstring、ruff 零告警。</p>
-<h2 id="3-w10-a5">3. 集成收口清单（W10-A5）<a class="headerlink" href="#3-w10-a5" title="Permanent link">&para;</a></h2>
+<p><strong>协作规约</strong>：沿袭 W12。W13-A1 是唯二允许真实调 GLM 的任务（CI 抽样属运行期行为，开发期只验证守卫路径）。</p>
+<h2 id="2-w13-a5">2. 集成收口清单（W13-A5）<a class="headerlink" href="#2-w13-a5" title="Permanent link">&para;</a></h2>
 <ol>
-<li>adversarial 复跑：A6 场景 210MB 上传 RSS 峰值应从 660MB 量级回落至 ≈ 服务常驻量级
-   （F2 修复实证）；A3 场景 F5 段 active 峰值 ≤ 4（F5 修复实证），对应断言更新。</li>
-<li>canary 自比对首跑：worktree 取 v0.5.0 vs 当前 HEAD，同请求集 diff 必须为空
-   （429 路径不触发时行为不变）。</li>
-<li>soak 首跑（quick 口径 2 分钟）：无 5xx、终态率 100%、RSS 斜率达标。</li>
-<li>全量 pytest + ruff；CHANGELOG / README / Makefile（soak、canary 目标）同步更新。</li>
+<li>全量 pytest + ruff + 前端 build/vitest。</li>
+<li>三路复跑（adversarial / soak / canary）。</li>
+<li>A1 交付复核：workflow 语法（actionlint 或 YAML parse）、守卫路径本地实测、Secrets 配置确认（gh secret set，值不回显）。</li>
+<li>GitHub Release v0.6.0 发布（notes 从 CHANGELOG 提取）。</li>
+<li>commit + push + 盯 CI 全绿。</li>
 </ol>
-<h3 id="31">3.1 集成裁决记录（收口期两处口径修正，均为测量口径而非行为放宽）<a class="headerlink" href="#31" title="Permanent link">&para;</a></h3>
+<h2 id="3">3. 风险<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>A6 RSS 校验改增量口径</strong>：<code>PeakWorkingSetSize</code> 是进程生命周期峰值，A1–A5 场景已将其
-  推高（W9/W10 两代均为 660MB 佐证峰值与上传无关），不能作为单次上传的内存证据。
-  改为上传前后<strong>当前工作集增量</strong> &lt; 50MB（W9 基线增量 3.3MB）；峰值仅记录为参考。</li>
-<li><strong>soak RSS 判定改三态</strong>（PASS / DEFER / FAIL）：冷启动预热（前 60s 懒加载导入）剔除后，
-  稳态斜率 &lt; 1 MB/min → PASS；超限但 RSS 与累计终态任务数 Pearson r ≥ 0.6 → <strong>DEFER</strong>
-  （疑似每任务常数缓存而非时间泄漏；FIFO 容量 50 兜底下内存有界 ≈ 基线 + 50×每任务增量，
-  实测 ~0.15 MB/任务；不阻断发布，长窗口归因列 W11 待办）；超限且与任务数弱相关 → FAIL
-  （时间泄漏特征）。quick 冒烟与标准 300s 同口径；全窗口斜率与相关性继续在报告「RSS 诊断」
-  节如实呈现。</li>
+<li>Docker 后端在本机不可实测（无 Docker）——单测全 mock + 降级路径实测；真实 Docker 行为标注"待有 Docker 环境/CI 实证"，不虚构通过。</li>
+<li>schedule 定时任务烧 token（每周 ~7 万）——workflow_dispatch 为主、schedule 可由 repo 变量 ONLINE_EVAL_SCHEDULED=true/false 控制，默认 false。</li>
+<li>多 worker 在 Windows spawn 下的端口/信号行为差异——如实记录，失败不改判定口径。</li>
 </ul>
-<h2 id="4">4. 验收与发布<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
-<p>五关全绿（pytest / ruff / adversarial / soak / canary）→ 单 commit 收口（<code>feat: Wave 10 …</code>）
-→ push → 盯 CI。风险回滚：三项修复均为增量语义（默认值可通过环境变量调回宽松），无破坏性。</p>
 
 
 
@@ -1493,7 +1315,7 @@ F5 无准入控制）按契约先行的方式清偿，并交付灰度方案中�
       <nav class="md-footer__inner md-grid" aria-label="页脚" >
         
           
-          <a href="../14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 14 Wave9 方案">
+          <a href="../17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 17 Wave12 方案">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1503,20 +1325,20 @@ F5 无准入控制）按契约先行的方式清偿，并交付灰度方案中�
                 上一页
               </span>
               <div class="md-ellipsis">
-                14 Wave9 方案
+                17 Wave12 方案
               </div>
             </div>
           </a>
         
         
           
-          <a href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-footer__link md-footer__link--next" aria-label="下一页: 16 Wave11 方案">
+          <a href="../../cli/" class="md-footer__link md-footer__link--next" aria-label="下一页: CLI 速查">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 下一页
               </span>
               <div class="md-ellipsis">
-                16 Wave11 方案
+                CLI 速查
               </div>
             </div>
             <div class="md-footer__button md-icon">
