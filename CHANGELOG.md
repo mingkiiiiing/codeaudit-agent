@@ -4,7 +4,7 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [未发布]
+## [0.6.0] - 2026-09-15
 
 Wave 9 + Wave 10 + Wave 11 + Wave 12：测试体系补全（W9）、服务治理与灰度基建（W10）、形态演进（W11）、在线 GLM 安全治理与评估体系（W12）。契约 v2.1/v2.2 微增 + F6–F9 清偿，全部向后兼容；W9–W12 方案分别见 docs/14–docs/17。
 
