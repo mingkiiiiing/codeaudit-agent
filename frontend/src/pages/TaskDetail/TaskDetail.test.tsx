@@ -191,6 +191,41 @@ describe("TaskDetail", () => {
     expect(mockGetSummary).toHaveBeenCalledWith("aaaaaaaa1111ffff");
   });
 
+  it("预算熔断：SSE 熔断事件即显警示条（含消耗/预算），done 后仍在", async () => {
+    mockGetAudit
+      .mockResolvedValueOnce(RUNNING)
+      .mockResolvedValueOnce(DONE);
+    renderDetail();
+
+    await waitFor(() => expect(mockSubscribe).toHaveBeenCalled());
+    // 熔断即时告警帧（audit/orchestrator/pipeline.py _BudgetGateLLM._trip 的形状）
+    sse!.onEvent({
+      stage: "init",
+      message: "Token 预算已耗尽：已消耗 12345 tokens（预算 20000）",
+      warning: true,
+      used_tokens: 12345,
+      token_budget: 20000,
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /已消耗 12345 \/ 预算 20000 tokens/,
+    );
+
+    sse!.onDone();
+    expect(await screen.findByText(/健康分/)).toBeInTheDocument();
+    // done 视图：警示条仍位于审计概览（健康分卡片）上方
+    expect(
+      screen.getByText("本次审计触发 Token 预算熔断，后续 LLM 阶段已降级：已消耗 12345 / 预算 20000 tokens"),
+    ).toBeInTheDocument();
+  });
+
+  it("done 任务无熔断数据：不渲染预算警示条（诚实降级）", async () => {
+    mockGetAudit.mockResolvedValue(DONE);
+    renderDetail();
+
+    expect(await screen.findByText(/健康分/)).toBeInTheDocument();
+    expect(screen.queryByText(/Token 预算熔断/)).not.toBeInTheDocument();
+  });
+
   it("404：内存态任务表提示", async () => {
     mockGetAudit.mockRejectedValue(new ApiError("任务不存在：x", 404));
     renderDetail();

@@ -82,6 +82,7 @@ nav:
       - 15 Wave10 方案: design/15-Wave10总体方案-服务治理与灰度基建.md
       - 16 Wave11 方案: design/16-Wave11总体方案-持久化与多worker形态演进.md
       - 17 Wave12 方案: design/17-Wave12总体方案-在线GLM安全治理与评估体系.md
+      - 18 Wave13 方案: design/18-Wave13总体方案-CI评估与Docker沙箱与多worker基线.md
   - CLI 速查: cli.md
   - 规则手册: rules.md
   - CI 集成:

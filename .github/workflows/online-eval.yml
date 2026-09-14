@@ -1,0 +1,106 @@
+# 在线 GLM 评估 CI（W13-A1）：bench/eval/run_online_eval.py 注入鲁棒性场景的手动触发 + 定时抽样。
+#
+# 三层门控（设计目标：绝不让用户"不知情"地烧 GLM token，评估判据失败则 workflow 变红）：
+#   1. 触发：workflow_dispatch（手动，可传 rounds 参数）+ schedule（每周一 00:00 UTC）；
+#   2. 门控 1（schedule 开关）：schedule 触发必须仓库变量 ONLINE_EVAL_SCHEDULED == 'true'
+#      才继续；默认（变量不存在/非 true）打印 "Scheduled eval disabled" 后跳过全部实质
+#      步骤、job 成功退出——防止定时任务在用户不知情时烧 token。手动 dispatch 不受此门控；
+#   3. 门控 2（Key 存在）：secrets.GLM_API_KEY 存在才跑。注意 job 级
+#      `if: ${{ secrets.GLM_API_KEY != '' }}` 在 schedule 触发场景不可用，
+#      故按约定在 step 内用 shell 判断（[ -n "$GLM_API_KEY" ]），缺 Key 时打印 skip
+#      并成功退出（job 绿 + 日志标注 skip，而非红）。
+#
+# 成本控制：--ci 隐含强制单场景 injection（每轮 = 干净版+注入版各一次在线审计），
+# ≤7 万 tokens/次；评估判据失败 → run_online_eval 退出 1 → 本 workflow 变红。
+name: Online Eval
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: "注入对照轮数（每轮 = 干净版+注入版各一次在线审计，token 随轮数线性增长）"
+        required: false
+        default: "1"
+        type: string
+  schedule:
+    - cron: "0 0 * * 1" # 每周一 00:00 UTC；是否真跑受门控 1（vars.ONLINE_EVAL_SCHEDULED）控制
+
+# 最小权限：只需读代码；上传 artifact 不需要额外权限
+permissions:
+  contents: read
+
+# 防止手动触发与定时抽样叠加并发烧 token：同组同时只跑一个，新触发取消进行中的旧 run
+concurrency:
+  group: online-eval
+  cancel-in-progress: true
+
+jobs:
+  online-eval:
+    name: online eval (GLM injection robustness, --ci)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30 # LLM 调用慢（W12 基线单审计 ~150s，轮数多时线性增长），给足余量
+    steps:
+      # ---- 门控 1：schedule 触发必须 ONLINE_EVAL_SCHEDULED == 'true'（默认不开定时，防烧 token）----
+      - name: Gate 1 - scheduled eval enabled?
+        id: gate
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULED_ENABLED: ${{ vars.ONLINE_EVAL_SCHEDULED }}
+        run: |
+          if [ "$EVENT_NAME" = "schedule" ] && [ "$SCHEDULED_ENABLED" != "true" ]; then
+            echo "Scheduled eval disabled（仓库变量 ONLINE_EVAL_SCHEDULED != true，定时评估未开启，job 成功退出）"
+            echo "开启方式：Settings → Secrets and variables → Actions → Variables → 新建变量 ONLINE_EVAL_SCHEDULED=true"
+            echo "run_eval=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "run_eval=true" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout
+        if: steps.gate.outputs.run_eval == 'true'
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.13
+        if: steps.gate.outputs.run_eval == 'true'
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install package
+        if: steps.gate.outputs.run_eval == 'true'
+        run: pip install -e .
+
+      # ---- 门控 2：secrets.GLM_API_KEY 存在才跑（缺 Key 跳过并标注，job 成功退出而非红）----
+      - name: Gate 2 - GLM_API_KEY configured?
+        id: keygate
+        if: steps.gate.outputs.run_eval == 'true'
+        env:
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+        run: |
+          # job 级 if 读 secrets 在 schedule 场景不可用，按约定在 step 内 shell 判断；
+          # 缺 Key 时不写 run_eval 输出（后续步骤按空输出判定为 false，全部跳过）
+          [ -n "$GLM_API_KEY" ] || { echo "skip：secrets.GLM_API_KEY 未配置，跳过在线评估（配置 Key 后手动触发即生效）"; exit 0; }
+          echo "run_eval=true" >> "$GITHUB_OUTPUT"
+
+      - name: Run online eval (injection scenario, --ci)
+        if: steps.keygate.outputs.run_eval == 'true'
+        env:
+          GLM_API_KEY: ${{ secrets.GLM_API_KEY }}
+          # 可选覆盖模型服务：vars 未配置时为空串，下面 unset 掉，避免空值覆盖脚本内置默认
+          GLM_BASE_URL: ${{ vars.GLM_BASE_URL }}
+          GLM_MODEL: ${{ vars.GLM_MODEL }}
+          EVAL_ROUNDS: ${{ inputs.rounds || '1' }} # schedule 触发时 inputs 为空，回落 1 轮
+        run: |
+          [ -n "$GLM_BASE_URL" ] || unset GLM_BASE_URL
+          [ -n "$GLM_MODEL" ] || unset GLM_MODEL
+          # --ci：末行输出 EVAL_RESULT=PASS|FAIL；判据失败退出 1 → 本 job 变红
+          python -m bench.eval.run_online_eval --online --ci --scenario injection --rounds "$EVAL_ROUNDS" --out bench/results/online_eval_ci.md
+
+      # always()：评估 FAIL（退出 1）时报告也要上传，供红 run 取证复盘
+      - name: Upload eval report artifact
+        if: always() && steps.keygate.outputs.run_eval == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: online-eval-report-${{ github.run_number }}
+          path: bench/results/online_eval_ci.md
+          if-no-files-found: warn

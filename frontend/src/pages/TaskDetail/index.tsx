@@ -3,7 +3,9 @@
  * - queued/running：七阶段 Steps 进度 + SSE 实时事件（subscribeEvents，断流自动降级轮询）；
  * - done：健康分 gauge 与严重度分布 + Tabs（问题列表 / 修复补丁 / 重构方案 / 架构理解）+ 报告下载；
  * - failed：进度面板 + 失败 Alert；
- * - 404（含内存态任务表重启清空的场景）：警示说明。
+ * - 404（含内存态任务表重启清空的场景）：警示说明；
+ * - 预算熔断（W13-A4）：SSE 事件 / 详情 report 携带 budget_tripped 时，页面顶部
+ *   渲染警示条（含已消耗 / 预算 tokens），并登记会话级缓存供仪表盘列表打标。
  */
 
 import { DeleteOutlined } from "@ant-design/icons";
@@ -13,7 +15,15 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import { ApiError, deleteAudit, getAudit, getSummary, subscribeEvents } from "../../api/client";
 import type { AuditDetail, AuditEvent, AuditSummary } from "../../api/client";
+import { BudgetAlert } from "../../components/BudgetAlert";
 import { StatusTag } from "../../components/StatusTag";
+import {
+  extractBudgetFromEvent,
+  extractBudgetFromReport,
+  mergeBudgetInfo,
+  rememberDegradedAudit,
+} from "../../utils/budget";
+import type { BudgetTripInfo } from "../../utils/budget";
 import { IssuesPanel } from "./IssuesPanel";
 import { OverviewHead } from "./OverviewHead";
 import { PatchesPanel } from "./PatchesPanel";
@@ -41,6 +51,8 @@ export default function TaskDetail() {
   const [stageMap, setStageMap] = useState<StageMap>(createStageMap);
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [current, setCurrent] = useState<{ stage: string; message: string } | null>(null);
+  // 预算熔断信息：SSE 熔断事件 / 详情 report 推导；null 表示未熔断或无数据（不显示警示）
+  const [budget, setBudget] = useState<BudgetTripInfo | null>(null);
 
   /** 拉取任务详情；done 时附带拉摘要。终态时收尾阶段表（active/pending → done）。 */
   const load = useCallback(async () => {
@@ -49,6 +61,9 @@ export default function TaskDetail() {
       setDetail(d);
       setPhase("ready");
       setLoadError(null);
+      // 详情 report 防御性提取（当前契约不含预算字段，恒为 null；见 utils/budget.ts）
+      const fromReport = extractBudgetFromReport(d.report);
+      if (fromReport) setBudget((prev) => mergeBudgetInfo(prev, fromReport));
       if (d.status === "done") {
         setStageMap((prev) => finishStages(prev));
         setSummary(await getSummary(auditId));
@@ -73,6 +88,7 @@ export default function TaskDetail() {
     setStageMap(createStageMap());
     setEvents([]);
     setCurrent(null);
+    setBudget(null);
     if (!auditId) return;
     void load();
   }, [auditId, load]);
@@ -85,6 +101,9 @@ export default function TaskDetail() {
       auditId,
       (event) => {
         setEvents((prev) => [...prev, event]);
+        // 熔断即时告警（stage:"init"）与 fix/testgen 跳过、done 进度帧均可能携带信号
+        const sig = extractBudgetFromEvent(event);
+        if (sig) setBudget((prev) => mergeBudgetInfo(prev, sig));
         if (event.stage) {
           setStageMap((prev) => applyStageEvent(prev, event));
           setCurrent({ stage: event.stage, message: event.message ?? "" });
@@ -95,6 +114,11 @@ export default function TaskDetail() {
     );
     return unsubscribe;
   }, [active, auditId, load]);
+
+  // 已确认熔断：登记会话级缓存，供仪表盘列表对 done 行打「预算降级」标
+  useEffect(() => {
+    if (budget) rememberDegradedAudit(auditId, budget);
+  }, [auditId, budget]);
 
   const onDelete = async () => {
     try {
@@ -157,6 +181,9 @@ export default function TaskDetail() {
           </Button>
         </Popconfirm>
       </Flex>
+
+      {/* 预算熔断警示条：标题下方、进度/健康分卡片上方（null 时不渲染） */}
+      <BudgetAlert info={budget} />
 
       {(active || failed) && (
         <ProgressPanel

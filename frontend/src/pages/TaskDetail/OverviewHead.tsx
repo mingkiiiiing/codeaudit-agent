@@ -1,9 +1,11 @@
 /**
  * 完成后的仪表盘头部：健康分 gauge（echarts）+ 严重度分布 bar + 四个严重度徽章
  * + 元信息 + 报告下载链接组。配色沿用演示页（≥85 绿 / ≥70 黄 / ≥50 橙 / <50 红）。
+ * Token 消耗字段（W13-A4）：llm_calls/prompt/completion/缓存各带 tooltip 解释，
+ * 缓存行附命中率（命中率 = 命中 /（命中 + 未命中））。
  */
 
-import { Divider, Space, Typography } from "antd";
+import { Divider, Space, Tooltip, Typography } from "antd";
 import type { EChartsOption } from "echarts";
 
 import { reportUrl } from "../../api/client";
@@ -104,6 +106,9 @@ export function OverviewHead({ summary }: { summary: AuditSummary }) {
     [summary],
   );
   const tokens = summary.tokens;
+  const cacheTotal = (tokens?.cache_hits ?? 0) + (tokens?.cache_misses ?? 0);
+  const cacheRate =
+    cacheTotal > 0 ? `${(((tokens?.cache_hits ?? 0) / cacheTotal) * 100).toFixed(1)}%` : null;
 
   return (
     <div>
@@ -156,11 +161,28 @@ export function OverviewHead({ summary }: { summary: AuditSummary }) {
           <MetaItem label="项目名">{summary.project_name || "-"}</MetaItem>
           <MetaItem label="代码行数">{summary.loc}</MetaItem>
           <MetaItem label="耗时">{fmtDuration(summary.duration_sec)}</MetaItem>
-          <MetaItem label="LLM 调用">{tokens?.llm_calls ?? 0}</MetaItem>
-          <MetaItem label="Prompt tokens">{tokens?.prompt_tokens ?? 0}</MetaItem>
-          <MetaItem label="Completion tokens">{tokens?.completion_tokens ?? 0}</MetaItem>
+          <MetaItem label="LLM 调用">
+            <Tooltip title="llm_calls：本次审计的 LLM（模型）调用次数，各阶段累计。">
+              <span>{tokens?.llm_calls ?? 0}</span>
+            </Tooltip>
+          </MetaItem>
+          <MetaItem label="Prompt tokens">
+            <Tooltip title="prompt_tokens：发送给模型的输入 token 总量。">
+              <span>{tokens?.prompt_tokens ?? 0}</span>
+            </Tooltip>
+          </MetaItem>
+          <MetaItem label="Completion tokens">
+            <Tooltip title="completion_tokens：模型生成的输出 token 总量。">
+              <span>{tokens?.completion_tokens ?? 0}</span>
+            </Tooltip>
+          </MetaItem>
           <MetaItem label="缓存命中/未命中">
-            {tokens?.cache_hits ?? 0} / {tokens?.cache_misses ?? 0}
+            <Tooltip title="cache_hits / cache_misses：Prompt 缓存命中与未命中次数；命中率 = 命中 ÷（命中 + 未命中）。">
+              <span>
+                {tokens?.cache_hits ?? 0} / {tokens?.cache_misses ?? 0}
+                {cacheRate ? `（命中率 ${cacheRate}）` : ""}
+              </span>
+            </Tooltip>
           </MetaItem>
           <MetaItem label="审计 ID">
             <span style={{ fontFamily: MONO_FONT }}>{summary.audit_id}</span>

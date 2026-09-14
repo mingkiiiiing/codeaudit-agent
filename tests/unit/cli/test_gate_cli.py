@@ -221,9 +221,11 @@ def test_implicit_flags_keep_defaults(fake_run, tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("argv", [["--version"], ["run", "--version"]])
 def test_version_prints_and_exits_0(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
-    """顶层与 run 子命令的 --version：打印 codeaudit-agent 0.5.0 并返回 0。"""
+    """顶层与 run 子命令的 --version：打印版本号并返回 0（版本单源 audit.__version__）。"""
     assert cli.main(argv) == 0
-    assert "codeaudit-agent 0.5.0" in capsys.readouterr().out
+    from audit import __version__
+
+    assert f"codeaudit-agent {__version__}" in capsys.readouterr().out
 
 
 def test_run_help_documents_new_flags(capsys: pytest.CaptureFixture[str]) -> None:

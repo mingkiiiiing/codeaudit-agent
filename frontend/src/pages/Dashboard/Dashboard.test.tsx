@@ -3,6 +3,7 @@ import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { deleteAudit, getHealth, listAudits } from "../../api/client";
+import { rememberDegradedAudit, resetDegradedCache } from "../../utils/budget";
 import Dashboard from "./index";
 
 vi.mock("../../api/client", () => ({
@@ -55,6 +56,7 @@ function renderDashboard() {
 describe("Dashboard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetDegradedCache();
     mockListAudits.mockResolvedValue({ total: AUDITS.length, audits: AUDITS });
     mockGetHealth.mockResolvedValue({
       status: "ok",
@@ -98,5 +100,19 @@ describe("Dashboard", () => {
     renderDashboard();
 
     expect(await screen.findByText("暂无审计任务，点击右上角新建")).toBeInTheDocument();
+  });
+
+  it("预算降级标记（W13-A4）：会话内已确认的 done 行打橙标，未确认行不打", async () => {
+    // 模拟 TaskDetail 已确认 aaaa 任务熔断（utils/budget.ts 会话缓存）
+    rememberDegradedAudit("aaaaaaaa1111ffff", { usedTokens: 12345, tokenBudget: 20000 });
+    renderDashboard();
+
+    const rowA = (await screen.findByText("aaaaaaaa")).closest("tr")!;
+    expect(within(rowA).getByText("已完成")).toBeInTheDocument();
+    expect(within(rowA).getByText("预算降级")).toBeInTheDocument();
+
+    // running 行与未登记的 done 行都不显示标记
+    const rowB = screen.getByText("bbbbbbbb").closest("tr")!;
+    expect(within(rowB).queryByText("预算降级")).not.toBeInTheDocument();
   });
 });

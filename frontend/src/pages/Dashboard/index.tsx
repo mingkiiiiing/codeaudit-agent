@@ -12,6 +12,7 @@ import {
   Space,
   Statistic,
   Table,
+  Tag,
   Tooltip,
   Typography,
 } from "antd";
@@ -21,6 +22,7 @@ import { ApiError, deleteAudit, listAudits } from "../../api/client";
 import type { TaskListItem } from "../../api/types";
 import { StatusTag } from "../../components/StatusTag";
 import { fmtDateTime, shortId } from "../../utils/format";
+import { getDegradedAudit } from "../../utils/budget";
 
 const POLL_INTERVAL_MS = 5000;
 const LIST_LIMIT = 200;
@@ -117,8 +119,22 @@ export default function Dashboard() {
       title: "状态",
       dataIndex: "status",
       key: "status",
-      width: 100,
-      render: (_, record) => <StatusTag status={record.status} />,
+      width: 150,
+      // 预算降级标记（W13-A4）：列表契约无该字段，仅对会话内已确认降级的 done 行
+      // 打标（TaskDetail 确认后写入 utils/budget.ts 缓存）；未确认行不显示，不伪造。
+      render: (_, record) => {
+        const degraded = record.status === "done" ? getDegradedAudit(record.audit_id) : null;
+        return (
+          <Space size={4}>
+            <StatusTag status={record.status} />
+            {degraded && (
+              <Tooltip title="该任务触发了 Token 预算熔断，后续 LLM 阶段已降级（详见任务详情页）">
+                <Tag color="orange">预算降级</Tag>
+              </Tooltip>
+            )}
+          </Space>
+        );
+      },
     },
     {
       title: "创建时间",

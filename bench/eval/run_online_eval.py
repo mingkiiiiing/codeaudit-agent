@@ -28,8 +28,15 @@
 用法::
 
     python -m bench.eval.run_online_eval --online --scenario injection --rounds 1
+    python -m bench.eval.run_online_eval --online --ci          # CI 模式（W13-A1）
 
-退出码：0 全部通过；1 存在失败校验/ERROR；2 守卫拒绝（未开 --online 或缺 Key）。
+CI 模式（--ci，W13-A1）：输出改为机器友好——逐项 CHECK 判定行 + 末行
+EVAL_RESULT=PASS|FAIL（必须是最后一行，PASS 当且仅当退出码为 0）；任何场景判据
+失败（或 ERROR）退出 1，供 workflow 判红；隐含强制场景 injection（CI 抽样只跑
+这一个场景，每轮干净版+注入版两次审计，控成本 ≤7 万 tokens/次）；报告仍写文件
+（供 CI artifact 上传，路径见 --out）。
+
+退出码：0 全部通过；1 存在失败校验/ERROR（含 --ci 判据失败）；2 守卫拒绝（未开 --online 或缺 Key）。
 """
 
 from __future__ import annotations
@@ -384,7 +391,9 @@ def scenario_cost(run: EvalRun) -> ScenarioResult:
 
 
 # ---------------------------------------------------------------- 报告渲染
-def _render_md(run: EvalRun, results: list[ScenarioResult], out_path: Path, scenario: str, rounds: int) -> str:
+def _render_md(
+    run: EvalRun, results: list[ScenarioResult], out_path: Path, scenario: str, rounds: int, ci: bool = False
+) -> str:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     totals = run.totals
     lines = [
@@ -397,7 +406,7 @@ def _render_md(run: EvalRun, results: list[ScenarioResult], out_path: Path, scen
         f"- **base_url**：{run.base_url}（脱敏口径：只显示 base_url 与 model，绝不输出 Key）",
         f"- **GLM_API_KEY**：{'已配置（值不落报告）' if run.key_configured else '未配置'}",
         f"- **Python / 平台**：{sys.version.split()[0]} / {sys.platform}",
-        f"- **参数**：scenario={scenario}，rounds={rounds}，out={out_path.name}",
+        f"- **参数**：scenario={scenario}，rounds={rounds}，ci={ci}，out={out_path.name}",
         "- **口径**：库层直调 run_audit + AuditConfig.from_env；工作区在系统临时目录，finally 强制清理",
         "",
         "## 判定总表",
@@ -516,14 +525,29 @@ async def run_suite(args: argparse.Namespace) -> int:
         exit_code = 1
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(_render_md(run, results, out, args.scenario, args.rounds), encoding="utf-8")
+    out.write_text(_render_md(run, results, out, args.scenario, args.rounds, ci=args.ci), encoding="utf-8")
     totals = run.totals
     print(f"[eval] 报告已写入：{out}")
-    print("[eval] 场景状态：" + " ".join(f"{x.name}={x.status}" for x in results))
-    print(
-        f"[eval] token 账目：{totals['audits']:.0f} 次在线审计 / {totals['llm_calls']} 调用 / "
-        f"{totals['prompt_tokens']}+{totals['completion_tokens']} tokens / {totals['duration_sec']}s"
-    )
+    if args.ci:
+        # CI 模式（--ci）：机器友好输出——逐项判定行 + 末行 EVAL_RESULT，供 workflow/脚本解析。
+        # 约定：EVAL_RESULT 必须是最后一行；PASS 当且仅当退出码为 0。
+        for x in results:
+            print(f"[CI] SCENARIO {x.name} status={x.status}")
+            for name, ok, note in x.checks:
+                print(f"[CI] CHECK {name} {'PASS' if ok else 'FAIL'}" + (f" | {note}" if note else ""))
+        for label, note in run.errors:
+            print(f"[CI] ERROR {label} | {note}")
+        print(
+            f"[CI] TOKENS audits={totals['audits']:.0f} llm_calls={totals['llm_calls']} "
+            f"prompt={totals['prompt_tokens']} completion={totals['completion_tokens']}"
+        )
+        print(f"EVAL_RESULT={'PASS' if exit_code == 0 else 'FAIL'}")
+    else:
+        print("[eval] 场景状态：" + " ".join(f"{x.name}={x.status}" for x in results))
+        print(
+            f"[eval] token 账目：{totals['audits']:.0f} 次在线审计 / {totals['llm_calls']} 调用 / "
+            f"{totals['prompt_tokens']}+{totals['completion_tokens']} tokens / {totals['duration_sec']}s"
+        )
     return exit_code
 
 
@@ -537,6 +561,12 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="显式开关：确认真实调用 GLM（消耗 token 与分钟级时长）。缺省时仅打印说明并退出 2",
     )
+    parser.add_argument(
+        "--ci",
+        action="store_true",
+        help="CI 模式（W13-A1）：机器友好输出（逐项 CHECK 行 + 末行 EVAL_RESULT=PASS|FAIL），"
+        "强制场景为 injection（CI 抽样控成本 ≤7 万 tokens/次），判据失败退出 1",
+    )
     parser.add_argument("--scenario", choices=("all", "injection", "compare", "cost"), default="all", help="场景选择（默认 all）")
     parser.add_argument(
         "--out",
@@ -544,7 +574,11 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="markdown 报告输出路径",
     )
     parser.add_argument("--rounds", type=int, default=1, help="注入对照轮数（每轮 = 干净版+注入版各一次在线审计）")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.ci:
+        # --ci 隐含强制场景为 injection：CI 抽样只跑注入鲁棒性单场景，控成本 ≤7 万 tokens/次
+        args.scenario = "injection"
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -557,6 +591,8 @@ def main(argv: list[str] | None = None) -> int:
     if not os.environ.get("GLM_API_KEY"):
         print("[eval] 已设 --online 但环境变量 GLM_API_KEY 未配置；拒绝启动（零网络）。请先 export GLM_API_KEY=<你的Key>")
         return 2
+    if args.ci:
+        print("[eval] --ci 模式：场景强制为 injection（CI 抽样控成本）；末行输出 EVAL_RESULT=PASS|FAIL")
     return asyncio.run(run_suite(args))
 
 

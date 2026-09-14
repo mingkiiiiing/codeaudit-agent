@@ -1,8 +1,8 @@
 """沙箱执行器（T3）：子进程执行命令与白名单测试框架。
 
 Windows 落地实现（asyncio 子进程 + 超时 kill；CREATE_NEW_PROCESS_GROUP 便于进程组
-控制）。生产环境建议替换为 Docker 执行（--network none --memory 512m），对外接口
-保持不变（docs/02 §6）。
+控制）。docs/02 §6 的"生产建议 Docker（--network none --memory 512m）"已由 W13-A2
+落地为可选 Docker 后端（探测可用则容器化执行，不可用自动降级本路径，见下）。
 
 安全语义：不执行来自 LLM 的任意 shell 命令，仅暴露 run()（受控调用方使用）与
 run_tests()（白名单 pytest/jest/node-test）。可执行文件缺失以 exit_code=127 的
@@ -16,12 +16,28 @@ W10-A2（F4 沙箱输出限量）：_drain 改为限量排空——累计读取�
 （8MB）后继续读但丢弃（防止子进程写满 PIPE 永久阻塞），内存上限 ≈ LIMIT + 一个
 chunk；被限量的流在 tail 首行带 [output truncated] 标记行，SandboxResult.truncated
 置 True（诚实降级可见）。
+
+W13-A2（Docker 沙箱后端）：构造参数 use_docker=True 表达意愿（不改 AuditConfig）；
+实际是否走 Docker = use_docker AND docker_available()（探测：shutil.which("docker")
+命中且 `docker info` 0 退出、5s 超时；结果进程内缓存只探一次，reset_docker_cache()
+供测试重探）。Docker 路径把命令包装为
+`docker run --rm --network none --memory 512m --cpus 1 -v <cwd>:/work -w /work <image> <cmd>`
+（镜像默认 python:3.12-slim，环境变量 CODEAUDIT_DOCKER_IMAGE 可覆盖），执行复用既有
+asyncio 子进程机制——docker CLI 本身就是子进程，超时（wait_for kill docker CLI）、
+限量排空、truncated 标记语义不变。SandboxResult.backend 诚实标注实际后端
+（"docker" | "subprocess"）：use_docker=True 但探测失败 → 静默降级 subprocess
+（不告警，调用方读 backend 可知）；docker run 自身失败（如镜像拉取失败 exit_code=125
+类）→ 如实返回退出码与 stderr，不重试不降级（docker 命令的失败就是失败）。
+test_runner_available() 语义保持宿主探测不变（v1 边界）：容器内 pytest 可用性由
+镜像自带保证（pytest 命令仍为宿主 [sys.executable, -m pytest] 原样透传）。
+docs/02 §6 "生产建议 Docker（--network none --memory 512m）"由此兑现。
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import shutil
 import subprocess
 import sys
@@ -32,7 +48,14 @@ from typing import Any
 
 from audit.errors import SandboxError
 
-__all__ = ["SandboxExecutor", "SandboxResult", "TEST_FRAMEWORKS", "test_runner_available"]
+__all__ = [
+    "SandboxExecutor",
+    "SandboxResult",
+    "TEST_FRAMEWORKS",
+    "test_runner_available",
+    "docker_available",
+    "reset_docker_cache",
+]
 
 TEST_FRAMEWORKS = ("pytest", "jest", "node-test")
 
@@ -44,6 +67,50 @@ _OUTPUT_CHUNK_BYTES = 64 * 1024
 # 限量标记行：出现在被限量流的 tail 首行，使诚实降级对调用方可见。
 _TRUNCATED_MARKER = "[output truncated]"
 
+# ---------------------------------------------------------------------------
+# W13-A2：Docker 沙箱后端（探测 / 缓存 / 包装）。
+# ---------------------------------------------------------------------------
+# 默认镜像：官方 python:3.12-slim（自带 pytest 所需解释器；拉取由使用者离线预置）。
+_DEFAULT_DOCKER_IMAGE = "python:3.12-slim"
+# 镜像覆盖环境变量：直接读 os.environ，不改 AuditConfig（W13-A2 约束）。
+_DOCKER_IMAGE_ENV = "CODEAUDIT_DOCKER_IMAGE"
+# `docker info` 探针超时：守护进程无响应时快速判定不可用（走降级路径）。
+_DOCKER_PROBE_TIMEOUT_SEC = 5.0
+
+# 探测缓存：None=进程内尚未探测；True/False=已探测结果（进程内只探测一次）。
+_docker_available_cache: bool | None = None
+
+
+def reset_docker_cache() -> None:
+    """清空 docker 可用性探测缓存（供测试重探；运行时环境变化后也可调用）。"""
+    global _docker_available_cache
+    _docker_available_cache = None
+
+
+def _probe_docker() -> bool:
+    """单次探测：docker CLI 存在（which）且 `docker info` 0 退出（5s 超时）。"""
+    docker_path = shutil.which("docker")
+    if docker_path is None:
+        return False
+    try:
+        proc = subprocess.run(
+            [docker_path, "info"],
+            capture_output=True,
+            timeout=_DOCKER_PROBE_TIMEOUT_SEC,
+        )
+    except (OSError, subprocess.SubprocessError):
+        # 二进制瞬失 / 守护进程未启动 / 探针超时：一律按不可用处理（降级子进程路径）
+        return False
+    return proc.returncode == 0
+
+
+def docker_available() -> bool:
+    """探测 Docker 是否可用；结果进程内缓存，只真实探测一次。"""
+    global _docker_available_cache
+    if _docker_available_cache is None:
+        _docker_available_cache = _probe_docker()
+    return _docker_available_cache
+
 
 @dataclass
 class SandboxResult:
@@ -52,6 +119,11 @@ class SandboxResult:
     truncated（W10 F4）：stdout 或 stderr 任一超过 _OUTPUT_LIMIT_BYTES 被限量
     排空（超出部分读取后丢弃）时置 True，且对应 tail 首行带 [output truncated]
     标记行。尾部默认值字段，向后兼容。
+
+    backend（W13-A2）：实际执行后端，"subprocess"（Windows 子进程路径）或
+    "docker"（容器化路径）。诚实标注：use_docker=True 但探测失败静默降级时，
+    此处如实标 "subprocess"；docker run 自身失败仍标 "docker"。默认值
+    "subprocess" 向后兼容（既有调用方无需感知）。
     """
 
     exit_code: int | None = None
@@ -60,6 +132,7 @@ class SandboxResult:
     timed_out: bool = False
     duration_sec: float = 0.0
     truncated: bool = False
+    backend: str = "subprocess"
 
 
 def _decode(data: bytes) -> str:
@@ -115,11 +188,50 @@ def test_runner_available(framework: str) -> bool:
 
 
 class SandboxExecutor:
-    """asyncio 子进程沙箱。"""
+    """asyncio 子进程沙箱（W13-A2 起可选 Docker 容器化后端，探测失败自动降级）。"""
 
-    def __init__(self, default_timeout: float = 60.0, tail_lines: int = 80) -> None:
+    def __init__(
+        self,
+        default_timeout: float = 60.0,
+        tail_lines: int = 80,
+        use_docker: bool = True,
+    ) -> None:
+        """use_docker 仅表达意愿：实际走 Docker = use_docker AND docker_available()。
+
+        探测失败（本机无 docker CLI / 守护进程不可用）时静默降级子进程路径，
+        SandboxResult.backend 如实标注，不告警不抛异常。
+        """
         self._default_timeout = max(0.1, float(default_timeout))
         self._tail_lines = max(1, int(tail_lines))
+        self._use_docker = bool(use_docker)
+
+    @staticmethod
+    def _docker_wrap(command: list[str], cwd: Path) -> list[str]:
+        """把命令包装为 docker run 形式：无网络 + 内存/CPU 限额 + 挂载 cwd 到 /work。
+
+        镜像默认 python:3.12-slim，环境变量 CODEAUDIT_DOCKER_IMAGE 可覆盖。docker
+        可执行文件用 which 解析路径（与探针一致；仅探测通过后才会走到这里）。
+        """
+        docker_path = shutil.which("docker") or "docker"
+        image = os.environ.get(_DOCKER_IMAGE_ENV) or _DEFAULT_DOCKER_IMAGE
+        workdir = Path(cwd).resolve()
+        return [
+            docker_path,
+            "run",
+            "--rm",
+            "--network",
+            "none",
+            "--memory",
+            "512m",
+            "--cpus",
+            "1",
+            "-v",
+            f"{workdir}:/work",
+            "-w",
+            "/work",
+            image,
+            *command,
+        ]
 
     async def run(
         self,
@@ -127,9 +239,20 @@ class SandboxExecutor:
         cwd: Path,
         timeout_sec: float | None = None,
     ) -> SandboxResult:
-        """执行一条命令（列表形式，不经 shell），返回退出码与末尾输出。"""
+        """执行一条命令（列表形式，不经 shell），返回退出码与末尾输出。
+
+        W13-A2：use_docker=True 且 docker_available() 时把命令包装为 docker run
+        （容器内工作目录 /work）；docker CLI 本身就是子进程，超时（wait_for kill
+        docker CLI）、输出限量、truncated 语义全部复用。探测失败静默降级子进程
+        路径，backend 字段诚实标注实际后端；docker run 自身失败（如镜像拉取失败
+        exit_code=125 类）如实返回，不重试不降级。
+        """
         if not command:
             raise SandboxError("command 不能为空")
+        use_docker = self._use_docker and docker_available()
+        if use_docker:
+            command = self._docker_wrap(command, cwd)
+        backend = "docker" if use_docker else "subprocess"
         timeout = self._default_timeout if timeout_sec is None else max(0.1, float(timeout_sec))
         popen_kwargs: dict[str, Any] = {}
         if sys.platform == "win32":
@@ -149,6 +272,7 @@ class SandboxExecutor:
                 exit_code=127,
                 stderr_tail=f"error: 无法启动命令 {command[0]!r}: {type(exc).__name__}: {exc}",
                 duration_sec=0.0,
+                backend=backend,
             )
 
         async def _drain(stream: Any) -> tuple[bytes, bool]:
@@ -199,10 +323,17 @@ class SandboxExecutor:
             timed_out=timed_out,
             duration_sec=round(duration, 3),
             truncated=stdout_truncated or stderr_truncated,
+            backend=backend,
         )
 
     async def run_tests(self, framework: str, cwd: Path, target: str = "") -> SandboxResult:
-        """在沙箱中运行白名单测试框架；未知框架抛 SandboxError。"""
+        """在沙箱中运行白名单测试框架；未知框架抛 SandboxError。
+
+        W13-A2：与 run() 共用 Docker 包装（探测通过即容器化执行）。v1 边界：
+        test_runner_available() 仍是宿主探测、语义未变；容器内 pytest 可用性由
+        镜像自带保证（pytest 命令以宿主 [sys.executable, -m pytest] 原样透传进
+        容器，宿主解释器路径在容器内是否有效取决于镜像，生产镜像需提供兼容入口）。
+        """
         fw = str(framework or "").strip().lower()
         if fw not in TEST_FRAMEWORKS:
             raise SandboxError(
