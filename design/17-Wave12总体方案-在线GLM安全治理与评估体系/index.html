@@ -10,13 +10,13 @@
       
       
       
-        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/">
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/">
       
       
-        <link rel="prev" href="../07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/">
+        <link rel="prev" href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/">
       
       
-        <link rel="next" href="../09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/">
+        <link rel="next" href="../../cli/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>08 Wave3总体方案与GitHub发布 - CodeAudit Agent</title>
+        <title>17 Wave12 方案 - CodeAudit Agent</title>
       
     
     
@@ -72,7 +72,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#08-wave-3-github" class="md-skip">
+        <a href="#wave-12-glm" class="md-skip">
           跳转至
         </a>
       
@@ -108,7 +108,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              08 Wave3总体方案与GitHub发布
+              17 Wave12 方案
             
           </span>
         </div>
@@ -553,37 +553,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    08 Wave3总体方案与GitHub发布
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -599,103 +572,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#1-wave-3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. 现状与 Wave 3 定位
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. 目标
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3-v13a2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. 契约 v1.3（集成人先行落地，A2 消费）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4-4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. 任务分解表（4 个大任务，全部并行）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-github" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. GitHub 提交方案（集成人执行）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-docs0607" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. 协作规约（继承 docs/06/07，本轮补充）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. 风险与对策
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -929,10 +805,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    17 Wave12 方案
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -948,6 +851,98 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-2026-09-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 阶段一审查结论（2026-09-14）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. 阶段一审查结论（2026-09-14）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 基线状态
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-wave" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 本 Wave 登记的新发现
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 任务分解与目录所有权（四人并行 + 集成人收口）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-w12-a5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 集成收口清单（W12-A5）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 验收与发布
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1178,13 +1173,41 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#1-wave-3" class="md-nav__link">
+  <a href="#1-2026-09-14" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. 现状与 Wave 3 定位
+        1. 阶段一审查结论（2026-09-14）
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="1. 阶段一审查结论（2026-09-14）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#11" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.1 基线状态
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#12-wave" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1.2 本 Wave 登记的新发现
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1192,7 +1215,7 @@
   <a href="#2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. 目标
+        2. 任务分解与目录所有权（四人并行 + 集成人收口）
       
     </span>
   </a>
@@ -1200,10 +1223,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#3-v13a2" class="md-nav__link">
+  <a href="#3-w12-a5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. 契约 v1.3（集成人先行落地，A2 消费）
+        3. 集成收口清单（W12-A5）
       
     </span>
   </a>
@@ -1211,43 +1234,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#4-4" class="md-nav__link">
+  <a href="#4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. 任务分解表（4 个大任务，全部并行）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5-github" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. GitHub 提交方案（集成人执行）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#6-docs0607" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        6. 协作规约（继承 docs/06/07，本轮补充）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#7" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        7. 风险与对策
+        4. 验收与发布
       
     </span>
   </a>
@@ -1271,135 +1261,137 @@
 
 
 
-<h1 id="08-wave-3-github">08 Wave 3 总体方案：收尾、实证与 GitHub 发布<a class="headerlink" href="#08-wave-3-github" title="Permanent link">&para;</a></h1>
-<p>版本：v1.0 ｜ 日期：2026-09-11 ｜ 前置：docs/07（Wave 2 已交付，600 测试全绿，修复/单测闭环跑通）</p>
-<hr />
-<h2 id="1-wave-3">1. 现状与 Wave 3 定位<a class="headerlink" href="#1-wave-3" title="Permanent link">&para;</a></h2>
-<p>Wave 1/2 已完成全部核心功能。剩余缺口集中在三类：
-1. <strong>实证缺口</strong>：消融 7 组中 4 组是占位；金标未扩到 ≥150 条；bench/results 无 run 记录——简历三个数字还差"可复现证据链"（真 LLM 部分等 key，离线部分本轮补齐）。
-2. <strong>发布缺口</strong>：还不是 git 仓库、无 LICENSE/CI/演示脚本——不能提交 GitHub。
-3. <strong>演示缺口</strong>：面试现场若无网络/key，需要一个离线全闭环演示。</p>
-<p>Wave 3 = 收尾周（对应总计划 W6）：<strong>离线实证补齐 → 发布工程化 → GitHub 提交</strong>。真跑评估（GLM_API_KEY）仍属用户侧步骤，不在本轮。</p>
-<h2 id="2">2. 目标<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<h1 id="wave-12-glm">Wave 12 总体方案——在线 GLM 时代：安全治理、评估体系与遗留清偿<a class="headerlink" href="#wave-12-glm" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>2026-09-14 ｜ 状态：开发中 ｜ 前置：docs/16（W11 持久化与多 worker）、在线 GLM 已接入</p>
+<p>本 Wave 的背景变化：真实 GLM Key 已接入（.env，已 gitignore），项目从"纯离线工具"
+变成"在线智能体"。W12 阶段一审查（2026-09-14）确认了在线形态下的新风险面与评估空白，
+本方案按审查发现组织任务。</p>
+</blockquote>
+<h2 id="1-2026-09-14">1. 阶段一审查结论（2026-09-14）<a class="headerlink" href="#1-2026-09-14" title="Permanent link">&para;</a></h2>
+<h3 id="11">1.1 基线状态<a class="headerlink" href="#11" title="Permanent link">&para;</a></h3>
+<ul>
+<li>全量 pytest 1123 passed + ruff 全绿（探针临时目录 <code>.llm_probe/</code> 曾污染 ruff 检查，
+  已清理——教训进 §3 A2 契约：评估工具临时区必须放系统临时目录且强制清理）。</li>
+<li>W11 已推送（<code>6ed7bbd..ee0d136</code>，GitHub 网络恢复）；adversarial / soak / canary 三路
+  W11 全部通过（前轮验收）。</li>
+<li><strong>A8 在线版注入鲁棒性实测：通过</strong>——注入 payload（伪造 SYSTEM 指令/结束标记/工具输出）
+  零生效、零回显；真缺陷全部保留（store.py critical、slugify 死循环 high）；payload 自身
+  的 SQL 注入被 rule+llm 双通道确认；LLM 另独立发现 2 个 low。离线 vs 在线对照：
+  离线 1 critical / 在线 1 critical(rule+llm) + 1 high(llm) + 2 low(llm)。</li>
+<li><strong>在线成本/延迟基准（首次建立）</strong>：干净 151.6s / 7 调用 / 6296+22326 tokens；
+  注入 147.4s / 9 调用 / 7587+22566 tokens（mini_app，5 文件）。</li>
+<li>Key 泄漏面静态审查：错误消息 / 日志 / 报告 / 事件流均不含 Key 值（仅 Authorization
+  header 与不含值的 ConfigError 文案）——除 F6。</li>
+</ul>
+<h3 id="12-wave">1.2 本 Wave 登记的新发现<a class="headerlink" href="#12-wave" title="Permanent link">&para;</a></h3>
 <table>
 <thead>
 <tr>
-<th>目标</th>
+<th>编号</th>
+<th>发现</th>
+<th>位置</th>
+<th>危害</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>F6</td>
+<td>W11 任务持久化把 <code>AuditConfig</code> 经 <code>dataclasses.asdict</code> 整体序列化进 SQLite <code>config_json</code>，<strong>含明文 API Key</strong></td>
+<td><code>server/app.py:243</code></td>
+<td>本地 db 文件被读取即 Key 泄漏（备份/同步/多用户主机场景放大）</td>
+<td>W12-A1 修复</td>
+</tr>
+<tr>
+<td>F7</td>
+<td>dotenv 未产品化：<code>.env</code> 已是事实上的配置载体，但项目不自动加载，"拿到 Key 即可用"体验断裂（README 声明 Roadmap）</td>
+<td><code>audit/config.py</code> from_env</td>
+<td>在线模式易用性；误配静默降级离线</td>
+<td>W12-A1 修复</td>
+</tr>
+<tr>
+<td>F8</td>
+<td>token 预算熔断（<code>token_budget</code>，默认 2M）从未在真实 LLM 下验证过（既有测试全走 FakeLLM）</td>
+<td><code>audit/orchestrator/pipeline.py</code></td>
+<td>在线模式预算失控风险未被实证覆盖</td>
+<td>W12-A3 修复</td>
+</tr>
+<tr>
+<td>F9</td>
+<td>每任务 ~0.15-0.27 MB RSS 缓爬（W11 memdiag 已证明不在库层）尚未在服务端层归因</td>
+<td>server 侧</td>
+<td>长时运行内存增长（FIFO 兜底下有界，非紧急）</td>
+<td>W12-A4 归因</td>
+</tr>
+</tbody>
+</table>
+<p>遗留不修：F1（无鉴权任意路径审计）、F3（Windows 沙箱无文件系统隔离）——本地工具设计
+边界，部署形态（鉴权代理 + Docker）时根治。</p>
+<h2 id="2">2. 任务分解与目录所有权（四人并行 + 集成人收口）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>任务</th>
+<th>职务</th>
+<th>所有权（只许改这些路径）</th>
+<th>交付物</th>
 <th>验收</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>G-A 金标 ≥150 条 + 离线基线 run 记录</td>
-<td>bench/datasets/goldset.jsonl ≥150 条且可加载；bench/results/ 有带日期的离线 run 记录（含 3 组消融 + 纯规则耗时基线），明确标注"LLM 相关指标待真跑"</td>
+<td>W12-A1</td>
+<td>安全工程师</td>
+<td><code>audit/config.py</code>、<code>server/app.py</code>、<code>tests/unit/server/</code>、<code>tests/unit/config/</code>（如无则新建）</td>
+<td>F6：config_json 落库前脱敏（api_key → <code>"&lt;redacted&gt;"</code>，运行时 Key 一律来自进程 env/from_env，db 中的值仅作审计痕迹）；F7：from_env 自动加载 <code>.env</code>（零依赖手写解析：仅赋值 env 中不存在的键，真实环境变量优先；解析失败/缺文件静默跳过；仅设 GLM_ 前缀与已知键）</td>
+<td>db 中任何路径都取不到明文 Key（新增扫描用例断言 db 全文无 Key）；.env 自动加载用例（真实环境变量优先级）；既有用例全绿</td>
 </tr>
 <tr>
-<td>G-B 消融 7 组全部可执行</td>
-<td>ablation.py 零占位；4 个新开关（hints/symbol/cache/llm_only）接线并有测试；600 存量测试零回归</td>
+<td>W12-A2</td>
+<td>评估工程师</td>
+<td><code>bench/eval/</code>（新建）、<code>.gitignore</code>、<code>tests/unit/bench/</code>（如需）</td>
+<td><code>bench/eval/run_online_eval.py</code>：三场景产品化——①注入鲁棒性（W12 审查探针的自动化，注入版 vs 干净版对照，判据：真缺陷保留 / 注入零回显 / 无幻觉 critical）；②离线 vs 在线同语料 diff（issues 集合对照）；③成本基准（token/延迟/调用数）。约束：<strong>必须显式 <code>--online</code> 才真实调 GLM</strong>（缺 Key 或未开 flag 时打印说明退出 2）；临时工作区一律系统临时目录 + finally 清理（.llm_probe 教训）；报告进 <code>bench/results/online_eval_&lt;date&gt;.md</code></td>
+<td>quick 档真实跑通一次（≤2 次 GLM 审计）；离线 flag 路径零网络</td>
 </tr>
 <tr>
-<td>G-C 离线演示 + 发布文档</td>
-<td><code>python demo/run_demo.py</code> 离线全闭环（检测→verified Patch→生成单测→报告）；LICENSE/.env.example/README(mermaid+徽章) 就绪</td>
+<td>W12-A3</td>
+<td>可靠性工程师</td>
+<td><code>audit/orchestrator/pipeline.py</code>、<code>tests/unit/pipeline/</code>（或既有预算测试所在位置）</td>
+<td>F8：预算熔断在线语义硬化——既有 token_budget 熔断逻辑审查 + 单测补强（mock LLM 累计 token 验证熔断点、熔断后阶段行为、报告标注）；真实在线冒烟：小预算（如 3000 tokens）实跑 mini_app 验证熔断触发与诚实降级（<code>--online</code> 类似 W12-A2 的显式开关或 env 门控，防 CI 烧 token）</td>
+<td>熔断路径单测全绿；在线小预算实测报告（熔断触发点、降级行为、实际消耗 ≤ 预算）</td>
 </tr>
 <tr>
-<td>G-D CI + GitHub 提交</td>
-<td>GitHub Actions workflow（ruff + pytest 矩阵）入仓；本地 git 仓库 3~5 个逻辑提交；推送 GitHub（或给出待执行的两条命令）</td>
+<td>W12-A4</td>
+<td>性能工程师</td>
+<td><code>bench/stress/run_soak.py</code>、<code>bench/memdiag/</code></td>
+<td>F9 归因：10 分钟长窗 soak（RSS 采样 10s 粒度 + 任务数相关性）+ 服务端层逐项排查清单（_RUNNING/_TASKS/store 连接与游标/SSE 生成器/事件累积）逐项给证据；结论三选一：单点泄漏定位（给修复建议，不动 server）/ 有界增长（给上界公式）/ 需进一步隔离</td>
+<td>报告 <code>bench/results/memdiag_w12.md</code>；soak 长窗判定沿用三态口径</td>
+</tr>
+<tr>
+<td>W12-A5</td>
+<td>集成人（主线）</td>
+<td><code>docs/</code>、<code>CHANGELOG.md</code>、<code>README.md</code>、<code>Makefile</code>、<code>bench/adversarial/</code></td>
+<td>契约、派发、收口联调、三路复跑、在线评估审查、修复、发布</td>
+<td>五关 + 在线评估审查全绿后 commit</td>
 </tr>
 </tbody>
 </table>
-<h2 id="3-v13a2">3. 契约 v1.3（集成人先行落地，A2 消费）<a class="headerlink" href="#3-v13a2" title="Permanent link">&para;</a></h2>
-<p>AuditConfig 新增 4 个字段（全部带默认值，向后兼容）：</p>
-<div class="highlight"><pre><span></span><code><span class="n">enable_rule_hints</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>      <span class="c1"># false：规则命中不注入 LLM 审查 prompt（消融 −rule_hints）</span>
-<span class="n">enable_symbol_context</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>  <span class="c1"># false：审查上下文不附依赖符号源码（消融 −symbol_context）</span>
-<span class="n">enable_llm_cache</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>       <span class="c1"># false：GlmClient 不做响应缓存（消融 −cache）</span>
-<span class="n">llm_only_mode</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>         <span class="c1"># true：跳过静态规则，纯 LLM 审查（消融 llm_only）</span>
-</code></pre></div>
-<h2 id="4-4">4. 任务分解表（4 个大任务，全部并行）<a class="headerlink" href="#4-4" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>代号</th>
-<th>任务名</th>
-<th>独占目录/文件</th>
-<th>关键交付</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>W3-A1</td>
-<td>金标扩充与离线评估</td>
-<td><code>bench/datasets/**</code>、<code>bench/results/**</code>、<code>tests/unit/bench/test_goldset_v3*.py</code></td>
-<td>≥150 条金标（注入+自建 git 历史挖掘）；离线 run 记录（3 组消融 + 耗时基线）；不生成 LLM 谎称数据</td>
-</tr>
-<tr>
-<td>W3-A2</td>
-<td>消融开关接线</td>
-<td><code>audit/detect/engine.py</code>、<code>audit/agents/review.py</code>、<code>audit/llm/glm_client.py</code>、<code>bench/ablation.py</code>、各自新测试文件</td>
-<td>4 开关行为接线；ablation 7 组真实化；<code>tests/unit/detect</code>、<code>tests/unit/agents</code>、<code>tests/unit/llm</code> 全绿</td>
-</tr>
-<tr>
-<td>W3-A3</td>
-<td>演示与发布文档</td>
-<td><code>demo/**</code>、<code>README.md</code>、<code>LICENSE</code>、<code>.env.example</code>、<code>Makefile</code></td>
-<td>离线全闭环演示脚本（FakeLLM 脚本化：产出 verified Patch + 通过的单测）；README mermaid 架构图与徽章；MIT LICENSE</td>
-</tr>
-<tr>
-<td>W3-A4</td>
-<td>CI 与工程质量</td>
-<td><code>.github/**</code>、<code>pyproject.toml</code>（仅 [tool.ruff] 节）</td>
-<td>GitHub Actions（ruff + pytest，3.11/3.13 矩阵）；ruff 本地零告警（以配置豁免调平，不批量改代码）</td>
-</tr>
-</tbody>
-</table>
-<p><strong>冲突隔离</strong>：A1 不改 bench/*.py 代码（只加数据与结果文件）；A2 独占 4 个代码文件；A3 不碰 docs/（集成人更新索引）；A4 不碰任何 .py 业务代码。<code>docs/08</code> 索引回填与 git 提交由集成人负责。</p>
-<h2 id="5-github">5. GitHub 提交方案（集成人执行）<a class="headerlink" href="#5-github" title="Permanent link">&para;</a></h2>
+<p><strong>协作规约</strong>：沿袭 W1–W11（契约先行 / 所有权隔离 / 全程离线默认 / 诚实降级 / 中文
+docstring / ruff 零告警）。<strong>A2/A3 是唯二允许真实调用 GLM 的任务</strong>，且必须在提示词
+与产物中记录 token 消耗；其余任务禁触网。</p>
+<h2 id="3-w12-a5">3. 集成收口清单（W12-A5）<a class="headerlink" href="#3-w12-a5" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>预检</strong>：全量测试绿；<code>ruff check</code> 绿；仓库内 grep 硬编码密钥（<code>sk-</code>/<code>AKIA</code>/密码字面量）零命中（demo_proj 的假密钥是样例数据，保留但 README 注明）。</li>
-<li><strong>初始化</strong>：<code>git init -b main</code>；确认 .gitignore 覆盖 <code>__pycache__/ *.egg-info/ .codeaudit*/ .pytest_cache/</code>（已覆盖）；<code>git add</code> 分批逻辑提交：</li>
-<li><code>docs: 项目设定与开发计划（docs/00~08）</code></li>
-<li><code>feat: 审计流水线核心（ingest/index/understand/detect/fix/testgen/report/orchestrator）</code></li>
-<li><code>feat: LLM 基建与 Agent 运行时（llm/agent/agents/sandbox）</code></li>
-<li><code>feat: 产品化（server/web/cli）与评估基准（bench）</code></li>
-<li><code>test+ci: 全量测试与 GitHub Actions</code></li>
-<li><strong>推送</strong>：远端 <code>https://github.com/mingkiiiiing/codeaudit-agent.git</code>。gh CLI 未安装，两条路径：</li>
-<li>本机 Git Credential Manager 已存 GitHub 凭据 → 直接 <code>git push -u origin main</code>；</li>
-<li>无凭据/仓库不存在 → 用户在 GitHub 网页创建<strong>空仓库</strong> <code>codeaudit-agent</code> 后执行同一条 push（首次会弹浏览器授权）。</li>
-<li><strong>推送后</strong>：确认 Actions CI 首跑绿；README 顶部补仓库 badge。</li>
+<li>全量 pytest + ruff（注意收口期临时探针目录卫生，用后即删）。</li>
+<li>三路复跑：adversarial / soak / canary（canary 双端均注入独立 CODEAUDIT_DB_PATH 已内置）。</li>
+<li>在线评估审查：A2 的 quick 报告复核（判据合理性、token 账目）；A3 在线小预算实测复核。</li>
+<li>F6 复验：对 W11 遗留 db（.codeaudit/audits.db）全文扫描确认无明文 Key 增量；说明存量
+   db 的清理建议（重建或手动清理，不自动删用户数据）。</li>
+<li>CHANGELOG / README（在线模式使用说明 + .env 自动加载行为）/ Makefile（eval 目标）收口。</li>
 </ol>
-<h2 id="6-docs0607">6. 协作规约（继承 docs/06/07，本轮补充）<a class="headerlink" href="#6-docs0607" title="Permanent link">&para;</a></h2>
-<ol>
-<li>契约 v1.3 的 4 个字段落地后即冻结；A2 是唯一消费方。</li>
-<li>A4 对 pyproject.toml 的修改<strong>仅限</strong>追加 [tool.ruff] 配置节，依赖列表零改动。</li>
-<li>全部任务交付门槛含全量 pytest（基线 600）无回归 + <code>ruff check .</code> 零错误（A4 调平配置后）。</li>
-<li>禁网禁真实 LLM 不变；git 仅本地操作（A1 自建历史仓库用）。</li>
-</ol>
-<h2 id="7">7. 风险与对策<a class="headerlink" href="#7" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>风险</th>
-<th>对策</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>开关接线破坏 600 存量测试</td>
-<td>全部默认值=True/False 保持现行为；A2 回归门槛最严</td>
-</tr>
-<tr>
-<td>离线 run 记录被误读为真实指标</td>
-<td>记录头部与 README 明确"offline rules-only baseline，LLM 指标待真跑"</td>
-</tr>
-<tr>
-<td>ruff 调平诱使批量改代码引入回归</td>
-<td>A4 只允许改配置与豁免，禁止改业务代码</td>
-</tr>
-<tr>
-<td>push 需要用户凭据</td>
-<td>预检凭据 → 可推则推；否则交付"建空仓库 + 一条 push 命令"的最短路径</td>
-</tr>
-</tbody>
-</table>
+<h2 id="4">4. 验收与发布<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
+<p>六关全绿（pytest / ruff / adversarial / soak / canary / online-eval-quick）→ commit。
+W9+W10+W11+W12 四节累积于 CHANGELOG [未发布] 段，打版（建议 v0.6.0）与推送时机由用户确认。</p>
 
 
 
@@ -1435,7 +1427,7 @@
       <nav class="md-footer__inner md-grid" aria-label="页脚" >
         
           
-          <a href="../07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 07 Wave2总体方案与任务分解">
+          <a href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 16 Wave11 方案">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1445,20 +1437,20 @@
                 上一页
               </span>
               <div class="md-ellipsis">
-                07 Wave2总体方案与任务分解
+                16 Wave11 方案
               </div>
             </div>
           </a>
         
         
           
-          <a href="../09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/" class="md-footer__link md-footer__link--next" aria-label="下一页: 09 Wave4总体方案-开源生态对标">
+          <a href="../../cli/" class="md-footer__link md-footer__link--next" aria-label="下一页: CLI 速查">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 下一页
               </span>
               <div class="md-ellipsis">
-                09 Wave4总体方案-开源生态对标
+                CLI 速查
               </div>
             </div>
             <div class="md-footer__button md-icon">
