@@ -25,9 +25,19 @@ from audit.detect.base import Rule, RuleRegistry  # noqa: E402
 from audit.detect.registry import get_registry  # noqa: E402
 from audit.models import Category, Severity  # noqa: E402
 
-LANG_ORDER = ("python", "javascript", "typescript")
-LANG_TITLES = {"python": "Python", "javascript": "JavaScript", "typescript": "TypeScript"}
-LANG_MD_FENCE = {"python": "python", "javascript": "javascript", "typescript": "typescript"}
+LANG_ORDER = ("python", "javascript", "typescript", "java")
+LANG_TITLES = {
+    "python": "Python",
+    "javascript": "JavaScript",
+    "typescript": "TypeScript",
+    "java": "Java",
+}
+LANG_MD_FENCE = {
+    "python": "python",
+    "javascript": "javascript",
+    "typescript": "typescript",
+    "java": "java",
+}
 
 CATEGORY_ORDER = (Category.BUG, Category.PERFORMANCE, Category.STYLE, Category.SECURITY)
 CATEGORY_TITLES = {

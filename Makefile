@@ -1,7 +1,7 @@
 # CodeAudit Agent 常用任务（Windows Git Bash / macOS / Linux 通用）
 # 注意：本文件必须使用 tab 缩进。
 
-.PHONY: install test lint demo serve web adversarial soak canary eval clean
+.PHONY: install test lint audit-self demo serve web adversarial soak canary eval clean
 
 ## 安装可编辑模式 + 开发依赖（pytest 等）
 install:
@@ -14,6 +14,11 @@ test:
 ## 静态检查（规则见 pyproject.toml 的 [tool.ruff]，需先 pip install ruff）
 lint:
 	ruff check .
+
+## 本地一键自审计（W15-C，等价 .github/workflows/pr-audit.yml 核心命令）：
+## 离线增量审计当前仓库相对 origin/main 的变更，critical 门禁 + SARIF 产物
+audit-self:
+	python cli.py run . --diff origin/main --fail-on critical --format sarif --out .codeaudit/reports
 
 ## 离线全闭环演示：检测 -> verified Patch -> 生成单测 -> 三格式报告
 demo:

@@ -2,7 +2,7 @@
 
 ## 环境
 
-- **生成时间**：2026-09-14 00:23:22
+- **生成时间**：2026-09-16 02:55:26
 - **主机 / 平台**：DESKTOP-KS9DBJD / Windows-11-10.0.26200-SP0
 - **Python**：3.13.9
 - **被测服务**：server/app.py（FastAPI + uvicorn 单 worker），base=http://127.0.0.1:8903
@@ -17,19 +17,19 @@
 | A8_prompt_injection | ✅ OK | 真缺陷保留=True；检出=2 处 |
 | A1_malicious_zips | ✅ OK | 10 用例，建任务者全落终态=True；逃逸(外/内)=0/0 |
 | A2_param_abuse | ✅ OK | 20 探针；F1 任意路径审计=200/done/issues=1/leak=True；密文回传=True |
-| A3_flood_task_table | ✅ OK | 60 空任务，表上限=50；F5 并发峰值 active=0 |
+| A3_flood_task_table | ✅ OK | 60 空任务，表上限=42；F5 准入：25 路接纳 20/拒 429×5/峰值 active=20 |
 | A4_churn | ✅ OK | 30 轮抖动；幽灵 DELETE=[404, 404, 405, 404] |
-| A5_sse_flood | ✅ OK | 100/100 收流；首字节 p95=459.7ms |
-| A6_oversize_upload | ✅ OK | 210MB→413；RSS 峰值=660.0MB；60MB×3 e2e p50=921.0ms |
+| A5_sse_flood | ✅ OK | 100/100 收流；首字节 p95=1105.8ms |
+| A6_oversize_upload | ✅ OK | 210MB→413；RSS 峰值=661.4MB；60MB×3 e2e p50=1437.1ms |
 
 ## 场景明细
 
-### A7_sandbox_escape ｜ ✅ OK ｜ 场景耗时 5.01s
+### A7_sandbox_escape ｜ ✅ OK ｜ 场景耗时 5.35s
 
 | 校验 | 结果 | 说明 |
 |---|---|---|
-| timeout_kill | ✅ | timed_out=True dur=2.019 |
-| output_bomb_tail_only | ✅ | exit=0 tail_lines=79 tail_bytes=8079 |
+| timeout_kill | ✅ | timed_out=True dur=2.157 |
+| output_bomb_tail_only | ✅ | exit=0 truncated=True tail_lines=80 tail_bytes=8098 |
 | framework_whitelist | ✅ | - |
 | f3_documented_risk | ✅ | 沙箱进程可写 cwd 之外路径属已记录限制（F3，生产建议 Docker --network none）；本场景仅取证 |
 
@@ -37,13 +37,14 @@
 {
   "timeout_kill": {
     "timed_out": true,
-    "duration_sec": 2.019
+    "duration_sec": 2.157
   },
   "output_bomb": {
     "exit_code": 0,
-    "duration_sec": 2.254,
-    "tail_lines": 79,
-    "note": "F4：输出经 PIPE 全量读入内存后才截尾，200MB 级输出会造成瞬时 RSS 峰值"
+    "duration_sec": 2.864,
+    "tail_lines": 80,
+    "truncated": true,
+    "note": "W10 F4 已修复：输出限量排空（8MB 上限），tail 带 [output truncated] 标记"
   },
   "f3_fs_escape": {
     "attempted": true,
@@ -73,7 +74,7 @@
 }
 ```
 
-### A1_malicious_zips ｜ ✅ OK ｜ 场景耗时 21.42s
+### A1_malicious_zips ｜ ✅ OK ｜ 场景耗时 33.43s
 
 | 校验 | 结果 | 说明 |
 |---|---|---|
@@ -83,7 +84,7 @@
 | bomb_rejected_or_empty | ✅ | got done（1GB 声明量应在 ingest 层拒绝并落空报告） |
 | no_escape_outside_workroot | ✅ | 项目根出现 marker：[] |
 | no_escape_inside_workroot_except_backslash_quirk | ✅ | 工作副本树内非预期 marker：[] |
-| server_alive_after_arsenal | ✅ | {'status': 'ok', 'version': '0.5.0', 'audits': {'active': 0, 'total': 0}} |
+| server_alive_after_arsenal | ✅ | {'status': 'ok', 'version': '0.6.0', 'audits': {'active': 0, 'total': 2}} |
 
 ```json
 {
@@ -129,7 +130,7 @@
 }
 ```
 
-### A2_param_abuse ｜ ✅ OK ｜ 场景耗时 1.14s
+### A2_param_abuse ｜ ✅ OK ｜ 场景耗时 2.07s
 
 | 校验 | 结果 | 说明 |
 |---|---|---|
@@ -139,7 +140,7 @@
 | missing_source_400 | ✅ | got 400 |
 | plain_file_source_no_5xx | ✅ | 200/done |
 | f1_documented_risk | ✅ | 无鉴权 + 任意 source_path 属已记录设计风险（F1），本场景仅取证；200 即确认可审计任意本地目录 |
-| server_alive | ✅ | {'status': 'ok', 'version': '0.5.0', 'audits': {'active': 0, 'total': 0}} |
+| server_alive | ✅ | {'status': 'ok', 'version': '0.6.0', 'audits': {'active': 0, 'total': 2}} |
 
 ```json
 {
@@ -150,45 +151,176 @@
 }
 ```
 
-### A3_flood_task_table ｜ ✅ OK ｜ 场景耗时 25.24s
+### A3_flood_task_table ｜ ✅ OK ｜ 场景耗时 175.09s
 
 | 校验 | 结果 | 说明 |
 |---|---|---|
-| table_capped_at_50 | ✅ | total=50（FIFO 淘汰应把终态表压回 ≤50） |
-| server_alive | ✅ | {'status': 'ok', 'version': '0.5.0', 'audits': {'active': 0, 'total': 0}} |
+| table_capped_at_50 | ✅ | total=42（FIFO 淘汰应把终态表压回 ≤50） |
+| f5_submitted_all_resolved | ✅ | 接纳 20 + 拒绝 5 != 25 |
+| f5_no_5xx | ✅ | [200, 429] |
+| f5_active_bounded | ✅ | active（queued+running 口径）峰值=20，契约上界=20 |
+| f5_accepted_all_terminal | ✅ | ['done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done', 'done'] |
+| server_alive | ✅ | {'status': 'ok', 'version': '0.6.0', 'audits': {'active': 0, 'total': 0}} |
 
 ```json
 {
   "flood_count": 60,
-  "upload_wall_sec": 0.98,
+  "upload_wall_sec": 1.46,
   "terminals": {
-    "done": 50,
-    "deleted": 10
+    "done": 40
   },
   "health_after_flood": {
     "status": "ok",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "audits": {
       "active": 0,
-      "total": 50
+      "total": 42
     }
   },
-  "f5_concurrent_peak_active": 0,
+  "f5_submitted": 25,
+  "f5_accepted": 20,
+  "f5_denied_429": 5,
+  "f5_active_peak": 20,
   "f5_active_series": [
     0,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    20,
+    19,
+    19,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    16,
+    15,
+    15,
+    14,
+    14,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12,
+    11,
+    11,
+    11,
+    10,
+    10,
+    10,
+    10,
+    10,
+    9,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    8,
+    7,
+    6,
+    6,
+    6,
+    6,
+    6,
+    6,
+    6,
+    6,
+    6,
+    6,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    4,
+    3,
+    3,
+    3,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    2,
+    1,
     0
   ],
-  "f5_wall_sec": 23.3
+  "f5_wall_sec": 170.7
 }
 ```
 
-### A4_churn ｜ ✅ OK ｜ 场景耗时 1.20s
+### A4_churn ｜ ✅ OK ｜ 场景耗时 1.47s
 
 | 校验 | 结果 | 说明 |
 |---|---|---|
 | ghost_deletes_rejected | ✅ | [404, 404, 405, 404] |
 | no_5xx | ✅ | [204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204, 204] [404, 404, 405, 404] |
-| table_not_leaking | ✅ | {'status': 'ok', 'version': '0.5.0', 'audits': {'active': 0, 'total': 0}} |
+| table_not_leaking | ✅ | {'status': 'ok', 'version': '0.6.0', 'audits': {'active': 0, 'total': 0}} |
 
 ```json
 {
@@ -204,7 +336,7 @@
   ],
   "health_after_churn": {
     "status": "ok",
-    "version": "0.5.0",
+    "version": "0.6.0",
     "audits": {
       "active": 0,
       "total": 0
@@ -213,12 +345,12 @@
 }
 ```
 
-### A5_sse_flood ｜ ✅ OK ｜ 场景耗时 1.43s
+### A5_sse_flood ｜ ✅ OK ｜ 场景耗时 1.29s
 
 | 校验 | 结果 | 说明 |
 |---|---|---|
 | all_streams_terminated | ✅ | 100/100（DELETE 后无悬挂连接） |
-| server_alive | ✅ | {'status': 'ok', 'version': '0.5.0', 'audits': {'active': 0, 'total': 0}} |
+| server_alive | ✅ | {'status': 'ok', 'version': '0.6.0', 'audits': {'active': 0, 'total': 0}} |
 
 ```json
 {
@@ -226,10 +358,10 @@
   "terminated": 100,
   "pending_after_45s": 0,
   "first_byte_ms": {
-    "p50": 326.8,
-    "p95": 459.7
+    "p50": 542.9,
+    "p95": 1105.8
   },
-  "end_ms_p95": 464.2
+  "end_ms_p95": 1232.4
 }
 ```
 
@@ -238,20 +370,22 @@
 | 校验 | 结果 | 说明 |
 |---|---|---|
 | oversize_413 | ✅ | got 413 |
+| f2_rss_no_blowup | ✅ | 210MB 上传前后当前工作集增量 -8.9MB（阈值 <50MB；历史峰值 661.4MB 仅为进程生命周期参考） |
 | fat_zips_done | ✅ | ['done', 'done', 'done'] |
 
 ```json
 {
   "oversize": {
     "status": 413,
-    "wall_sec": 1.82,
-    "server_rss_before_mb": 85.4,
-    "server_rss_after_mb": 88.7,
-    "server_rss_peak_mb": 660.0
+    "wall_sec": 3.44,
+    "server_rss_before_mb": 110.4,
+    "server_rss_after_mb": 101.6,
+    "server_rss_peak_mb": 661.4,
+    "server_rss_delta_mb": -8.9
   },
   "fat_60mb": {
     "zip_kb": 60.0,
-    "e2e_ms_p50": 921.0,
+    "e2e_ms_p50": 1437.1,
     "terminals": [
       "done",
       "done",
@@ -266,10 +400,10 @@
 | 编号 | 发现 | 状态 | 建议 |
 |---|---|---|---|
 | F1 | REST API 无鉴权，source_path 可指向任意本地目录，报告回传源码片段 | 取证确认（本地工具设计如此） | 部署形态加鉴权 / source_path 白名单根目录 |
-| F2 | 上传先 `await file.read()` 全量入内存再校验大小，210MB 上传服务端 RSS 同量级抬升 | 取证确认（413 语义正确） | 流式读取并在超限时提前中断 |
+| F2 | 上传全量入内存后校验大小 | **已修复（W10）**：流式分块 + 提前 413 | 本轮 A6 复跑验证 RSS 回落 |
 | F3 | Windows 沙箱无文件系统隔离，子进程可写 cwd 之外 | 取证确认（文档已声明） | 生产换 Docker `--network none --memory` |
-| F4 | 沙箱输出经 PIPE 全量缓冲，200MB 级 stdout 造成瞬时内存峰值 | 取证确认（tail 截断正确） | 流式限量读取（读满 N MB 即放弃） |
-| F5 | 无任务准入控制：并发 running 数、建任务速率均无上限；10 路并发审计期间服务端事件循环被 CPU 密集任务饿死（23s 内 health 仅响应 2 次） | 取证确认（A3：10 路全接纳，10×200 无一拒绝） | 队列深度限制 + 最大并发数 + 429；CPU 密集阶段移进程池 |
+| F4 | 沙箱输出 PIPE 全量缓冲 | **已修复（W10）**：8MB 限量排空 + truncated 标记 | 本轮 A7 复跑验证标记语义 |
+| F5 | 无任务准入控制 | **已修复（W10）**：running 信号量（默认 4）+ pending 上限（默认 20）+ 429 | 本轮 A3 复跑验证准入实证；CPU 密集移进程池仍列后续 |
 
 ## 诚实边界
 

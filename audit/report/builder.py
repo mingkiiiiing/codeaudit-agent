@@ -6,6 +6,7 @@ from pathlib import Path
 
 from audit.models import AuditReport, AuditStats, count_by_severity, health_score
 from audit.pipeline import PipelineContext
+from audit.report.testcoverage import compute_untested_hotspots
 from audit.utils import guess_language, now_iso
 
 # ctx.stats 与 llm.usage_totals() 的重叠键：两者取较大值，避免阶段内已累计时被重复相加
@@ -71,9 +72,15 @@ def build_report(ctx: PipelineContext) -> AuditReport:
     - project_name 取工作副本根目录名；
     - languages / loc 从 workspace.source_files() 现场统计；
     - summary / health_score 由最终 Issue 清单推导（复用 audit.models 函数）；
-    - stats 合并 ctx.stats 与 ctx.llm.usage_totals()。
+    - stats 合并 ctx.stats 与 ctx.llm.usage_totals()；
+    - untested_hotspots：测试覆盖盲区反查（审计 P0-5，计算内部自带兜底）；
+    - verify_stats / ast_wiring：挂为报告对象私有动态属性供渲染（W24-B，不进 JSON）。
     """
     languages, loc, files_total = _collect_language_stats(ctx)
+    # 审计 P0-5：测试覆盖盲区反查（索引不可用时返回 available=False 空结构），
+    # 同时写 ctx.extra["untested_hotspots"]（对齐 verify_stats/fix_stats 的 extra 通道）。
+    untested = compute_untested_hotspots(ctx)
+    ctx.extra["untested_hotspots"] = untested
     src_root: Path = ctx.workspace.src_root
     # 项目名：优先取编排层注入的原始路径名（T2 工作副本目录名固定为 src，
     # 不能反映真实项目名）；未注入时回退 src_root 目录名（契约默认行为）。
@@ -92,5 +99,13 @@ def build_report(ctx: PipelineContext) -> AuditReport:
         architecture=ctx.architecture,
         stats=_merge_stats(ctx, files_total, loc),
         created_at=now_iso(),
+        untested_hotspots=untested,  # 审计 P0-5：测试覆盖盲区（计算内部自带兜底）
     )
+    # W24-B：检测质量观测（Verify 复核四态 + AST 接线）渲染数据。数据源与
+    # verify_stats/fix_stats 同走 ctx.extra 通道（detect 引擎写入）；挂为报告对象
+    # 私有动态属性而非契约字段——to_dict 不含（JSON 通道零变化），from_dict 重建
+    # （老报告 / report 子命令离线重渲）无此属性 → 渲染层按"有则渲染无则省略"
+    # 整节省略（口径同 untested_hotspots，但不上 JSON）。
+    report._verify_stats = ctx.extra.get("verify_stats")  # type: ignore[attr-defined]
+    report._ast_wiring = ctx.extra.get("ast_wiring")  # type: ignore[attr-defined]
     return report

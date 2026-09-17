@@ -16,7 +16,12 @@ import pytest
 # tests/unit/ci/test_ci_config.py -> 项目根目录
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 CI_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "ci.yml"
+PR_AUDIT_WORKFLOW = PROJECT_ROOT / ".github" / "workflows" / "pr-audit.yml"
 PYPROJECT = PROJECT_ROOT / "pyproject.toml"
+
+# W15-C 棘轮基线：与 ci.yml 覆盖率步骤的 --cov-fail-under 保持同源（改动须两处同步上调）。
+# 2026-09-15 全量实测 TOTAL 87%，向下取整到 5 的倍数 => 85。
+COV_FAIL_UNDER = 85
 
 
 def test_ci_workflow_exists() -> None:
@@ -66,8 +71,67 @@ def test_pyproject_contains_ruff_section() -> None:
 def test_pyproject_dependency_sections_untouched() -> None:
     """看门断言：ruff 配置节的追加不得波及依赖与 pytest 配置（W3 协作规约第 2 条）。"""
     text = PYPROJECT.read_text(encoding="utf-8")
-    assert '[project.optional-dependencies]\ndev = ["pytest>=8", "pytest-asyncio>=0.23"]' in text
+    # W20-B 适配：dev 依赖钉扎按升级任务合法变更为 pytest>=9.0.3 / pytest-asyncio>=1.4
+    # （堵 PYSEC-2026-1845），原硬编码 "pytest>=8" 断言随之同步更新，断言意图不变。
+    assert "[project.optional-dependencies]" in text
+    assert "pytest>=9.0.3" in text
+    assert "pytest-asyncio>=1.4" in text
     assert "asyncio_mode = \"auto\"" in text
+
+
+# ---------------------------------------------------------------------------
+# W15-C：依赖下限钉扎与 CI 门禁自检（防 CI 配置腐化，与既有断言同一风格）。
+# ---------------------------------------------------------------------------
+
+def test_pyproject_dependency_security_floors() -> None:
+    """看门断言：依赖安全下限不得被回退（W15-C 堵 multipart/jinja2/starlette 已知 CVE）。"""
+    text = PYPROJECT.read_text(encoding="utf-8")
+    for needle in (
+        "fastapi>=0.115",           # 起 starlette>=0.40，堵 CVE-2024-47874
+        "jinja2>=3.1.6",            # 堵 CVE-2024-22195 / CVE-2024-34032 / CVE-2025-27516
+        "python-multipart>=0.0.18",  # 堵 CVE-2024-53981
+    ):
+        assert needle in text, f"pyproject.toml 依赖安全下限缺失或被回退: {needle!r}"
+
+
+def test_ci_workflow_no_issues_write_permission() -> None:
+    """看门断言：ci.yml 不得声明 issues: write（W15-C 权限收减，无任何 issues 操作）。"""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "issues: write" not in text, "ci.yml 重新引入了 issues: write 权限"
+
+
+def test_ci_workflow_coverage_gate() -> None:
+    """看门断言：覆盖率条目必须带 --cov-fail-under 棘轮门禁，且与常量同源（W15-C）。"""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    needle = f"--cov-fail-under={COV_FAIL_UNDER}"
+    assert needle in text, f"ci.yml 覆盖率步骤缺少棘轮门禁 {needle!r}"
+
+
+def test_ci_workflow_pip_audit_step() -> None:
+    """看门断言：ci.yml 必须包含 pip-audit 依赖漏洞审计步骤（W15-C）。"""
+    text = CI_WORKFLOW.read_text(encoding="utf-8")
+    # 注意命令名是带连字符的 pip-audit（`pip audit` 不是有效子命令，已实测）
+    for needle in ("pip install pip-audit", "pip-audit --strict"):
+        assert needle in text, f"ci.yml 缺少 pip-audit 关键命令: {needle!r}"
+
+
+def test_pr_audit_workflow_exists_and_shape() -> None:
+    """看门断言：pr-audit.yml 存在且形态正确（W15-C 自举审计：离线/无 secrets/critical 门禁）。"""
+    assert PR_AUDIT_WORKFLOW.is_file(), f"缺少 PR 自审计 workflow: {PR_AUDIT_WORKFLOW}"
+    text = PR_AUDIT_WORKFLOW.read_text(encoding="utf-8")
+    for needle in (
+        "pull_request:",                       # 触发：PR
+        "workflow_dispatch",                   # 触发：手动
+        "concurrency:",                        # 防运行叠加
+        "timeout-minutes:",                    # 兜底超时
+        "--fail-on critical",                  # 门禁阈值：critical
+        "--diff origin/main",                  # 增量审计
+        "--format sarif",                      # SARIF 产物
+        "actions/upload-artifact",             # 产物上传
+    ):
+        assert needle in text, f"pr-audit.yml 缺少关键字段: {needle!r}"
+    # 零 secrets 依赖：任何形式的 secrets 引用都不允许出现
+    assert "secrets." not in text, "pr-audit.yml 引用了 secrets，违背零 secrets 设计"
 
 
 def test_ruff_check_zero_errors() -> None:

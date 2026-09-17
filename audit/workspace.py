@@ -29,7 +29,13 @@ DEFAULT_IGNORE_DIRS = {
     "coverage",
 }
 
-DEFAULT_IGNORE_FILES = {".DS_Store", "package-lock.json", "poetry.lock"}
+# W19-F3：package-lock.json / poetry.lock 自本集合摘出（改为受控放行）——
+# depcheck 的传递依赖 CVE 扫描需要它们进工作副本；巨型 lock 的性能防护由
+# 复制阶段的 5MB 上限承担（见 is_ignored 与 ingest 复制循环）。
+DEFAULT_IGNORE_FILES = {".DS_Store"}
+# W19-F3：放行进工作副本的 lock 清单文件（depcheck 传递依赖扫描的数据源）
+LOCK_MANIFEST_NAMES = {"package-lock.json", "poetry.lock"}
+LOCK_COPY_MAX_BYTES = 5 * 1024 * 1024  # 与 depcheck.scanner 的 LOCK_MAX_BYTES 同口径
 
 BINARY_SUFFIXES = {
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".webp", ".pdf", ".zip",
@@ -50,6 +56,27 @@ def is_ignored(rel_path: Path) -> bool:
     if rel_path.suffix.lower() in BINARY_SUFFIXES:
         return True
     return False
+
+
+def is_ignored_copy(rel_path: Path, src_file: Path | None = None) -> bool:
+    """工作副本**复制阶段**的忽略判定（W19-F3）。
+
+    与 is_ignored 的差异：package-lock.json / poetry.lock 不再一刀切忽略——
+    depcheck 传递依赖扫描需要它们；≤ LOCK_COPY_MAX_BYTES 放行，超限仍忽略
+    （性能防护，与 depcheck.scanner 的解析上限同口径）。其余语义逐字一致。
+    """
+    name = rel_path.parts[-1] if rel_path.parts else ""
+    if name in LOCK_MANIFEST_NAMES:
+        if src_file is None:
+            try:
+                return rel_path.stat().st_size > LOCK_COPY_MAX_BYTES
+            except OSError:
+                return True
+        try:
+            return src_file.stat().st_size > LOCK_COPY_MAX_BYTES
+        except OSError:
+            return True
+    return is_ignored(rel_path)
 
 
 @dataclass

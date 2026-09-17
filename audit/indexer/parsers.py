@@ -1,6 +1,6 @@
 """tree-sitter 解析器工厂：按语言名缓存 Language / Parser 实例。
 
-支持 python / javascript / typescript（ts/tsx 共用 typescript 语法）。
+支持 python / javascript / typescript（ts/tsx 共用 typescript 语法）/ java（W24-A）。
 """
 
 from __future__ import annotations
@@ -9,11 +9,12 @@ from functools import lru_cache
 
 from tree_sitter import Language, Parser
 
+import tree_sitter_java
 import tree_sitter_javascript
 import tree_sitter_python
 import tree_sitter_typescript
 
-SUPPORTED_LANGUAGES = ("python", "javascript", "typescript")
+SUPPORTED_LANGUAGES = ("python", "javascript", "typescript", "java")
 
 
 @lru_cache(maxsize=None)
@@ -25,6 +26,8 @@ def get_language(language: str) -> Language | None:
         return Language(tree_sitter_javascript.language())
     if language == "typescript":
         return Language(tree_sitter_typescript.language_typescript())
+    if language == "java":
+        return Language(tree_sitter_java.language())
     return None
 
 

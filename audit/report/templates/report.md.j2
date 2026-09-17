@@ -146,7 +146,44 @@
 未生成测试用例（Wave 2 功能或未启用 `--tests`）。
 {% endif %}
 
-## 八、耗时与 Token 统计
+## 八、测试覆盖盲区
+
+{% if untested.available %}
+共 **{{ untested.eligible }}** 个文件存在 critical / high 问题且为非测试文件，其中 **{{ untested.untested_count }}** 个（{{ untested.ratio_pct }}）的公开符号经调用反查无任何测试文件触达{% if untested.omitted %}，以下仅列 TOP {{ untested.top_limit }}（其余 {{ untested.omitted }} 个略）{% endif %}：
+
+{% if untested.rows %}
+| 文件 | 严重度 | 问题数 | 公开符号数 | 公开符号 |
+| --- | --- | --- | --- | --- |
+{% for it in untested.rows %}
+| {{ it.file | cell }} | {{ it.severity_labels }} | {{ it.issue_count }} | {{ it.symbol_count }} | {% for s in it.symbols_shown %}`{{ s | cell }}`{% if not loop.last %}、{% endif %}{% endfor %}{% if it.symbols_more %} 等 {{ it.symbols_more }} 个{% endif %} |
+{% endfor %}
+{% else %}
+本次未发现测试覆盖盲区：全部含 critical / high 问题的非测试文件均有测试文件触达。
+{% endif %}
+
+> **口径与局限**：{{ untested.methodology | cell }}{% if untested.resolved_ratio_pct %}（本次索引 resolved_ratio = {{ untested.resolved_ratio_pct }}）{% endif %}
+
+{% else %}
+本节未计算（索引不可用或未建索引）。
+{% endif %}
+
+{% if quality.available %}
+## 九、检测质量观测
+
+{% if quality.has_verify %}
+**Verify Agent 复核**（critical / high 候选逐条复核）：
+
+| 复核数 | 确认 | 驳回 | 存疑 |
+| --- | --- | --- | --- |
+| {{ quality.checked }} | {{ quality.confirmed }} | {{ quality.rejected }} | {{ quality.uncertain }} |
+
+{% endif %}
+{% if quality.has_ast %}
+**AST 解析接线**：{% if quality.ast_enabled %}已启用{% else %}未启用{% if quality.ast_reason %}（{{ quality.ast_reason | cell }}）{% endif %}{% endif %}——正常解析 **{{ quality.ast_parsed }}** 个文件{% if quality.ast_degraded %}，降级 {{ quality.ast_degraded }} 个（解析生效率 **{{ quality.ast_rate_pct }}**）{% else %}（解析生效率 {{ quality.ast_rate_pct }}）{% endif %}。
+
+{% endif %}
+{% endif %}
+## 十、耗时与 Token 统计
 
 | 指标 | 值 |
 | --- | --- |

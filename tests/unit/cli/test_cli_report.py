@@ -100,6 +100,8 @@ def test_serve_invokes_uvicorn_with_create_app(monkeypatch, capsys):
         captured["port"] = port
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
+    # W22-D：非回环绑定要求 token（本用例焦点在 uvicorn 实例路径，补 token 保持原意图）
+    monkeypatch.setenv("CODEAUDIT_API_TOKEN", "test-token")
     rc = cli.main(["serve", "--host", "0.0.0.0", "--port", "9001"])
     assert rc == 0
     assert captured["host"] == "0.0.0.0" and captured["port"] == 9001

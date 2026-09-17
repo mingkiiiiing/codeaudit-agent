@@ -103,7 +103,7 @@ class TestToolsReviewFn:
         assert issues[0].source == IssueSource.LLM
         assert issues[0].file == FILE and issues[0].line_start == 2
         # prompt 版本记录
-        assert ctx.extra["prompt_version"] == PROMPT_VERSION == "v2"
+        assert ctx.extra["prompt_version"] == PROMPT_VERSION == "v3"
         # 工具集：只读 7 个 + record_issues（恰好一次收口）
         tool_names = {t["function"]["name"] for t in llm.calls[0]["tools"]}
         assert tool_names == set(TOOLS_REVIEW_TOOL_NAMES) | {"record_issues"}

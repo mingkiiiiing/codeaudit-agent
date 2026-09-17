@@ -46,6 +46,10 @@ class AgentLimits:
     max_iterations: int = 25
     tool_timeout_sec: float = 60.0
     token_budget: int = 200_000
+    # W22-A：工具循环消息总字符预算（0=不限，默认保持既有行为）。超限时 runtime
+    # 从最旧的 tool 消息折叠 content（只缩短不删消息，保 tool_call/tool 配对）。
+    # 消费点：audit.agents.review（tools 审查路径，从 config.agent_message_budget 读取）。
+    message_budget_chars: int = 0
 
 
 @dataclass

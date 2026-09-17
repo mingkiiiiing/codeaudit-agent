@@ -10,11 +10,24 @@
   调用前按 config.token_budget 熔断（抛 AgentBudgetError 走各消费方既有降级
   路径），首次熔断发"预算"warning 事件；熔断后 fix/testgen 纯 LLM 阶段跳过，
   done 事件携带 degraded + budget_tripped 标志。
+
+W24-C（resume 断点续跑，docs/23 卡 C）：
+- 每阶段成功完成即发结构化 stage_done 事件（_mark_stage_done），由
+  TaskStore.append_event 同事务并入 audits.stage_done 列持久化；
+- run_audit 增加可选 keyword-only 参数 audit_id / resume_stages（均带默认值，
+  既有调用方 server/cli 零改动）：resume_stages 中的 ingest/index 且产物在盘上
+  存在时跳过重建（工作副本与索引库直接复用）；
+- resume_stage_done(store, audit_id, config)：可复用的恢复判定入口——给定任务
+  id 与重建配置，返回可安全跳过的已完成阶段集合（供 CLI/集成人接线 resume 重建）。
+  跳过范围本轮只含 ingest/index 两个盘上产物阶段：understand 之后的阶段产物
+  （issues/patches 等）在 ctx 内存中、无盘上形态，跳过会丢数据导致报告不完整，
+  故 resume 时一律重跑（成本低且保证最终报告完整，见 docs/23 §3 已知边界）。
 """
 
 from __future__ import annotations
 
 import inspect
+import logging
 import time
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -27,7 +40,14 @@ from audit.models import AuditReport, count_by_severity
 from audit.pipeline import EventEmitter, PipelineContext
 from audit.utils import new_audit_id
 
+_LOG = logging.getLogger(__name__)
+
 _SKIP_MSG = "stage skipped (module not integrated)"
+
+# W24-C：resume 可跳过的阶段集合——只含盘上产物阶段（工作副本 / 索引库）。
+# 事件照发、清单照记（understand 之后照常记 stage_done，供观测与后续轮次扩展），
+# 但本轮 resume 判定只放行这两个阶段的跳过。
+_RESUMABLE_STAGES = frozenset({"ingest", "index"})
 
 
 async def _maybe_await(result: Any) -> Any:
@@ -43,11 +63,34 @@ def _record_stage_error(ctx: PipelineContext, stage: str, exc: BaseException) ->
     errors.append({"stage": stage, "error": f"{type(exc).__name__}: {exc}"})
 
 
+async def _mark_stage_done(ctx: PipelineContext, stage: str) -> None:
+    """W24-C resume：阶段成功完成即发结构化 stage_done 事件（断点进度的单一通路）。
+
+    事件形态 {"type": "stage_done", "stage": <stage>}。持久化不在编排层做——
+    TaskStore.append_event 识别该类型并在同一事务把阶段名并入 audits.stage_done
+    （JSON 数组，幂等去重），server 的 emitter→append_event 既有通路因此零改动
+    获得断点记录（server/app.py 本卡禁改，这是不加参数的唯一接线方式）。
+    CLI/测试场景事件只进内存列表不落库：此类调用方 resume 时显式传 resume_stages。
+    事件发送失败不拖垮审计（Exception 吞掉记 debug；CancelledError 等
+    BaseException 照常上抛，协作取消语义不受影响）。
+    """
+    ctx.extra.setdefault("stage_done", []).append(stage)
+    try:
+        # message 兜底：事件协议不变式「每个事件都有 message」——既有测试断言与
+        # Web 前端「当前事件行」都按 e["message"] 取值，缺键会 KeyError（联调实证）
+        await ctx.emitter(
+            {"type": "stage_done", "stage": stage, "message": f"阶段 {stage} 完成（断点记录）"}
+        )
+    except Exception:  # noqa: BLE001 —— 断点记录失败不影响审计主流程
+        _LOG.debug("stage_done 事件发送失败（不影响主流程）：%s", stage, exc_info=True)
+
+
 async def _run_stage(ctx: PipelineContext, stage: str, body: Callable[[], Any]) -> bool:
     """执行单个阶段：统一 emit 开始/结束事件并兜底全部异常。
 
     body 内部做延迟导入；抛 ImportError 视为"模块未集成"（发 skip 事件），
     其余异常记入 stage_errors。返回 True 表示阶段有实际产出。
+    成功完成时额外发 stage_done 事件（W24-C resume 断点记录）。
     """
     await ctx.emit(stage, f"阶段 {stage} 开始")
     try:
@@ -61,6 +104,7 @@ async def _run_stage(ctx: PipelineContext, stage: str, body: Callable[[], Any]) 
         await ctx.emit(stage, f"stage error: {type(exc).__name__}: {exc}", error=True)
         return False
     await ctx.emit(stage, f"阶段 {stage} 完成")
+    await _mark_stage_done(ctx, stage)
     return True
 
 
@@ -242,6 +286,25 @@ async def _skip_gated_stage(ctx: PipelineContext, stage: str, reason: str) -> No
     await ctx.emit(stage, f"跳过：{reason}（ingest 未成功，无可用工作副本）")
 
 
+async def _reopen_existing_index(ctx: PipelineContext) -> bool:
+    """W24-C resume：重开既有索引库（不 build）并注入 ctx；失败返回 False。
+
+    create_index 只做 sqlite 连接 + 幂等建表，不做全库扫描——真正的重建开销
+    在 store.build()（resume 路径不调用它）。打开的连接与正常路径同样由
+    run_audit 的 finally 统一收口。
+    """
+    try:
+        from audit.indexer import create_index
+
+        store = await _maybe_await(create_index(ctx.workspace))
+    except Exception:  # noqa: BLE001 —— 库损坏/不可打开时由调用方回落全量重建
+        _LOG.debug("resume 索引库重开失败（回落重建）", exc_info=True)
+        return False
+    ctx.workspace.index = store
+    ctx.index = store
+    return True
+
+
 async def _run_fix_stage(ctx: PipelineContext) -> None:
     """Stage 5：audit.fix.run_fix_stage（W2-A1）。未集成时降级为占位事件。"""
     try:
@@ -251,6 +314,7 @@ async def _run_fix_stage(ctx: PipelineContext) -> None:
         return
     try:
         await _maybe_await(run_fix_stage(ctx))
+        await _mark_stage_done(ctx, "fix")  # W24-C：成功完成才记断点
     except Exception as exc:  # noqa: BLE001 —— 单阶段失败不中断流水线
         _record_stage_error(ctx, "fix", exc)
         await ctx.emit("fix", f"stage error: {type(exc).__name__}: {exc}", error=True)
@@ -265,6 +329,7 @@ async def _run_testgen_stage(ctx: PipelineContext) -> None:
         return
     try:
         await _maybe_await(run_testgen_stage(ctx))
+        await _mark_stage_done(ctx, "testgen")  # W24-C：成功完成才记断点
     except Exception as exc:  # noqa: BLE001
         _record_stage_error(ctx, "testgen", exc)
         await ctx.emit("testgen", f"stage error: {type(exc).__name__}: {exc}", error=True)
@@ -320,11 +385,78 @@ async def _export_baseline(ctx: PipelineContext) -> None:
     await ctx.emit("report", f"基线已写入：{out}", baseline=str(out))
 
 
-async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
+# ---------------------------------------------------------------- W24-C：resume 断点续跑
+
+def resume_stage_done(store: Any, audit_id: str, config: AuditConfig) -> frozenset[str]:
+    """恢复判定（可复用入口，供 CLI/server 接线 resume 重建）：
+    给定 audit_id 与重建配置 → 本轮可安全跳过的已完成阶段集合。
+
+    判定逐条过滤，宁缺勿跳（跳过的前提是产物确实可复用）：
+    1. 任务行存在且 stage_done 非空（store.get_stage_done），并与
+       _RESUMABLE_STAGES 求交——只放行盘上产物阶段（ingest/index）；
+    2. 同源校验：任务行 source_path 与 config.source_path resolve 后一致。
+       MVP 指纹形态说明（决策 docs/23 §2 第 2 条）：resume 是同一任务数分钟内
+       的进程重启，路径一致即视为同源；内容级指纹属项目级缓存工程，本轮不做；
+    3. ingest：<work_root>/<audit_id>/src 工作副本目录存在；
+    4. index：index.db 文件存在，且以工作副本存在为前提（索引是副本的派生物，
+       副本丢了索引复用无意义，须与副本一起重建）。
+
+    understand/detect/refactor/fix/testgen 的产物在 ctx 内存中、无盘上形态，
+    即使 stage_done 已记录也不纳入跳过集合——resume 一律重跑（成本低且保证
+    最终报告完整，见模块 docstring 的已知边界）。
+
+    store 为鸭子类型：只需 get / get_stage_done 两个方法（TaskStore 满足），
+    编排层不硬依赖 taskstore 包。恢复重建的完整调用姿势（CLI 接线归集成人）：
+        done = resume_stage_done(store, audit_id, config)
+        store.set_status(audit_id, "running")   # interrupted → running
+        report = run_audit(config, emitter, audit_id=audit_id, resume_stages=done)
+    注意 config 需沿用原任务的 do_fix/do_tests/out_dir 等取值（集成人从任务行
+    config_json 重建），否则 resume 结果与首次运行口径不一致。
+    """
+    try:
+        task = store.get(audit_id)
+        recorded = list(store.get_stage_done(audit_id))
+    except Exception:  # noqa: BLE001 —— 判定失败按"不可续跑"处理，返回空集
+        _LOG.debug("resume 判定读取 store 失败（按不可续跑处理）：%s", audit_id, exc_info=True)
+        return frozenset()
+    if task is None or not recorded:
+        return frozenset()
+    try:
+        same_source = Path(str(task["source_path"])).resolve() == Path(config.source_path).resolve()
+    except OSError:
+        same_source = False
+    if not same_source:
+        return frozenset()
+    task_root = (Path(config.work_root) if config.work_root else Path(".codeaudit")).resolve() / audit_id
+    stages = set(recorded) & set(_RESUMABLE_STAGES)
+    if not (task_root / "src").is_dir():
+        stages.discard("ingest")
+        stages.discard("index")  # 副本丢失：索引失去复用前提，全部重跑
+    elif not (task_root / "index.db").is_file():
+        stages.discard("index")
+    return frozenset(stages)
+
+
+async def run_audit(
+    config: AuditConfig,
+    emitter: EventEmitter,
+    *,
+    audit_id: str | None = None,
+    resume_stages: frozenset[str] | set[str] | None = None,
+) -> AuditReport:
     """执行七阶段审计流水线，返回最终 AuditReport（审计永不整体失败）。
 
     阶段：ingest → index → understand → detect → refactor → fix(可选) → testgen(可选) → report。
     总耗时写入 ctx.stats.duration_sec（time.monotonic）。
+
+    W24-C resume 参数（keyword-only，带默认值，既有调用方零改动）：
+    - audit_id：复用既有任务 id（resume 重建调用）；None 时 new_audit_id() 与
+      旧行为一致。resume 时工作副本落在原任务目录（work_root/audit_id），
+      盘上产物才可能被复用；
+    - resume_stages：已完成阶段集合（由 resume_stage_done 判定给出）。其中
+      ingest/index 且产物在盘上存在时跳过重建：工作副本 src/ 直接复用、索引库
+      仅重开不 build。传入了盘上已不存在的阶段名时按防御逐项回落（副本缺失则
+      连索引一起重跑），宁可重跑不可用坏产物。
 
     资源收口（R1-3/R1-4）：无论正常结束还是异常，finally 中统一关闭 LLM 客户端
     （aclose）与索引连接（store.close）；ingest 未成功时 index/understand/detect/
@@ -332,21 +464,33 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
     manifests（R4-4），done 事件携带 degraded 标志（R4-10）。
     """
     started = time.monotonic()
-    audit_id = new_audit_id()
+    audit_id = audit_id or new_audit_id()
+    resume = frozenset(resume_stages or ())
 
     # 先建"临时"工作区：ingest 成功后替换为真实工作副本；
     # ingest 未集成/失败时，后续依赖工作区的阶段被门控跳过，报告阶段仍产出空报告。
+    # W24-C：resume 跳过 ingest 时直接以存活的工作副本建视图（否则视图指向
+    # 用户原始输入目录，复用判定就失去意义）。
     from audit.workspace import WorkspaceContext
 
     src = Path(config.source_path).resolve() if config.source_path else Path.cwd()
     work_root = (Path(config.work_root) if config.work_root else Path(".codeaudit")).resolve()
     task_root = work_root / audit_id
-    workspace = WorkspaceContext(
-        audit_id=audit_id,
-        src_root=src,
-        work_root=task_root,
-        db_path=task_root / "index.db",
-    )
+    if "ingest" in resume and (task_root / "src").is_dir():
+        workspace = WorkspaceContext(
+            audit_id=audit_id,
+            src_root=task_root / "src",
+            work_root=task_root,
+            db_path=task_root / "index.db",
+        )
+    else:
+        resume = resume - _RESUMABLE_STAGES  # 副本不在：ingest/index 一律重跑（防御回落）
+        workspace = WorkspaceContext(
+            audit_id=audit_id,
+            src_root=src,
+            work_root=task_root,
+            db_path=task_root / "index.db",
+        )
     llm, llm_warning = _make_llm(config)
     if llm_warning:
         await emitter({"type": "progress", "stage": "init", "message": llm_warning, "warning": True})
@@ -360,9 +504,11 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
     ctx.extra["audit_id"] = audit_id
     # 原始项目名（剥掉 zip 后缀）：T2 工作副本目录名固定为 src，报告应展示真实项目名
     ctx.extra["project_name"] = src.name[: -len(".zip")] if src.name.endswith(".zip") else src.name
+    if resume:
+        ctx.extra["resumed_stages"] = sorted(resume)
 
     try:
-        return await _run_audit_stages(ctx, started, audit_id)
+        return await _run_audit_stages(ctx, started, audit_id, resume)
     finally:
         # R1-4：关闭索引连接（index 阶段异常时其内部已兜底关闭，这里幂等收口）
         index = ctx.index if ctx.index is not None else ctx.workspace.index
@@ -373,8 +519,15 @@ async def run_audit(config: AuditConfig, emitter: EventEmitter) -> AuditReport:
         await _close_quietly(gate)
 
 
-async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str) -> AuditReport:
-    """run_audit 的阶段主体（资源收口由 run_audit 的 finally 负责）。"""
+async def _run_audit_stages(
+    ctx: PipelineContext, started: float, audit_id: str, resume: frozenset[str] = frozenset()
+) -> AuditReport:
+    """run_audit 的阶段主体（资源收口由 run_audit 的 finally 负责）。
+
+    W24-C：resume 非空时按恢复判定跳过对应阶段——ingest/index 的跳过前提
+    （盘上产物存在）已在 run_audit 入口校验过，这里只做事件与门控补齐：
+    跳过 ingest 需把 ingest_ok 置 True（后续阶段不再门控）。
+    """
     config = ctx.config
 
     # -------- Stage 1: ingest
@@ -387,13 +540,25 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
         manifests = getattr(result, "manifests", None) or []
         await ctx.emit("ingest", f"工作副本就绪：{result.src_root}", files=len(manifests))
 
-    ingest_ok = await _run_stage(ctx, "ingest", _do_ingest)
+    if "ingest" in resume:
+        # W24-C resume：工作副本复用（run_audit 已把 workspace 指向存活的 src/）。
+        # 提示事件挂 init 通道（文案含"跳过"，与 diff 增量警告同口径——挂业务
+        # 阶段通道会把 Web 端阶段状态钉死为 skipped）。
+        ingest_ok = True
+        await ctx.emit("init", "resume：ingest 已完成，复用既有工作副本（跳过重拷）", resumed=True)
+    else:
+        ingest_ok = await _run_stage(ctx, "ingest", _do_ingest)
     ctx.extra["ingest_ok"] = ingest_ok  # R1-2 门控标志
+    if not ingest_ok:
+        # W17（F1）：降级运行显式落报告 stats——机器可读（此前仅 stderr 警告），
+        # 供 CLI 门禁与 CI 调用方区分"空项目"与"审计未实际执行"。
+        ctx.stats.degraded_ingest = True
 
     # -------- Stage 1b: diff 增量剪枝（契约 v1.4，docs/09 §1 第 3 行）
     # 仅在 ingest 成功且 ctx.workspace 已替换为独立工作副本时执行：
     # ingest 失败时 ctx.workspace 仍指向原始输入目录，此时物理删文件会毁掉源项目。
-    if config.diff_ref and ingest_ok and ctx.workspace.src_root != Path(config.source_path).resolve():
+    # W24-C：resume 路径不重放——增量剪枝在首次运行时已应用到存活的工作副本。
+    if config.diff_ref and ingest_ok and "ingest" not in resume and ctx.workspace.src_root != Path(config.source_path).resolve():
         try:
             await _apply_diff_increment(ctx)
         except Exception as exc:  # noqa: BLE001 —— 增量失败回退全量，不中断流水线
@@ -423,7 +588,17 @@ async def _run_audit_stages(ctx: PipelineContext, started: float, audit_id: str)
             await _close_quietly(store)  # 构建失败也释放连接（R1-4）
             raise
 
-    if ingest_ok:
+    if "index" in resume:
+        # W24-C resume 索引复用最小版：工作副本同源（run_audit 已校验副本存活）
+        # 且 index.db 在盘 → 仅重开既有索引库（建表语句幂等）注入 ctx，不 build
+        # ——build 才是全库扫描+解析的开销所在。重开失败（如库损坏）回落正常
+        # 重建路径，宁可重跑不可带着坏索引跑。
+        if await _reopen_existing_index(ctx):
+            await ctx.emit("init", "resume：索引库复用，跳过重建（同源工作副本 + index.db 在盘）", resumed=True)
+        else:
+            await ctx.emit("init", "resume：索引库重开失败，回落全量重建", warning=True)
+            await _run_stage(ctx, "index", _do_index)
+    elif ingest_ok:
         await _run_stage(ctx, "index", _do_index)
     else:
         await _skip_gated_stage(ctx, "index", "无工作副本可索引")

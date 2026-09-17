@@ -13,6 +13,14 @@ import re
 from typing import Pattern
 
 from audit.detect.base import Rule, RuleContext, RuleHit
+from audit.detect.rules._rule_families import (
+    DeepNestingRuleFamily,
+    HardcodedSecretRuleFamily,
+    LongFunctionRuleFamily,
+    MagicNumberRuleFamily,
+    TodoFixmeCommentRuleFamily,
+)
+from audit.detect.rules._scan_common import string_value
 from audit.detect.rules.js._js_common import (
     call_span,
     find_call,
@@ -392,13 +400,14 @@ _SECRET_NAME_HINTS = (
 _SECRET_VALUE_PREFIXES = ("sk-", "AKIA", "ghp_")
 
 
-class HardcodedSecretRule(_JsSharedRule):
-    """硬编码密钥/口令（变量名启发式 + 已知密钥前缀）。"""
+class HardcodedSecretRule(_JsSharedRule, HardcodedSecretRuleFamily):
+    """硬编码密钥/口令（变量名启发式 + 已知密钥前缀）。
+
+    W15-D：category/severity/description/mask_snippet 上收至 HardcodedSecretRuleFamily
+    （两语言完全一致）；检测强度两语言有意不同（见家族基类决策记录）。
+    """
 
     id = "JS-HARDCODED-SECRET"
-    category = Category.SECURITY
-    severity = Severity.CRITICAL
-    description = "密钥/口令硬编码在源码中：随代码库扩散，任何有读权限的人都能获取凭据。"
 
     _EQ_RE: Pattern[str] = re.compile(r"(?P<name>[\w$]+)\s*(?::[^=;]+)?=(?!=)\s*(?P<q>['\"`])")
     _COLON_RE: Pattern[str] = re.compile(r"(?P<name>[\w$]+)\s*:\s*(?P<q>['\"`])")
@@ -410,7 +419,9 @@ class HardcodedSecretRule(_JsSharedRule):
             if not m:
                 continue
             q = m.group("q")
-            value = self._string_value(raw, m.end() - 1, q)
+            # W15-D：字符串取值收敛至 _scan_common.string_value，
+            # escape_mode="skip"（默认）保持 JS 历史语义（跳过转义且不保留）
+            value = string_value(raw, m.end() - 1, q)
             if value is None or "${" in value:
                 continue
             name = m.group("name").lower()
@@ -429,21 +440,6 @@ class HardcodedSecretRule(_JsSharedRule):
                     )
                 )
         return hits
-
-    @staticmethod
-    def _string_value(raw: str, quote_col: int, quote: str) -> str | None:
-        """从 quote_col 处的引号提取字符串内容（处理转义；未闭合返回 None）。"""
-        if quote_col >= len(raw) or raw[quote_col] != quote:
-            return None
-        i = quote_col + 1
-        while i < len(raw):
-            if raw[i] == "\\":
-                i += 2
-                continue
-            if raw[i] == quote:
-                return raw[quote_col + 1 : i]
-            i += 1
-        return None
 
 
 # ==================================================================== performance 类
@@ -520,159 +516,73 @@ class ConsoleLogRule(_JsRule):
         return hits
 
 
-class LongFunctionRule(_JsRule):
+class LongFunctionRule(_JsRule, LongFunctionRuleFamily):
     """函数超过 80 行。"""
 
     id = "JS-LONG-FUNCTION"
-    category = Category.STYLE
-    severity = Severity.MEDIUM
-    description = "函数体超过 80 行：职责过多、难以测试与复用，应拆分为更小的函数。"
 
-    MAX_LINES = 80
+    # W15-D：消息尾注两语言文案本就不同（PY「圈复杂度高」/ JS「分支爆炸」），以参数显式化
+    _TAIL_DETAIL = "分支爆炸"
 
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        hits: list[RuleHit] = []
-        for fr in function_ranges(scan.masked):
-            length = fr.end - fr.start + 1
-            if length > self.MAX_LINES:
-                hits.append(
-                    self.make_hit(
-                        ctx,
-                        fr.start,
-                        fr.end,
-                        f"函数 `{fr.name}` 共 {length} 行（第 {fr.start}~{fr.end} 行），超过 80 行上限："
-                        "过长函数通常职责混杂、分支爆炸，难以测试和维护；建议按职责拆分。",
-                        meta={"lines": length},
-                    )
-                )
-        return hits
+    # W15-D：绑定 JS 掩码扫描器与大括号配对口径的函数作用域推断（算法骨架在家族基类）
+    _get_scan = staticmethod(get_scan)
+    _function_ranges = staticmethod(function_ranges)
 
 
-class DeepNestingRule(_JsRule):
+class DeepNestingRule(_JsRule, DeepNestingRuleFamily):
     """缩进达到 4 层及以上（按文件基础缩进单位换算）。"""
 
     id = "JS-DEEP-NESTING"
-    category = Category.STYLE
-    severity = Severity.MEDIUM
-    description = "代码嵌套达到 4 层以上：认知负担大、分支组合爆炸，应通过提前返回/抽取函数降低深度。"
 
-    LEVEL_THRESHOLD = 4
+    # W15-D：层级口径以钩子显式化——JS 按文件缩进单位换算（PY 固定 4 空格/层）
+    def _min_indent(self, masked: list[str]) -> int:
+        unit = indent_unit(masked)
+        return self.LEVEL_THRESHOLD * unit
 
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        unit = indent_unit(scan.masked)
-        min_indent = self.LEVEL_THRESHOLD * unit
-        groups: list[tuple[int, int]] = []
-        cur_start: int | None = None
-        prev: int | None = None
-        for idx in range(1, len(scan.masked) + 1):
-            ln = scan.masked[idx - 1]
-            stripped = ln.strip()
-            deep = bool(stripped) and indent_width(ln) >= min_indent
-            if deep:
-                if cur_start is None:
-                    cur_start = idx
-                prev = idx
-            elif stripped:
-                # 空行不打断分组，非空且未达深度的行打断
-                if cur_start is not None and prev is not None:
-                    groups.append((cur_start, prev))
-                cur_start = None
-                prev = None
-        if cur_start is not None and prev is not None:
-            groups.append((cur_start, prev))
-        return [
-            self.make_hit(
-                ctx,
-                a,
-                b,
-                f"第 {a}~{b} 行代码嵌套达到 {self.LEVEL_THRESHOLD} 层及以上（缩进 ≥{min_indent} 空格）："
-                "深层嵌套显著增加理解与测试成本；建议用卫语句提前返回或将内层逻辑抽取成函数。",
-            )
-            for a, b in groups
-        ]
+    def _is_deep(self, ln: str, stripped: str, min_indent: int) -> bool:
+        return bool(stripped) and indent_width(ln) >= min_indent
+
+    # W15-D：绑定 JS 掩码扫描器
+    _get_scan = staticmethod(get_scan)
 
 
-class MagicNumberRule(_JsRule):
+class MagicNumberRule(_JsRule, MagicNumberRuleFamily):
     """参与比较/赋值的无解释大数字面量（≥1000，支持十进制与十六进制）。"""
 
     id = "JS-MAGIC-NUMBER"
-    category = Category.STYLE
-    severity = Severity.LOW
-    description = "代码中出现无命名的大数字面量（≥1000）：含义不明、散落多处难以统一修改，应提取为具名常量。"
 
+    # W15-D：JS 数字口径——支持十六进制前缀（交替项在前保证整体匹配）；
+    # 只跳过 import 与 re-export 行（export const/let 的字面量仍参与检查）；
+    # 全大写具名常量声明视为已提取，豁免
     _NUM_RE: Pattern[str] = re.compile(
         r"\b(0[xX][0-9a-fA-F_]+|\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b"
     )
-    # 只跳过 import 与 re-export 行（export const/let 的字面量仍参与检查）
     _IMPORT_RE: Pattern[str] = re.compile(r"^\s*import\b|^\s*export\s*(?:\*|\{)[^;]*\bfrom\b")
     _NAMED_CONST_RE: Pattern[str] = re.compile(
         r"^\s*(?:export\s+)?const\s+[A-Z][A-Z0-9_]*\s*=\s*[^;]*;\s*$"
     )
-    MIN_VALUE = 1000.0
+    _EXAMPLE_HINT = "const MAX_RETRY = 3000"
 
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        hits: list[RuleHit] = []
-        for idx, ln in enumerate(scan.masked):
-            stripped = ln.strip()
-            if not stripped:
-                continue
-            if self._NAMED_CONST_RE.match(ln):
-                continue  # 已提取为全大写具名常量，属推荐写法
-            if self._IMPORT_RE.match(ln):
-                continue
-            for m in self._NUM_RE.finditer(ln):
-                text = m.group(1)
-                try:
-                    if text[:2].lower() == "0x":
-                        value = float(int(text.replace("_", ""), 16))
-                    else:
-                        value = float(text.replace("_", ""))
-                except ValueError:  # pragma: no cover
-                    continue
-                if abs(value) >= self.MIN_VALUE:
-                    hits.append(
-                        self.make_hit(
-                            ctx,
-                            idx + 1,
-                            idx + 1,
-                            f"第 {idx + 1} 行使用魔法数字 `{text}`：字面量含义不明确且多处出现时难以统一维护；"
-                            "请提取为具名常量（如 const MAX_RETRY = 3000）并注释业务含义。",
-                            meta={"value": value},
-                        )
-                    )
-        return hits
+    # W15-D：绑定 JS 掩码扫描器；数字解析/豁免口径按 JS 历史语义实现
+    _get_scan = staticmethod(get_scan)
+
+    def _skip_line(self, ln: str) -> bool:
+        return bool(self._NAMED_CONST_RE.match(ln) or self._IMPORT_RE.match(ln))
+
+    @staticmethod
+    def _parse_number(text: str) -> float:
+        if text[:2].lower() == "0x":
+            return float(int(text.replace("_", ""), 16))
+        return float(text.replace("_", ""))
 
 
-class TodoFixmeCommentRule(_JsRule):
+class TodoFixmeCommentRule(_JsRule, TodoFixmeCommentRuleFamily):
     """TODO/FIXME/HACK 注释残留。"""
 
     id = "JS-TODO-FIXME"
-    category = Category.STYLE
-    severity = Severity.LOW
-    description = "注释中的 TODO/FIXME/HACK 标记：代表已知未完成事项或临时绕过，应在交付前清理或建跟踪项。"
 
-    _RE: Pattern[str] = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
-
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        hits: list[RuleHit] = []
-        for lineno, text in scan.comments:
-            m = self._RE.search(text)
-            if m:
-                hits.append(
-                    self.make_hit(
-                        ctx,
-                        lineno,
-                        lineno,
-                        f"第 {lineno} 行注释存在 `{m.group(1)}` 标记：{text.strip()[:80]}——"
-                        "这是显式的未完成事项，应转为任务跟踪或立即处理，避免长期滞留。",
-                        meta={"tag": m.group(1)},
-                    )
-                )
-        return hits
+    # W15-D：绑定 JS 掩码扫描器（家族 check 与 PY 侧逐字一致）
+    _get_scan = staticmethod(get_scan)
 
 
 # ==================================================================== 注册

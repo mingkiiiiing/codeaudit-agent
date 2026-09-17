@@ -40,6 +40,46 @@ from audit.utils import truncate
 __all__ = ["SimpleAgentRuntime"]
 
 
+# W22-A：折叠标记前缀（幂等——已折叠的消息不会被二次折叠）
+_FOLD_MARK = "[folded:"
+# W22-A：短于该长度的 tool 结果不值得折叠（折叠收益小于标记本身开销）
+_FOLD_MIN_CHARS = 200
+# W22-A：折叠时保留的原文前缀长度
+_FOLD_KEEP_CHARS = 160
+
+
+def _convo_chars(convo: list[Message]) -> int:
+    """消息总字符数（content 口径；system/user/assistant/tool 一并计入）。"""
+    return sum(len(str(m.get("content") or "")) for m in convo)
+
+
+def _fold_oversized_tool_messages(convo: list[Message], budget: int) -> int:
+    """W22-A 消息预算折叠：超预算时从最旧的 tool 消息折叠 content，返回折叠条数。
+
+    - 只折叠 role=="tool" 的 content（保留前 _FOLD_KEEP_CHARS 字符 + 折叠标记），
+      不删除消息——OpenAI 协议要求 tool 消息与 assistant.tool_calls 逐个配对，
+      删除会破坏对话结构；assistant 消息的 tool_calls 字段永不触碰；
+    - 折叠标记前缀幂等：已折叠过的消息跳过；
+    - 保守停止条件：折叠完全部可折叠 tool 消息仍超预算时直接停止（不动其他
+      角色——宁可超预算也不破坏用户/系统消息语义）。
+    """
+    if budget <= 0 or _convo_chars(convo) <= budget:
+        return 0
+    folded = 0
+    for msg in convo:
+        if _convo_chars(convo) <= budget:
+            break
+        if msg.get("role") != "tool":
+            continue
+        content = str(msg.get("content") or "")
+        if len(content) < _FOLD_MIN_CHARS or content.startswith(_FOLD_MARK):
+            continue
+        keep = content[:_FOLD_KEEP_CHARS]
+        msg["content"] = f"{keep}\n{_FOLD_MARK}{len(content) - len(keep)} chars folded to fit message budget]"
+        folded += 1
+    return folded
+
+
 class SimpleAgentRuntime(AgentRuntime):
     """基于任意 LLMClient 的工具调用循环实现。"""
 
@@ -93,6 +133,8 @@ class SimpleAgentRuntime(AgentRuntime):
                 result.stop_reason = STOP_MAX_ITERATIONS
                 break
             result.iterations += 1
+            # W22-A：每轮请求前做消息预算折叠（0=不限，默认零行为变化）
+            _fold_oversized_tool_messages(convo, limits.message_budget_chars)
             await self._emit(on_event, {"type": "iteration", "index": result.iterations})
 
             try:

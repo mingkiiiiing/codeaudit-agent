@@ -20,7 +20,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from audit.agents.prompts import PROMPT_VERSION, VERIFY_PROMPT_V2
+from audit.agents.prompts import PROMPT_VERSION, VERIFY_PROMPT_V2  # noqa: F401（verify prompt 本波未变）
 from audit.llm.base import LLMClient, Message
 from audit.models import Issue, Severity
 from audit.utils import extract_json

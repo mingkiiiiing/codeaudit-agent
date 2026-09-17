@@ -18,12 +18,40 @@ _EXTENSION_LANGUAGE = {
     ".jsx": "javascript",
     ".ts": "typescript",
     ".tsx": "typescript",
+    ".java": "java",
 }
+
+# W24-A 内容探测特征（扩展名未知时的回退档）：命中任一即判为 java
+_JAVA_CONTENT_RE = re.compile(
+    r"^\s*package\s+\w|^\s*public\s+(?:final\s+|abstract\s+)*class\s"
+    r"|^\s*public\s+(?:final\s+|abstract\s+)*interface\s|^\s*public\s+enum\s",
+    re.MULTILINE,
+)
 
 
 def guess_language(path: str | Path) -> str | None:
-    """按扩展名粗判语言（T2 可做内容级二次确认）。"""
-    return _EXTENSION_LANGUAGE.get(Path(path).suffix.lower())
+    """按扩展名粗判语言；``.java`` 无歧义走扩展名档（T2 内容级二次确认）。
+
+    W24-A：未知扩展名回退内容探测（读前 4KB 找 ``package `` / ``public class``
+    等 java 特征）；相对路径或读不到的文件保持返回 None，行为与既有调用方兼容。
+    """
+    by_ext = _EXTENSION_LANGUAGE.get(Path(path).suffix.lower())
+    if by_ext is not None:
+        return by_ext
+    return _guess_java_by_content(path)
+
+
+def _guess_java_by_content(path: str | Path) -> str | None:
+    """内容探测回退档：能读到内容且含 java 特征才判定，任何 IO 失败返回 None。"""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(4096)
+    except OSError:
+        return None
+    text = head.decode("utf-8", errors="replace")
+    if _JAVA_CONTENT_RE.search(text):
+        return "java"
+    return None
 
 
 def sha256_text(text: str) -> str:

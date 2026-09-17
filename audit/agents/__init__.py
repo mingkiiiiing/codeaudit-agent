@@ -4,7 +4,7 @@ Wave 2 新增：make_tools_review_fn（工具取证式审查）、review_files_p
 与批量小切片）、prompts（版本化 prompt 常量）。
 """
 
-from audit.agents.prompts import PROMPT_VERSION, REVIEW_PROMPT_V2, VERIFY_PROMPT_V2
+from audit.agents.prompts import PROMPT_VERSION, REVIEW_PROMPT_V3, VERIFY_PROMPT_V2
 from audit.agents.review import (
     BATCH_GROUP_SIZE,
     BATCH_SMALL_FILE_LINES,
@@ -27,7 +27,7 @@ __all__ = [
     "BATCH_SMALL_FILE_LINES",
     "PROMPT_VERSION",
     "REVIEW_MAX_ITERATIONS",
-    "REVIEW_PROMPT_V2",
+    "REVIEW_PROMPT_V3",
     "REVIEW_SLICE_LINES",
     "REVIEW_TOOL_NAMES",
     "TOOLS_REVIEW_MAX_ITERATIONS",

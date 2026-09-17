@@ -213,6 +213,74 @@ def _refactor_groups(report: AuditReport) -> list[dict[str, Any]]:
     return groups
 
 
+def _untested_view(report: AuditReport) -> dict[str, Any]:
+    """测试覆盖盲区节（审计 P0-5）的视图模型：字段拍平，空数据也输出稳定结构。"""
+    data = report.untested_hotspots or {}
+    available = bool(data.get("available"))
+    items_raw = data.get("items") or []
+    rows: list[dict[str, Any]] = []
+    for it in items_raw:
+        sev_labels = [_SEVERITY_LABELS.get(s, s) for s in it.get("severities", [])]
+        symbols = [str(s) for s in it.get("public_symbols", [])]
+        shown = symbols[:8]
+        rows.append(
+            {
+                "file": it.get("file", ""),
+                "severities": it.get("severities", []),
+                "severity_labels": "、".join(sev_labels),
+                "issue_count": it.get("issue_count", 0),
+                "issue_ids": [str(i) for i in it.get("issue_ids", [])],
+                "symbol_count": it.get("public_symbol_count", len(symbols)),
+                "symbols_shown": shown,
+                "symbols_more": max(0, len(symbols) - len(shown)),
+            }
+        )
+    ratio = float(data.get("ratio") or 0.0)
+    resolved = data.get("resolved_ratio")
+    return {
+        "available": available,
+        "eligible": int(data.get("eligible_files") or 0),
+        "untested_count": int(data.get("untested_files") or 0),
+        "ratio_pct": f"{ratio * 100:.1f}%",
+        "resolved_ratio_pct": f"{float(resolved) * 100:.1f}%" if resolved is not None else "",
+        "top_limit": int(data.get("top_limit") or 20),
+        "rows": rows,
+        "omitted": int(data.get("omitted") or 0),
+        "methodology": str(data.get("methodology") or ""),
+    }
+
+
+def _quality_view(report: AuditReport) -> dict[str, Any]:
+    """检测质量观测节（W24-B）视图模型：Verify 复核四态 + AST 接线统计。
+
+    数据由 builder 挂在报告对象的 _verify_stats / _ast_wiring 私有动态属性上
+    （来自 ctx.extra，非契约字段）；老报告 / from_dict 重建的报告无此属性 →
+    available=False，模板整节省略（"有则渲染无则省略"口径）。
+    """
+    verify = getattr(report, "_verify_stats", None)
+    wiring = getattr(report, "_ast_wiring", None)
+    has_verify = isinstance(verify, dict) and bool(verify)
+    has_ast = isinstance(wiring, dict) and bool(wiring)
+    parsed = int(wiring.get("parsed") or 0) if has_ast else 0
+    degraded = int(wiring.get("degraded") or 0) if has_ast else 0
+    ast_total = parsed + degraded
+    reason = str(wiring.get("reason") or "") if has_ast else ""
+    return {
+        "available": has_verify or has_ast,
+        "has_verify": has_verify,
+        "has_ast": has_ast,
+        "checked": int(verify.get("checked") or 0) if has_verify else 0,
+        "confirmed": int(verify.get("confirmed") or 0) if has_verify else 0,
+        "rejected": int(verify.get("rejected") or 0) if has_verify else 0,
+        "uncertain": int(verify.get("uncertain") or 0) if has_verify else 0,
+        "ast_enabled": bool(wiring.get("enabled")) if has_ast else False,
+        "ast_reason": reason,
+        "ast_parsed": parsed,
+        "ast_degraded": degraded,
+        "ast_rate_pct": f"{parsed * 100.0 / ast_total:.1f}%" if ast_total else "-",
+    }
+
+
 def _base_view(report: AuditReport, for_html: bool) -> dict[str, Any]:
     """md/html 模板共用的视图模型：全部字段预先拍平为纯文本。"""
     summary = report.summary
@@ -270,6 +338,8 @@ def _base_view(report: AuditReport, for_html: bool) -> dict[str, Any]:
         "tests_passed": tests_passed,
         "refactor_groups": _refactor_groups(report),
         "refactor_total": len(report.refactor_proposals),
+        "untested": _untested_view(report),
+        "quality": _quality_view(report),
         "stats": report.stats,
     }
 

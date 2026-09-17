@@ -15,6 +15,25 @@ run_audit 便于测试注入假流水线（任务线程内经模块属性延迟�
 store.count_active()（多 worker 下即全局计数）；FIFO 容量淘汰经 store.prune(_AUDITS_MAX)
 只淘汰终态；SSE 轮询改从 store 按 seq 游标读取（回放/跟随语义不变）；上传按 256 KB
 分块流式落盘，超限立即 413 并停止读取（不再整包缓冲进内存）。
+W14 修复（M-4/M-5/M-6）：磁盘回收——store 携带 work_root，prune / 启动 sweep /
+DELETE（终态）删行时同步回收 <work_root>/<audit_id>/ 与 uploads zip，DELETE 对
+queued/running 只删行（协作取消），目录由执行体幽灵收尾回收（_cleanup_if_ghost）；
+治理上限（_MAX_RUNNING_AUDITS/_MAX_PENDING_AUDITS）改惰性解析——.env 运行期加载后
+即生效，两个模块名保留为测试覆写入口（非 None 直接生效）；上传在读流完成后、建任务
+前做第二次权威准入校验（M-6 TOCTOU），拒绝时清掉已落盘 zip 保持零残留。
+W15-A1（docs/20 §4.1，全部 opt-in，env 缺省 = 治理关闭、既有行为零变化）：
+- 鉴权——/api/*（除 GET /api/health）在 CODEAUDIT_API_TOKEN 非空时要求
+  Authorization: Bearer <token> 或 X-API-Token 头（常量时间比较），失败 401；
+  中间件注册先于 CORS（鉴权在 CORS 内层），预检 OPTIONS 由 CORS 外层短路应答；
+  token 为空时 lifespan 打 WARNING 提醒无鉴权仅限本机；
+- source_path 白名单——CODEAUDIT_SOURCE_ROOTS 非空时 POST /api/audits 的
+  source_path 必须 resolve 后位于任一根之内，越界 400；
+- 限流——CODEAUDIT_RATE_LIMIT > 0 时对 POST/DELETE 按客户端 IP 做内存滑动窗口
+  限流，超限 429；0 = 关闭；
+- SSE 并发上限——模块常量 _MAX_SSE_STREAMS = 50，超限新建事件流 429 不排队，
+  名额在 generator finally 释放（正常收流 / 客户端断开 / 异常路径均覆盖）；
+- 存储接线——lifespan 启动 sweep 按 CODEAUDIT_SWEEP_GRACE_SEC 传 grace_seconds
+  （卡B 契约参数，运行时签名探测兼容旧签名），yield 后关闭 store（close 幂等）。
 """
 
 from __future__ import annotations
@@ -22,14 +41,18 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import hmac
+import inspect
 import json
+import logging
 import os
+import time
 import zipfile
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import (
     FileResponse,
@@ -74,17 +97,64 @@ def _int_from_env(name: str, default: int, minimum: int) -> int:
     return value if value >= minimum else default
 
 
-# F5 准入控制上限（模块级常量，便于测试 monkeypatch；运行时按模块全局读取）：
+# F5 准入控制上限（M-5 惰性解析）：import 期不再固化——治理上限在每次取用时实时
+# 读 env，lifespan/请求路径里 from_env 触发 .env 自动加载（CODEAUDIT_* setdefault 进
+# os.environ）之后再取值即生效，对齐 CODEAUDIT_DB_PATH 的生效时机；解析结果按
+# （变量名, 原始值, 下限）缓存在模块级小字典，原始值未变时不重复解析。
+# 两个模块级名字同时是测试覆写入口：非 None 时直接生效（既有测试的
+# monkeypatch.setattr(server_app, "_MAX_PENDING_AUDITS", 2) 写法保持可用），
+# None = 按 env 惰性解析（生产缺省）。
 # - 同时运行中的任务上限（后台任务经 _RUN_GATE 排队，超出的停留既有 queued 状态；
 #   per-worker 口径，多 worker 下全局并发上限 = workers × 该值，契约 docs/16 §1.2）；
 # - 非终态（queued+running）任务总数上限，达到后 POST 建任务返回 429
 #   （W11 起经 store 计数，多 worker 下即全局准确）。
-_MAX_RUNNING_AUDITS = _int_from_env("CODEAUDIT_MAX_RUNNING", 4, minimum=1)
-_MAX_PENDING_AUDITS = _int_from_env("CODEAUDIT_MAX_PENDING", 20, minimum=_MAX_RUNNING_AUDITS)
+_MAX_RUNNING_AUDITS: int | None = None
+_MAX_PENDING_AUDITS: int | None = None
+
+# 惰性解析小缓存：键含原始 env 值——env 变化（含 .env 加载 / 测试 setenv）自然失效
+_ENV_LIMIT_CACHE: dict[tuple[str, str | None, int], int] = {}
+
+
+def _get_max_running() -> int:
+    """同时运行任务上限（惰性）：覆写入口优先，否则实时读 CODEAUDIT_MAX_RUNNING。"""
+    if _MAX_RUNNING_AUDITS is not None:
+        return _MAX_RUNNING_AUDITS
+    return _lazy_env_limit("CODEAUDIT_MAX_RUNNING", 4, minimum=1)
+
+
+def _get_max_pending() -> int:
+    """非终态任务总数上限（惰性）：覆写入口优先，否则实时读 CODEAUDIT_MAX_PENDING
+    （下限与当前 running 值绑定，低于其回落默认——与原 import 期解析语义一致）。"""
+    if _MAX_PENDING_AUDITS is not None:
+        return _MAX_PENDING_AUDITS
+    return _lazy_env_limit("CODEAUDIT_MAX_PENDING", 20, minimum=_get_max_running())
+
+
+def _lazy_env_limit(name: str, default: int, minimum: int) -> int:
+    """实时解析治理上限 env（每次调用读 os.environ），按（名, 原始值, 下限）缓存。"""
+    raw = os.environ.get(name)
+    key = (name, raw, minimum)
+    cached = _ENV_LIMIT_CACHE.get(key)
+    if cached is not None:
+        return cached
+    value = _int_from_env(name, default, minimum)
+    _ENV_LIMIT_CACHE[key] = value
+    return value
+
 
 # 运行闸门（模块级全局，与 _TASKS/_RUNNING 同层；create_app 每次建实例但闸门模块级共享，
-# gate 亦同）。容量在创建时固化，测试排队语义可直接 monkeypatch 替换为新 Semaphore。
-_RUN_GATE = asyncio.Semaphore(_MAX_RUNNING_AUDITS)
+# gate 亦同）。M-5：容量随 gate 惰性初始化（首次取用时按 _get_max_running() 建）——
+# .env 运行期加载后 CODEAUDIT_MAX_RUNNING 即生效；测试排队语义可直接 monkeypatch
+# 替换为新 Semaphore（非 None 时 _get_run_gate 原样返回）。
+_RUN_GATE: asyncio.Semaphore | None = None
+
+
+def _get_run_gate() -> asyncio.Semaphore:
+    """返回运行闸门（惰性初始化：首个任务启动前 .env 已被 from_env 加载）。"""
+    global _RUN_GATE
+    if _RUN_GATE is None:
+        _RUN_GATE = asyncio.Semaphore(_get_max_running())
+    return _RUN_GATE
 
 # 持久化任务存储（W11 §1.1）：惰性初始化（见 _get_store）；
 # 测试经 monkeypatch.setattr(server.app, "_STORE", TaskStore(...)) 注入替身实例。
@@ -110,6 +180,111 @@ _SEVERITY_VALUES = {s.value for s in Severity}
 _CATEGORY_VALUES = {c.value for c in Category}
 _DEFAULT_ISSUES_LIMIT = 50
 
+_LOG = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------- W15-A1 安全治理（docs/20 §4.1）
+# SSE 并发事件流上限（模块常量便于测试 monkeypatch 成小值）：超限新建 SSE 直接 429
+# 不做排队；计数为进程内口径（per-worker），多 worker 全局上限 = workers × 该值，
+# 与 _RUN_GATE 的治理口径一致。_SSE_ACTIVE 名额由 _acquire_sse_slot/_release_sse_slot
+# 维护（generator finally 保证连接结束必释放），仅事件循环线程访问，无锁。
+_MAX_SSE_STREAMS = 50
+_SSE_ACTIVE = 0
+
+# 限流滑动窗口记账：{client_ip: [monotonic 时间戳]}——仅事件循环线程访问（中间件
+# 内同步读写、无 await 间隙），无需加锁；窗口 60 秒（rate_limit_per_min 的"每分钟"口径）。
+_RATE_LIMIT_WINDOW_SEC = 60.0
+_RATE_LIMIT_EVENTS: dict[str, list[float]] = {}
+
+
+def _get_security_config() -> AuditConfig:
+    """W15-A1：安全治理配置惰性取用——from_env 触发 .env 加载后 env 即生效，
+    与 _get_max_pending 的惰性解析口径一致（import 期不固化，测试 setenv 即生效）。"""
+    return AuditConfig.from_env()
+
+
+def _tokens_equal(provided: str, expected: str) -> bool:
+    """常量时间比较（防时序侧信道）：编码为 bytes 后经 hmac.compare_digest。"""
+    return hmac.compare_digest(provided.encode("utf-8"), expected.encode("utf-8"))
+
+
+def _request_token_ok(request: Request, expected: str) -> bool:
+    """校验请求凭据：Authorization: Bearer <token> 或 X-API-Token 头，任一匹配即通过。"""
+    auth = request.headers.get("authorization", "")
+    if auth.lower().startswith("bearer "):
+        bearer = auth[len("Bearer "):].strip()
+        if bearer and _tokens_equal(bearer, expected):
+            return True
+    header_token = request.headers.get("x-api-token", "")
+    return bool(header_token) and _tokens_equal(header_token, expected)
+
+
+def _rate_limit_exceeded(client_ip: str, limit_per_min: int) -> bool:
+    """滑动窗口限流记账：超限返回 True（调用方回 429），否则记一笔并放行。
+
+    只保留窗口内时间戳；桶数量膨胀时顺带回收全空桶，防长期运行内存无界增长。
+    """
+    now = time.monotonic()
+    events = _RATE_LIMIT_EVENTS.setdefault(client_ip, [])
+    events[:] = [t for t in events if now - t < _RATE_LIMIT_WINDOW_SEC]
+    if len(events) >= limit_per_min:
+        return True
+    events.append(now)
+    if len(_RATE_LIMIT_EVENTS) > 4096:
+        for ip in [ip for ip, ev in _RATE_LIMIT_EVENTS.items() if not ev]:
+            _RATE_LIMIT_EVENTS.pop(ip, None)
+    return False
+
+
+def _acquire_sse_slot() -> bool:
+    """占用一个 SSE 流名额；已达上限返回 False（调用方回 429，不做排队）。"""
+    global _SSE_ACTIVE
+    if _SSE_ACTIVE >= _MAX_SSE_STREAMS:
+        return False
+    _SSE_ACTIVE += 1
+    return True
+
+
+def _release_sse_slot() -> None:
+    """释放 SSE 流名额（下限钳 0，防异常路径重复释放把计数打穿为负）。"""
+    global _SSE_ACTIVE
+    _SSE_ACTIVE = max(0, _SSE_ACTIVE - 1)
+
+
+def _ensure_source_allowed(source: Path) -> None:
+    """W15-A2：source_path 白名单——CODEAUDIT_SOURCE_ROOTS 非空时，POST /api/audits
+    的 source_path 必须 resolve 后位于任一根之内（根目录本身也放行），越界 400；
+    空 = 不限制（既有行为）。白名单判定先于存在性检查：不向调用方泄露越界路径
+    是否存在于本机。
+    """
+    roots = _get_security_config().allowed_source_roots
+    if not roots:
+        return
+    try:
+        resolved = source.resolve()
+    except OSError:
+        raise HTTPException(status_code=400, detail=f"源路径无法解析：{source}") from None
+    for root in roots:
+        try:
+            resolved.relative_to(Path(root).resolve())
+            return
+        except ValueError:
+            continue
+    raise HTTPException(status_code=400, detail=f"source_path 不在允许的根目录内：{source}")
+
+
+def _sweep_on_startup() -> int:
+    """W15-A5 存储接线（docs/20 §4.3）：启动 sweep 携带 grace_seconds——
+    CODEAUDIT_SWEEP_GRACE_SEC（缺省 0 = 既有语义）经 _int_from_env 惰性解析。
+    sweep_interrupted 的 grace_seconds 形参由卡B（W15-B）并行落地；为不阻塞并行
+    开发，此处按运行时签名探测：支持参数即按契约调用，否则回落无参调用（旧签名
+    语义不变）。卡B 合入后探测恒走契约分支，本函数无需再改。
+    """
+    store = _get_store()
+    grace_seconds = _int_from_env("CODEAUDIT_SWEEP_GRACE_SEC", 0, minimum=0)
+    if "grace_seconds" in inspect.signature(store.sweep_interrupted).parameters:
+        return store.sweep_interrupted(grace_seconds=grace_seconds)
+    return store.sweep_interrupted()
+
 
 def _get_store() -> TaskStore:
     """返回模块级任务存储（惰性初始化，进程一个实例）。
@@ -125,7 +300,9 @@ def _get_store() -> TaskStore:
     if _STORE is None:
         work_root = str(Path(AuditConfig.from_env().work_root))
         db_path = os.environ.get("CODEAUDIT_DB_PATH") or str(Path(work_root) / "audits.db")
-        _STORE = TaskStore(db_path)
+        # M-4：store 携带 work_root——prune/启动 sweep/DELETE 删行时同步回收
+        # <work_root>/<audit_id>/ 工作目录与 uploads zip（磁盘泄漏修复）。
+        _STORE = TaskStore(db_path, work_root=work_root)
     return _STORE
 
 
@@ -153,11 +330,13 @@ def _ensure_pending_capacity() -> None:
     """F5 准入检查：非终态任务数达到上限时拒绝新建任务（429），不落任何表项或文件。
 
     W11 起计数走 store.count_active()——多 worker 下即全局非终态任务数（契约 §1.2）。
+    M-5：上限每次调用时惰性解析（.env 运行期加载后即生效）。
     """
-    if _get_store().count_active() >= _MAX_PENDING_AUDITS:
+    max_pending = _get_max_pending()
+    if _get_store().count_active() >= max_pending:
         raise HTTPException(
             status_code=429,
-            detail=f"服务器并发审计数已达上限（{_MAX_PENDING_AUDITS}），请稍后重试",
+            detail=f"服务器并发审计数已达上限（{max_pending}），请稍后重试",
         )
 
 
@@ -167,6 +346,12 @@ class CreateAuditRequest(BaseModel):
     source_path: str = Field(..., description="待审计项目路径或 zip")
     do_fix: bool = Field(False, description="是否生成修复补丁（Wave 2）")
     do_tests: bool = Field(False, description="是否生成单测（Wave 2）")
+
+
+class ApplyPatchRequest(BaseModel):
+    """POST /api/audits/{id}/patches/{n}/apply 请求体（可选，默认 dry-run）。"""
+
+    yes: bool = Field(False, description="true=写入源码；false（默认）=dry-run 预览不落盘")
 
 
 def _wrapped_emitter(store: TaskStore, audit_id: str):
@@ -185,6 +370,15 @@ def _wrapped_emitter(store: TaskStore, audit_id: str):
     return emitter
 
 
+def _cleanup_if_ghost(store: TaskStore, audit_id: str) -> None:
+    """M-4 执行体幽灵收尾：行已被 DELETE 删除（协作式取消）时，本线程持有的工作
+    目录与上传 zip 由执行体在退出前回收——DELETE 对 queued/running 任务只删行不动
+    文件（见 TaskStore.delete），磁盘回收责任在此闭环；行仍在（正常终态）时不动，
+    终态目录交由 prune / DELETE（终态）时机回收。"""
+    if store.get(audit_id) is None:
+        store.cleanup_workdir(audit_id)
+
+
 def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
     """任务工作线程主体（W11 §1.2）：独立事件循环执行流水线，状态与产物落 store。
 
@@ -195,6 +389,7 @@ def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
     set_status 幽灵任务静默，不报错不回写。
     F6：入参 config 是创建请求时构造的原始对象（内存中带真实 api_key），
     绝不自 store 的 config_json 反序列化——落库值已脱敏为 "<redacted>"。
+    M-4：幽灵收尾（行已删）时同步回收工作目录与上传 zip。
     """
     import server.app as _self  # 运行期取模块属性，供测试注入替身（monkeypatch 生效）
 
@@ -203,31 +398,35 @@ def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
         report = asyncio.run(_self.run_audit(config, _wrapped_emitter(store, audit_id)))
     except BaseException as exc:  # noqa: BLE001 —— CancelledError 等异常路径也必须落终态
         store.set_status(audit_id, "failed", error=f"{type(exc).__name__}: {exc}")
+        _cleanup_if_ghost(store, audit_id)
         return
     if report is not None:
         store.set_report(audit_id, report)
     store.set_status(audit_id, "done")
+    _cleanup_if_ghost(store, audit_id)
 
 
 async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
     """后台执行审计任务（外层 task）：闸门排队 → 置 running → 线程执行。
 
     W11 §1.2：审计任务经 asyncio.to_thread 迁到独立线程（线程内独立事件循环，
-    见 _run_audit_sync），服务事件循环不再被 CPU 密集段饿死。_RUN_GATE 语义保留：
-    acquire 在 to_thread 之前于事件循环内 await（超出的任务停留既有 queued 状态）；
-    acquired 标志 + finally 严格配对 release 防闸门泄漏——外层 task 被 cancel 时
-    （含排队中/执行中被取消）release 仍须执行。任务状态与产物的落库全部在
-    _run_audit_sync 内完成（DELETE 竞态由 store 的幽灵静默语义兜底）。
+    见 _run_audit_sync），服务事件循环不再被 CPU 密集段饿死。_RUN_GATE 语义保留
+    （M-5 起经 _get_run_gate 惰性取用）：acquire 在 to_thread 之前于事件循环内
+    await（超出的任务停留既有 queued 状态）；acquired 标志 + finally 严格配对
+    release 防闸门泄漏——外层 task 被 cancel 时（含排队中/执行中被取消）release
+    仍须执行。任务状态与产物的落库全部在 _run_audit_sync 内完成（DELETE 竞态由
+    store 的幽灵静默语义兜底）。
     """
     acquired = False
+    gate = _get_run_gate()  # acquire/release 必须同一信号量实例（M-5 惰性初始化）
     try:
-        await _RUN_GATE.acquire()
+        await gate.acquire()
         acquired = True
         _get_store().set_status(audit_id, "running")
         await asyncio.to_thread(_run_audit_sync, audit_id, config)
     finally:
         if acquired:
-            _RUN_GATE.release()
+            gate.release()
 
 
 def _start_audit(audit_id: str, config: AuditConfig) -> None:
@@ -289,11 +488,51 @@ def create_app() -> FastAPI:
     async def _lifespan(_app: FastAPI):
         # 启动 sweep（契约 docs/16 §1.1 重启语义）：遗留 queued/running → failed
         # （error=服务重启中断）；终态任务与报告重启后仍可查询与下载。
+        # M-4：被 sweep 的任务同步回收工作目录与上传 zip（重启后无执行体持有）。
         # uvicorn 实例/import string 两种形态与 TestClient 上下文管理器都会执行 lifespan。
-        _get_store().sweep_interrupted()
+        # W15-A5：grace_seconds 接线见 _sweep_on_startup（卡B 契约，签名探测兼容）。
+        _sweep_on_startup()
+        # W15-A1：token 为空 = 鉴权关闭，启动时提醒本部署仅限本机访问。
+        if not _get_security_config().api_token:
+            _LOG.warning(
+                "CODEAUDIT_API_TOKEN 未配置：/api/* 无鉴权，请确保服务仅绑定本机"
+                "（127.0.0.1）访问，暴露到网络前必须配置 API 令牌"
+            )
         yield
+        # W15-A5：关停时关闭 store 连接（TaskStore.close 幂等——audit/taskstore.py
+        # 以 _closed 标志守卫，重复调用安全）；任务工作线程与关库的良性收尾竞态
+        # 以 try 兜底记 warning，不阻塞进程退出。
+        try:
+            _get_store().close()
+        except Exception as exc:  # noqa: BLE001 —— 关停竞态不阻塞退出
+            _LOG.warning("任务存储关停异常（忽略）：%s", exc)
 
     app = FastAPI(title="CodeAudit Agent", version=_AUDIT_VERSION, lifespan=_lifespan)
+
+    # W15-A1：安全中间件先于 CORS 注册（后注册者位于 Starlette 中间件栈外层）——鉴权位于
+    # CORS 内层，浏览器预检 OPTIONS 由 CORS 外层短路应答（预检请求不携带自定义凭据
+    # 是 CORS 协议约束，不应被 401 拦截）；实际跨域请求经 CORS 补头后进入本中间件。
+    @app.middleware("http")
+    async def _security_middleware(request: Request, call_next):
+        path = request.url.path
+        if path.startswith("/api/"):
+            cfg = _get_security_config()
+            # 鉴权：token 非空时生效；GET /api/health 豁免（存活探针无凭据）。
+            if cfg.api_token and not (path == "/api/health" and request.method == "GET"):
+                if not _request_token_ok(request, cfg.api_token):
+                    return JSONResponse(
+                        status_code=401,
+                        content={"detail": "未授权：缺少或无效的 API 令牌"},
+                    )
+            # 限流：rate_limit_per_min > 0 时对写方法（POST/DELETE）按客户端 IP 滑动窗口记账。
+            if cfg.rate_limit_per_min > 0 and request.method in ("POST", "DELETE"):
+                client_ip = request.client.host if request.client else "unknown"
+                if _rate_limit_exceeded(client_ip, cfg.rate_limit_per_min):
+                    return JSONResponse(
+                        status_code=429,
+                        content={"detail": "请求过于频繁，请稍后重试"},
+                    )
+        return await call_next(request)
 
     # 契约 v2.0：仅放行开发态 Vite dev server 的两个源
     app.add_middleware(
@@ -342,6 +581,8 @@ def create_app() -> FastAPI:
         if not req.source_path.strip():
             raise HTTPException(status_code=400, detail="source_path 不能为空")
         source = Path(req.source_path)
+        # W15-A2：白名单先于存在性检查（越界 400，不泄露越界路径在本机的存在性）
+        _ensure_source_allowed(source)
         if not source.exists():
             raise HTTPException(status_code=400, detail=f"源路径不存在：{req.source_path}")
         audit_id = new_audit_id()
@@ -364,6 +605,9 @@ def create_app() -> FastAPI:
         _UPLOAD_MAX_BYTES 立即 413 并停止读取剩余 body——不再把整个文件
         缓冲进内存；成功路径 os.replace 到最终路径，落盘字节与请求体逐字节
         一致。F5：准入 429 在任何读盘/落盘之前判定。
+        M-6：读流间隙存在大量 await——并发上传可能使容量在首次检查后越限，
+        故读流完成后、真正建任务前再做一次权威校验（与快速路径同形的 429），
+        拒绝时清掉已落盘 zip，保持零残留。
         """
         filename = (file.filename or "").lower()
         if not filename.endswith(".zip"):
@@ -397,6 +641,11 @@ def create_app() -> FastAPI:
         config = AuditConfig.from_env(
             source_path=str(zip_path), do_fix=do_fix, do_tests=do_tests
         )
+        try:
+            _ensure_pending_capacity()  # M-6 权威二次校验（读流后、建任务前；与建任务间无 await）
+        except BaseException:
+            zip_path.unlink(missing_ok=True)  # 拒绝后零残留（.part 已 replace 成正式路径）
+            raise
         _start_audit(audit_id, config)
         return {"audit_id": audit_id}
 
@@ -428,6 +677,9 @@ def create_app() -> FastAPI:
         emitter 事件边界发现 is_cancelled（表项已删除）即抛 CancelledError 兜底落
         failed（行已被删则幽灵静默）；不再 cancel 外层 task（cancel 杀不掉线程反而
         破坏语义）。SSE 轮询端因 entry is None 自然收流。
+        M-4 磁盘回收：终态任务的删除由 store.delete 同步回收工作目录与上传 zip；
+        非终态（queued/running）为协作取消语义——此处只删行不删文件，工作目录由
+        执行体幽灵收尾时回收（_cleanup_if_ghost），绝不 rmtree 运行中任务的工作副本。
         """
         if not _get_store().delete(audit_id):
             raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
@@ -437,22 +689,33 @@ def create_app() -> FastAPI:
     async def audit_events(audit_id: str) -> EventSourceResponse:
         if not _get_store().exists(audit_id):
             raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
+        # W15-A4：并发事件流超限直接 429，不做排队（404 之后判定——任务存在才有流可言）。
+        if not _acquire_sse_slot():
+            raise HTTPException(
+                status_code=429,
+                detail=f"SSE 事件流并发数已达上限（{_MAX_SSE_STREAMS}），请稍后重试",
+            )
 
         async def event_stream():
-            store = _get_store()
-            idx = 0
-            while True:
-                # 回放历史事件 / 跟随新事件（seq 游标读 store；0.05s 轮询，测试友好）
-                for seq, event in store.get_events(audit_id, after_seq=idx):
-                    yield {"data": json.dumps(event, ensure_ascii=False)}
-                    idx = seq
-                entry = store.get(audit_id)
-                if entry is None:  # 表项被删除或容量淘汰 → 收流
-                    return
-                if entry["status"] in _TERMINAL_STATUSES:
-                    yield {"data": json.dumps({"type": "done"}, ensure_ascii=False)}
-                    return
-                await asyncio.sleep(0.05)
+            try:
+                store = _get_store()
+                idx = 0
+                while True:
+                    # 回放历史事件 / 跟随新事件（seq 游标读 store；0.05s 轮询，测试友好）
+                    for seq, event in store.get_events(audit_id, after_seq=idx):
+                        yield {"data": json.dumps(event, ensure_ascii=False)}
+                        idx = seq
+                    entry = store.get(audit_id)
+                    if entry is None:  # 表项被删除或容量淘汰 → 收流
+                        return
+                    if entry["status"] in _TERMINAL_STATUSES:
+                        yield {"data": json.dumps({"type": "done"}, ensure_ascii=False)}
+                        return
+                    await asyncio.sleep(0.05)
+            finally:
+                # W15-A4：名额必须在连接结束的所有路径上归还（正常收流 / 客户端
+                # 断开触发 generator aclose / 异常），否则计数泄漏会耗尽上限。
+                _release_sse_slot()
 
         return EventSourceResponse(event_stream())
 
@@ -525,6 +788,54 @@ def create_app() -> FastAPI:
             "total": len(report.patches),
             "patches": [p.to_dict() for p in report.patches],
         }
+
+    @app.post("/api/audits/{audit_id}/patches/{patch_index}/apply")
+    async def apply_patch(
+        audit_id: str, patch_index: int, req: ApplyPatchRequest | None = None
+    ) -> dict[str, Any]:
+        """应用单个补丁回源码（P0-2，语义与 CLI apply 一致）。
+
+        - body 可选 {"yes": bool}，缺省 false = dry-run 预览（不落盘）；
+        - 目标源码目录取任务记录的 source_path（须为目录，zip 任务返回 400）；
+        - 校验：目标文件 sha256 与审计时不一致 / 老补丁无指纹 → 拒绝该补丁且
+          整体不落盘（all-or-nothing），拒绝原因在 rejected[].reason 中；
+        - 补丁序号（0 起）越界返回 404。
+        """
+        report = _require_done_report(audit_id)
+        if patch_index < 0 or patch_index >= len(report.patches):
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"补丁序号越界：{patch_index}"
+                    f"（有效范围 0-{len(report.patches) - 1}，共 {len(report.patches)} 个补丁）"
+                    if report.patches
+                    else f"任务 {audit_id} 没有补丁"
+                ),
+            )
+        entry = _get_store().get(audit_id)
+        source = Path(str((entry or {}).get("source_path") or ""))
+        if not source.is_dir():
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"任务源路径不是本机目录（{source or '空'}），无法回写源码；"
+                    "zip 上传的审计请改用 CLI：codeaudit apply <id> --workdir <解包目录>"
+                ),
+            )
+        yes = bool(req.yes) if req is not None else False
+
+        from audit.fix.applyer import apply_patches
+
+        def _apply() -> dict[str, Any]:
+            result = apply_patches(report.patches, source, yes=yes, only_index=patch_index)
+            return result.to_dict()
+
+        try:
+            return await asyncio.to_thread(_apply)
+        except Exception as exc:  # noqa: BLE001 —— 写失败已整体回滚，向调用方如实报错
+            raise HTTPException(
+                status_code=500, detail=f"补丁应用失败（未保留任何变更）：{type(exc).__name__}: {exc}"
+            ) from exc
 
     @app.get("/api/audits/{audit_id}/summary")
     async def get_summary(audit_id: str) -> dict[str, Any]:

@@ -277,3 +277,134 @@ def test_index_cmd_closes_store(demo_proj_path: Path, tmp_path: Path, capsys) ->
     assert dbs
     for db in dbs:
         db.unlink()  # 连接未关闭时 Windows 抛 PermissionError
+
+
+# ---------------------------------------------------------------- W17（F1）：降级运行门禁
+
+
+def test_gate_fails_on_degraded_ingest():
+    """W17 F1（FR-1.4）：ingest 降级运行时 --check 门禁未通过（退出码 3）——审计未实际执行不得放行。"""
+    from cli import _enforce_gate
+
+    report = AuditReport(
+        audit_id="degraded01",
+        project_name="too_big",
+        health_score=100.0,
+        summary={"critical": 0, "high": 0, "medium": 0, "low": 0},
+        issues=[],
+        stats=AuditStats(degraded_ingest=True),
+    )
+    assert _enforce_gate(report, "low") == 3
+
+
+def test_gate_passes_on_normal_empty_run():
+    """普通空项目（非降级）门禁仍通过——降级标志是唯一新增失败条件。"""
+    from cli import _enforce_gate
+
+    report = AuditReport(
+        audit_id="cleanrun01",
+        project_name="empty",
+        health_score=100.0,
+        summary={"critical": 0, "high": 0, "medium": 0, "low": 0},
+        issues=[],
+        stats=AuditStats(degraded_ingest=False),
+    )
+    assert _enforce_gate(report, "low") == 0
+
+
+def test_degraded_flag_defaults_false_and_survives_roundtrip():
+    """AuditStats.degraded_ingest 默认 False；to_dict/from_dict 往返保持（旧报告兼容）。"""
+    from audit.models import AuditStats
+
+    stats = AuditStats()
+    assert stats.degraded_ingest is False
+    restored = AuditStats.from_dict(stats.to_dict())
+    assert restored.degraded_ingest is False
+    flagged = AuditStats.from_dict({"degraded_ingest": True})
+    assert flagged.degraded_ingest is True
+
+
+# ---------------------------------------------------------------- W18（F2）：配置发现回退项目根
+
+
+def _gate_threshold_via_config(tmp_path: Path, cwd_has_cfg: bool) -> str:
+    """构造 CWD/项目根配置组合，返回解析出的门禁阈值（验证 F2 发现回退语义）。"""
+    import os
+    from cli import AuditConfig, _resolve_config_discovery
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    if cwd_has_cfg:
+        (tmp_path / ".codeaudit.toml").write_text('fail_on_severity = "low"\n', encoding="utf-8")
+    (proj / ".codeaudit.toml").write_text('fail_on_severity = "medium"\n', encoding="utf-8")
+
+    class Args:
+        config = None
+        source_path = str(proj)
+
+    old = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        cfg_file, search_root = _resolve_config_discovery(Args())
+        cfg = AuditConfig.from_sources(
+            cli_overrides={"source_path": str(proj)}, config_file=cfg_file, search_root=search_root
+        )
+        return cfg.fail_on_severity
+    finally:
+        os.chdir(old)
+
+
+def test_config_falls_back_to_project_root(tmp_path: Path):
+    """W18-F2：CWD 无配置时回退项目根发现——README"自动发现项目根"承诺对齐。"""
+    assert _gate_threshold_via_config(tmp_path, cwd_has_cfg=False) == "medium"
+
+
+def test_config_cwd_takes_priority_unchanged(tmp_path: Path):
+    """CWD 存在 .codeaudit.toml 时行为与旧版完全一致（零回归）。"""
+    assert _gate_threshold_via_config(tmp_path, cwd_has_cfg=True) == "low"
+
+
+# ---------------------------------------------------------------- W21（卡1）：degraded 字段撞车修复
+
+
+def _patch_events_run(monkeypatch: pytest.MonkeyPatch, events_payload: list[dict[str, Any]]) -> None:
+    """注入假流水线：返回干净报告（0 问题），并把给定事件写入 cmd_run 收集的 events 列表。"""
+    report = AuditReport(
+        audit_id="evwarn001",
+        project_name="demo_proj",
+        health_score=100.0,
+        summary={"critical": 0, "high": 0, "medium": 0, "low": 0},
+        issues=[],
+        stats=AuditStats(),
+    )
+
+    async def fake(config: AuditConfig, events=None) -> AuditReport:
+        if events is not None:
+            events.extend(events_payload)
+        return report
+
+    monkeypatch.setattr(cli, "run_audit_simple", fake)
+
+
+def test_refactor_degraded_count_does_not_trigger_warning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """refactor 事件的 degraded 是整数计数（LLM 降级次数），不得误报 ingest 降级警告。"""
+    _patch_events_run(
+        monkeypatch, [{"stage": "refactor", "message": "重构方案：6 条", "degraded": 5}]
+    )
+    rc = cli.main(["run", str(tmp_path)])
+    assert rc == 0
+    assert "[警告] ingest 未成功" not in capsys.readouterr().err
+
+
+def test_true_degraded_flag_triggers_warning(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """编排层 done 事件的 degraded=True（ingest 失败/预算熔断）→ stderr 打印降级警告。"""
+    _patch_events_run(monkeypatch, [{"stage": "done", "message": "审计完成", "degraded": True}])
+    rc = cli.main(["run", str(tmp_path)])
+    assert rc == 0
+    err = capsys.readouterr().err
+    assert "[警告] ingest 未成功" in err
+    assert "降级运行" in err

@@ -51,20 +51,22 @@ def _mock_docker_present(monkeypatch: pytest.MonkeyPatch, info_ok: bool = True) 
 
 
 def _make_fake_docker(tmp_path: Path, capture: Path, exit_code: int = 0) -> str:
-    """注入的假 docker 可执行脚本：把 argv 原样（含包装参数）写入 capture 后按 exit_code 退出。
+    """注入的假 docker 可执行脚本：把 argv 原样（含包装参数）**追加**写入 capture 后按 exit_code 退出。
 
+    W14-A2（M-2b）起 run() 在结束时会追加一次 `docker rm -f <name>` 兜底清理调用，
+    故捕获改为追加模式（>>），既有断言均为子串/哨兵检查，语义不受影响。
     注意 [..] 哨兵：避免 %* 以数字结尾时 cmd 把 "1>" 误解析为句柄重定向。
     """
     if sys.platform == "win32":
         script = tmp_path / "fake_docker.bat"
         script.write_text(
-            f'@echo off\r\necho [%*] > "{capture}"\r\nexit /b {exit_code}\r\n',
+            f'@echo off\r\necho [%*] >> "{capture}"\r\nexit /b {exit_code}\r\n',
             encoding="ascii",
         )
     else:
         script = tmp_path / "fake_docker.sh"
         script.write_text(
-            f"#!/bin/sh\nprintf '[%s]\\n' \"$*\" > '{capture}'\nexit {exit_code}\n",
+            f"#!/bin/sh\nprintf '[%s]\\n' \"$*\" >> '{capture}'\nexit {exit_code}\n",
             encoding="utf-8",
         )
         script.chmod(0o755)

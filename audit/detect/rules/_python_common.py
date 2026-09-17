@@ -1,8 +1,13 @@
 """Python 源码轻量扫描工具：字符串/注释掩码、函数与循环作用域、调用参数定位。
 
-被 audit.detect.rules.python 中的各静态规则共享，全部为纯函数。
-采用逐字符状态机而非 tree-sitter：行级启发式即可满足规则对行号精度的要求，
-且在语法不完全合法的源码上依然稳健。
+W15-D：与 JS 侧逐字节一致的通用件（indent_width/is_blank/find_call/call_span/
+enclosing_function）已收敛至 ``_scan_common``，此处转发导入以保持旧导入路径可用
+（engine.py、bench 与单元测试的既有导入不受影响）；Python 专属的扫描产物
+（PyScan/scan_python）与作用域推断（函数/循环/except 体）留在本模块。
+
+被 audit.detect.rules.python 与 audit.detect.rules.python_ext 中的各静态规则共享，
+全部为纯函数。采用逐字符状态机而非 tree-sitter：行级启发式即可满足规则对行号
+精度的要求，且在语法不完全合法的源码上依然稳健。
 """
 
 from __future__ import annotations
@@ -10,7 +15,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-_TAB_WIDTH = 4
+from audit.detect.rules._scan_common import (  # noqa: F401  W15-D 转发，保持旧路径可导入
+    call_span,
+    enclosing_function,
+    find_call,
+    indent_width,
+    is_blank,
+)
 
 __all__ = [
     "FuncRange",
@@ -160,16 +171,6 @@ def get_scan(ctx_lines: list[str], meta: dict) -> PyScan:
 # ---------------------------------------------------------------- 基础行工具
 
 
-def indent_width(line: str) -> int:
-    """行首缩进宽度（tab 按 4 空格计）。"""
-    expanded = line.expandtabs(_TAB_WIDTH)
-    return len(expanded) - len(expanded.lstrip(" "))
-
-
-def is_blank(line: str) -> bool:
-    return not line.strip()
-
-
 def is_test_file(rel_path: str) -> bool:
     """判断是否测试相关文件（assert/print 类规则对其跳过）。"""
     parts = rel_path.replace("\\", "/").split("/")
@@ -226,16 +227,6 @@ def function_ranges(masked: list[str]) -> list[FuncRange]:
     return out
 
 
-def enclosing_function(ranges: list[FuncRange], lineno: int) -> FuncRange | None:
-    """返回包含该行号的最内层函数作用域。"""
-    best: FuncRange | None = None
-    for r in ranges:
-        if r.start <= lineno <= r.end:
-            if best is None or r.indent > best.indent:
-                best = r
-    return best
-
-
 def loop_ranges(masked: list[str]) -> list[LoopRange]:
     """推断全部 for/while 循环作用域。"""
     out: list[LoopRange] = []
@@ -282,52 +273,3 @@ def handler_body(masked: list[str], lineno: int) -> tuple[int, int] | None:
     if first is None:
         return None
     return first, last
-
-
-# ---------------------------------------------------------------- 调用定位
-
-
-def find_call(masked_line: str, call_pattern: re.Pattern[str]) -> list[int]:
-    """在掩码行上找调用起点。
-
-    call_pattern 必须以 ``\\s*\\(`` 结尾（匹配到左括号为止），
-    返回每个匹配的左括号所在列。
-    """
-    out: list[int] = []
-    for m in call_pattern.finditer(masked_line):
-        col = m.end() - 1
-        if col >= 0 and masked_line[col] == "(":
-            out.append(col)
-    return out
-
-
-def call_span(masked: list[str], line: int, open_col: int) -> tuple[int, int, str] | None:
-    """从 (1-based line, open_col 处的 '(') 起跨行匹配括号。
-
-    返回 (结束行号, 结束列, 参数文本)；掩码行保证字符串内的括号不干扰配对。
-    括号永不闭合（语法残缺）时返回 None。
-    """
-    depth = 0
-    buf: list[str] = []
-    i, j = line - 1, open_col
-    n = len(masked)
-    while i < n:
-        cur = masked[i]
-        while j < len(cur):
-            c = cur[j]
-            if c == "(":
-                depth += 1
-                if depth > 1:
-                    buf.append(c)
-            elif c == ")":
-                depth -= 1
-                if depth <= 0:
-                    return i + 1, j, "".join(buf)
-                buf.append(c)
-            elif depth >= 1:
-                buf.append(c)
-            j += 1
-        buf.append(" ")
-        i += 1
-        j = 0
-    return None

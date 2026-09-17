@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import defaultdict
 from typing import Any
@@ -12,6 +13,11 @@ from audit.pipeline import PipelineContext
 from audit.utils import extract_json, guess_language
 
 __all__ = ["build_architecture", "find_entry_points"]
+
+# W15 集成修复（审计 A7）：本模块原有多处 except 后静默 continue/return，故障完全
+# 不可见（卡F 测试已固化降级行为）。统一补记账：信息收集类降级记 debug（高频、
+# 单条无碍全局），LLM 增强失败记 warning（用户可感知的能力降级）。
+_LOG = logging.getLogger(__name__)
 
 # 常见入口文件名（根目录或一级子目录优先）
 _ENTRY_NAMES = frozenset(
@@ -60,7 +66,8 @@ def _collect_files(ctx: PipelineContext) -> list[tuple[str, str, int]]:
             rel = ctx.workspace.rel(path)
             lang = guess_language(rel) or ""
             loc = ctx.workspace.line_count(rel)
-        except Exception:
+        except Exception as exc:
+            _LOG.debug("架构理解：文件元信息收集失败，跳过 %s：%s", path, exc)
             continue
         if not lang:
             continue
@@ -77,7 +84,8 @@ def _dependency_blob(ctx: PipelineContext) -> str:
             continue
         try:
             parts.append(p.read_text(encoding="utf-8", errors="replace").lower())
-        except Exception:
+        except Exception as exc:
+            _LOG.debug("架构理解：依赖清单读取失败，跳过 %s：%s", name, exc)
             continue
     return "\n".join(parts)
 
@@ -109,7 +117,8 @@ def _symbol_names(ctx: PipelineContext, rel_paths: list[str]) -> list[str]:
         for rel in rel_paths:
             try:
                 symbols = index.symbols_for_file(rel)
-            except Exception:
+            except Exception as exc:
+                _LOG.debug("架构理解：索引符号查询失败 %s：%s", rel, exc)
                 symbols = []
             for s in symbols:
                 if getattr(s, "kind", "") in ("function", "class", "method") and s.name not in names:
@@ -121,7 +130,8 @@ def _symbol_names(ctx: PipelineContext, rel_paths: list[str]) -> list[str]:
             continue
         try:
             text = ctx.workspace.read_file_text(rel)
-        except Exception:
+        except Exception as exc:
+            _LOG.debug("架构理解：符号回退扫描读文件失败，跳过 %s：%s", rel, exc)
             continue
         for ln in text.splitlines()[:300]:
             m = _DEF_CLASS_RE.match(ln)
@@ -236,7 +246,9 @@ async def _llm_enhance(ctx: PipelineContext, base: ArchitectureCard) -> Architec
     try:
         resp = await ctx.llm.chat(messages, json_mode=True)
         data = extract_json(resp.content)
-    except Exception:
+    except Exception as exc:
+        # W15：LLM 增强失败降级为启发式底座（既有语义），但必须可见——此前完全静默
+        _LOG.warning("架构理解：LLM 增强失败，降级为启发式结果：%s", exc)
         return base
     if not isinstance(data, dict):
         return base

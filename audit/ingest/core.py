@@ -23,7 +23,7 @@ import hashlib
 import os
 import shutil
 import zipfile
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 from audit.errors import IngestError
 from audit.ingest.decode import decode_source_bytes
@@ -37,6 +37,61 @@ DEFAULT_MAX_FILE_LINES = 10_000
 
 # zip 解压累计上限（解压炸弹防御，R1-14）：超限抛 IngestError
 DEFAULT_MAX_ZIP_BYTES = 1_000_000_000  # 1 GB 未压缩总量
+
+# 解压分块大小（W14-A1，Minor-6：分块读写以便累计实际写出量）
+_ZIP_CHUNK = 1024 * 1024
+
+# Windows 保留设备名（W14-A1，Minor-7）：这些名字（含带扩展名形态如 CON.txt、
+# 目录形态 CON/）在 Windows 上是设备而非普通文件，写入会失败或指向设备流，
+# zip 入口一律跳过。判定口径：路径段首个 `.` 前的主名（不分大小写）命中即拒。
+_WIN_RESERVED_DEVICE_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+# 与 zipfile.extract 成员名净化同口径：Windows 非法字符替换为 `_`
+_WIN_ILLEGAL_TRANS = str.maketrans(
+    {
+        **{chr(c): "_" for c in range(0x20)},
+        **{chr(c): "_" for c in range(0x7F, 0x100)},
+        **dict.fromkeys(map(ord, '<>:"|?*'), "_"),
+    }
+)
+
+
+def _is_windows_reserved_name(part: str) -> bool:
+    """路径段是否为 Windows 保留设备名（含 CON.txt 这类带扩展名形态）。"""
+    return part.split(".", 1)[0].upper() in _WIN_RESERVED_DEVICE_NAMES
+
+
+def _safe_member_parts(name: str) -> list[str] | None:
+    """zip 成员名 → 工作副本内相对路径段列表；不安全或不入副本的成员返回 None。
+
+    W14-A1（Minor-6/7）把预校验与解压两阶段统一到同一过滤口径：
+    - 绝对路径 / `..` 段 / 首段盘符形态：路径逃逸，拒；
+    - Windows 保留设备名段（CON/PRN/AUX/NUL/COM1-9/LPT1-9，含 CON.txt 形态）：拒；
+    - 内置忽略目录段（R1-11，与目录入口同口径）：跳过；
+    - 其余段按 zipfile.extract 同口径净化（非法字符→`_`，剥尾部点/空格），
+      反斜杠视作路径分隔符（与 Windows 实际语义一致，防混合分隔符逃逸）。
+    """
+    if name.startswith(("/", "\\")):
+        return None  # 绝对路径
+    parts: list[str] = []
+    for idx, part in enumerate(name.replace("\\", "/").split("/")):
+        if part in ("", "."):
+            continue
+        if part == ".." or (idx == 0 and part.endswith(":")):
+            return None  # 上跳段 / 盘符段：路径逃逸（与既有过滤同口径）
+        if _is_windows_reserved_name(part):
+            return None  # Minor-7：Windows 保留设备名不落盘
+        if part in _MATERIALIZE_IGNORE_DIRS:
+            return None  # R1-11：忽略目录成员不进副本
+        part = part.translate(_WIN_ILLEGAL_TRANS).rstrip(" .")
+        if not part:
+            return None
+        parts.append(part)
+    return parts or None
 
 # 物化阶段整体跳过的目录（内置忽略 + zip 垃圾目录）
 _MATERIALIZE_IGNORE_DIRS = DEFAULT_IGNORE_DIRS | EXTRA_IGNORE_DIRS
@@ -206,30 +261,51 @@ def _materialize_zip(src: Path, src_root: Path, *, max_zip_bytes: int) -> None:
         raise IngestError(f"zip 打开失败：{src}（{exc}）") from exc
     with zf:
         infos = [info for info in zf.infolist() if not info.is_dir()]
-        # R1-14：解压前按中央目录声明大小做累计校验（解压炸弹防御）
+        # R1-14：解压前按中央目录声明大小做累计校验（解压炸弹防御前置快筛）
         declared_total = 0
         for info in infos:
-            name = info.filename
-            pure = PurePosixPath(name)
-            if pure.is_absolute() or ".." in pure.parts or (pure.parts and pure.parts[0].endswith(":")):
-                continue  # 路径逃逸成员不计入
-            declared_total += int(info.file_size)
+            if _safe_member_parts(info.filename) is None:
+                continue  # 不入副本的成员不计入
+            declared_total += max(0, int(info.file_size))
         if declared_total > max_zip_bytes:
             raise IngestError(
                 f"zip 解压总量 {declared_total} 字节超过上限 {max_zip_bytes}（解压炸弹防御）"
             )
+        extracted_total = 0
         for info in infos:
-            name = info.filename
-            pure = PurePosixPath(name)
-            # 路径逃逸防护：绝对路径 / .. 段 / 盘符一律跳过
-            if pure.is_absolute() or ".." in pure.parts or (pure.parts and pure.parts[0].endswith(":")):
+            parts = _safe_member_parts(info.filename)
+            if parts is None:
+                # 路径逃逸 / Windows 保留设备名 / 忽略目录成员一律跳过（无日志，与既有口径一致）
                 continue
-            if any(part in _MATERIALIZE_IGNORE_DIRS for part in pure.parts):
-                continue  # R1-11：与目录入口同口径，忽略目录成员不进副本
+            target = src_root.joinpath(*parts)
             try:
-                zf.extract(info, src_root)
-            except (OSError, ValueError) as exc:
-                raise IngestError(f"zip 成员解压失败：{name}（{exc}）") from exc
+                target.parent.mkdir(parents=True, exist_ok=True)
+                declared = max(0, int(info.file_size))
+                written = 0
+                # W14-A1（Minor-6）：中央目录声明值可伪造，解压必须分块复核真实
+                # 写出量——单文件实际 > 声明、或累计实际 > 上限，立即中止。
+                with zf.open(info) as fsrc, open(target, "wb") as fdst:
+                    while True:
+                        chunk = fsrc.read(_ZIP_CHUNK)
+                        if not chunk:
+                            break
+                        written += len(chunk)
+                        extracted_total += len(chunk)
+                        if extracted_total > max_zip_bytes:
+                            raise IngestError(
+                                f"zip 实际解压总量 {extracted_total} 字节超过上限 {max_zip_bytes}"
+                                "（解压炸弹防御）"
+                            )
+                        if written > declared:
+                            raise IngestError(
+                                f"zip 成员 {info.filename} 实际解压 {written} 字节超过"
+                                f"声明大小 {declared}（解压炸弹防御）"
+                            )
+                        fdst.write(chunk)
+            except IngestError:
+                raise
+            except (OSError, ValueError, zipfile.BadZipFile) as exc:
+                raise IngestError(f"zip 成员解压失败：{info.filename}（{exc}）") from exc
 
 
 def _hoist_single_top_dir(src_root: Path) -> None:
@@ -269,7 +345,11 @@ def _build_manifests(src_root: Path, gitignore: GitignoreSet, *, max_file_lines:
         if not path.is_file():
             continue
         rel = path.relative_to(src_root)
-        if should_ignore(rel, gitignore):
+        # W19-F3：复制阶段用 is_ignored_copy——lock 清单文件（≤5MB）放行进工作
+        # 副本供 depcheck 传递依赖扫描；其余忽略语义与 should_ignore 一致。
+        from audit.workspace import is_ignored_copy
+
+        if is_ignored_copy(rel, src_file=path) or should_ignore(rel, gitignore):
             path.unlink(missing_ok=True)  # 工作副本保持"过滤后"视图
             continue
         try:

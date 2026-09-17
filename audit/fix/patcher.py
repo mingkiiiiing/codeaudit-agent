@@ -32,6 +32,10 @@ __all__ = [
 ]
 
 APPLY_TIMEOUT_SEC = 30.0
+# W15-E：git 子进程（rev-parse / init / config）统一超时，原散落的字面量 30 提为具名常量（值不变）
+GIT_SUBPROC_TIMEOUT_SEC = 30
+# W15-E：git apply 失败 stderr 截断上限，原字面量 500 提为具名常量（值不变）
+_GIT_APPLY_ERR_MAX_CHARS = 500
 _MAX_FULL_FILE_LINES = 400
 _MAX_SYMBOL_BLOCKS = 3
 _MAX_SYMBOL_LINES = 60
@@ -387,7 +391,7 @@ def _is_valid_git_repo(cwd: Path) -> bool:
         proc = subprocess.run(  # noqa: S603 —— 固定命令列表，无 shell
             ["git", "-C", str(cwd), "rev-parse", "--git-dir"],
             capture_output=True,
-            timeout=30,
+            timeout=GIT_SUBPROC_TIMEOUT_SEC,  # W15-E：字面量 30 提为具名常量
         )
     except (OSError, subprocess.TimeoutExpired):
         return False
@@ -421,7 +425,7 @@ def _ensure_standalone_repo(cwd: Path) -> None:
             ["git", "init", "-q"],
             cwd=str(cwd),
             capture_output=True,
-            timeout=30,
+            timeout=GIT_SUBPROC_TIMEOUT_SEC,  # W15-E：字面量 30 提为具名常量
         )
         # 隔离全局 autocrlf（Windows 常为 true，会把文件重写为 CRLF，
         # 既破坏字节稳定性又干扰生效性校验）
@@ -429,7 +433,7 @@ def _ensure_standalone_repo(cwd: Path) -> None:
             ["git", "config", "core.autocrlf", "false"],
             cwd=str(cwd),
             capture_output=True,
-            timeout=30,
+            timeout=GIT_SUBPROC_TIMEOUT_SEC,  # W15-E：字面量 30 提为具名常量
         )
     except (OSError, subprocess.TimeoutExpired):
         pass  # init 失败退回原行为，由下方生效性校验兜底
@@ -472,7 +476,8 @@ def apply_diff(workspace: WorkspaceContext, diff: str, check_only: bool = False)
         return False, f"git 执行失败: {type(exc).__name__}: {exc}"
     if proc.returncode != 0:
         stderr = _decode_output(proc.stderr)
-        return False, f"git apply 失败（exit={proc.returncode}）: {truncate(stderr, 500)}"
+        # W15-E：截断字面量 500 提为具名常量（值不变）
+        return False, f"git apply 失败（exit={proc.returncode}）: {truncate(stderr, _GIT_APPLY_ERR_MAX_CHARS)}"
     if not check_only:
         # 生效性校验：git apply 在仓库子目录内可能静默跳过（exit 0 但无变更）
         for t, old_bytes in before.items():

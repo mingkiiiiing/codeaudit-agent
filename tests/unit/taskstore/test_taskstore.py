@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 import threading
 from pathlib import Path
 from typing import Any
@@ -438,3 +440,305 @@ def test_concurrent_readers_during_writes(tmp_path: Path):
     total, _ = store.list()
     assert total == 6
     assert store.count_active() == 6  # 全部 queued
+
+
+# ---------------------------------------------------------------- 磁盘工作区回收（W14 M-4）
+def _materialize_task_files(work_root: Path, audit_id: str) -> tuple[Path, Path]:
+    """在工作区物化一个任务的目录与上传 zip，返回 (workdir, zip) 路径。"""
+    workdir = work_root / audit_id
+    (workdir / "reports").mkdir(parents=True, exist_ok=True)
+    (workdir / "marker.txt").write_text("artifact", encoding="utf-8")
+    uploads = work_root / "uploads"
+    uploads.mkdir(parents=True, exist_ok=True)
+    zip_path = uploads / f"{audit_id}.zip"
+    zip_path.write_bytes(b"PK\x05\x06")
+    return workdir, zip_path
+
+
+def test_cleanup_workdir_removes_workdir_and_uploads(tmp_path: Path):
+    """终态/已删任务：工作目录与上传 zip（含 .part）一并回收。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    _create(store, "w1", status="done")
+    workdir, zip_path = _materialize_task_files(tmp_path, "w1")
+    part = tmp_path / "uploads" / "w1.zip.part"
+    part.write_bytes(b"half")
+
+    assert store.cleanup_workdir("w1") is True
+    assert not workdir.exists()
+    assert not zip_path.exists()
+    assert not part.exists()
+
+
+def test_cleanup_workdir_refuses_non_terminal_task(tmp_path: Path):
+    """硬约束：queued/running 任务的工作副本绝不回收（cleanup 直接拒绝）。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    for status in ("queued", "running"):
+        _create(store, f"act-{status}", status=status)
+        workdir, zip_path = _materialize_task_files(tmp_path, f"act-{status}")
+        assert store.cleanup_workdir(f"act-{status}") is False
+        assert workdir.is_dir()  # 目录原样保留
+        assert zip_path.is_file()
+        store.delete(f"act-{status}")  # 清理行，下一轮干净
+
+
+def test_cleanup_workdir_noop_without_work_root(tmp_path: Path):
+    """未配置 work_root（向后兼容构造）：no-op 返回 False，不抛错。"""
+    store = _make_store(tmp_path)
+    _create(store, "nw1", status="done")
+    assert store.cleanup_workdir("nw1") is False
+
+
+def test_cleanup_workdir_rejects_unsafe_ids(tmp_path: Path):
+    """防路径注入：非单一安全路径段（../、子路径、. .. 空）一律拒绝。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    outside = tmp_path.parent / "evil"
+    outside.mkdir(parents=True, exist_ok=True)
+    (outside / "keep.txt").write_text("x", encoding="utf-8")
+    for bad_id in ("../evil", "a/b", ".", "..", "", " x ", "x\n"):
+        assert store.cleanup_workdir(bad_id) is False
+    # work_root 之外的目录原样保留
+    assert (outside / "keep.txt").is_file()
+
+
+def test_cleanup_workdir_failure_warns_but_never_raises(tmp_path: Path, monkeypatch):
+    """清理失败（Windows 文件占用）：记 warning 返回 False，绝不抛错。"""
+    import shutil as _shutil
+
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    _create(store, "f1", status="done")
+    workdir, _zip = _materialize_task_files(tmp_path, "f1")
+
+    def _boom(_path, *a, **kw):
+        raise OSError("文件被占用（模拟 Windows 场景）")
+
+    monkeypatch.setattr(_shutil, "rmtree", _boom)
+    assert store.cleanup_workdir("f1") is False  # 不抛错
+    assert workdir.is_dir()  # 目录回收失败保留
+    # 删行（权威操作）不受影响
+    assert store.delete("f1") is True
+    assert store.get("f1") is None
+
+
+def test_prune_recycles_evicted_rows_workdirs(tmp_path: Path):
+    """prune 淘汰行时同步回收其工作目录；未被淘汰（queued/靠后终态）的目录保留。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    _create(store, "old-done", status="done", created_at="2026-01-01T00:00:01")
+    _create(store, "old-run", status="running", created_at="2026-01-01T00:00:02")
+    _create(store, "keep-done", status="done", created_at="2026-01-01T00:00:03")
+    for aid in ("old-done", "old-run", "keep-done"):
+        _materialize_task_files(tmp_path, aid)
+    store.append_event("old-done", {"x": 1})
+
+    assert store.prune(keep=2) == 1
+    assert store.get("old-done") is None
+    assert not (tmp_path / "old-done").exists()  # 被淘汰 → 目录回收
+    assert (tmp_path / "old-run").is_dir()  # 非终态不淘汰 → 目录保留
+    assert (tmp_path / "keep-done").is_dir()  # 未被淘汰 → 目录保留
+
+
+def test_sweep_interrupted_recycles_swept_dirs_only(tmp_path: Path):
+    """启动 sweep 置 failed 的遗留任务同步回收目录；已终态任务目录不动。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    _create(store, "q1", status="queued", created_at="2026-01-01T00:00:01")
+    _create(store, "r1", status="running", created_at="2026-01-01T00:00:02")
+    _create(store, "done1", status="done", created_at="2026-01-01T00:00:03")
+    for aid in ("q1", "r1", "done1"):
+        _materialize_task_files(tmp_path, aid)
+
+    assert store.sweep_interrupted() == 2
+    assert not (tmp_path / "q1").exists()
+    assert not (tmp_path / "r1").exists()
+    assert (tmp_path / "done1").is_dir()  # 终态不动
+    assert store.get("q1")["status"] == "failed"  # 置 failed 语义不变
+
+
+def test_delete_terminal_recycles_dir_but_running_keeps_files(tmp_path: Path):
+    """DELETE：终态任务删行 + 回收目录与 zip；running 任务只删行（协作取消），
+    文件留给执行体幽灵收尾回收——绝不在此处 rmtree 运行中任务的工作副本。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    _create(store, "dt", status="done", created_at="2026-01-01T00:00:01")
+    dt_dir, dt_zip = _materialize_task_files(tmp_path, "dt")
+    _create(store, "dr", status="running", created_at="2026-01-01T00:00:02")
+    dr_dir, dr_zip = _materialize_task_files(tmp_path, "dr")
+
+    assert store.delete("dt") is True
+    assert not dt_dir.exists()
+    assert not dt_zip.exists()
+
+    assert store.delete("dr") is True
+    assert store.get("dr") is None  # 行已删（取消信号）
+    assert dr_dir.is_dir()  # 运行中副本保留
+    assert dr_zip.is_file()
+    # 执行体幽灵收尾（行已删）时回收放行
+    assert store.cleanup_workdir("dr") is True
+    assert not dr_dir.exists()
+    assert not dr_zip.exists()
+
+
+# ---------------------------------------------------------------- 断点续跑（W24-C）
+def test_record_and_get_stage_done_roundtrip(tmp_path: Path):
+    """stage_done 记录往返：记录序保留、幂等去重、任务不存在返回空/False。"""
+    store = _make_store(tmp_path)
+    _create(store, "sd1")
+    assert store.get_stage_done("sd1") == []
+    assert store.record_stage_done("sd1", "ingest") is True
+    assert store.record_stage_done("sd1", "index") is True
+    assert store.record_stage_done("sd1", "ingest") is True  # 幂等：重复记录不报错
+    assert store.get_stage_done("sd1") == ["ingest", "index"]  # 记录序，无重复
+    assert store.record_stage_done("ghost", "ingest") is False  # 任务不存在
+    assert store.get_stage_done("ghost") == []
+    assert store.record_stage_done("sd1", "  ") is False  # 空白阶段名拒绝
+
+
+def test_append_event_stage_done_type_persists_column(tmp_path: Path):
+    """生产通路：type=stage_done 的事件经 append_event 同事务并入 stage_done 列。"""
+    store = _make_store(tmp_path)
+    _create(store, "ev1")
+    assert store.append_event("ev1", {"type": "progress", "stage": "ingest", "message": "x"}) == 1
+    assert store.append_event("ev1", {"type": "stage_done", "stage": "ingest"}) == 2
+    assert store.append_event("ev1", {"type": "stage_done", "stage": "ingest"}) == 3  # 重复事件仍落事件流
+    assert store.get_stage_done("ev1") == ["ingest"]  # 但列里幂等去重
+    store.append_event("ev1", {"type": "stage_done", "stage": ""})  # 空阶段名：只落事件
+    assert store.get_stage_done("ev1") == ["ingest"]
+    # 普通事件不带 type=stage_done：不影响列
+    store.append_event("ev1", {"type": "progress", "stage": "detect", "message": "阶段 detect 完成"})
+    assert store.get_stage_done("ev1") == ["ingest"]
+
+
+def test_stage_done_survives_reopen(tmp_path: Path):
+    """持久化：关连接后重开同一库，stage_done 与状态原样可读。"""
+    db = tmp_path / "audits.db"
+    store = TaskStore(db)
+    _create(store, "p1", status="running")
+    store.record_stage_done("p1", "ingest")
+    store.record_stage_done("p1", "index")
+    store.close()
+    reopened = TaskStore(db)
+    try:
+        assert reopened.get_stage_done("p1") == ["ingest", "index"]
+        assert reopened.get("p1")["status"] == "running"
+    finally:
+        reopened.close()
+
+
+def test_legacy_db_without_stage_done_column_migrates(tmp_path: Path):
+    """老库加列兼容：W23 形态（有 updated_at 无 stage_done）打开即自动补列可用。"""
+    db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute(
+        "CREATE TABLE audits ("
+        " audit_id TEXT PRIMARY KEY, status TEXT NOT NULL, error TEXT,"
+        " created_at TEXT NOT NULL, source_path TEXT NOT NULL DEFAULT '',"
+        " do_fix INTEGER NOT NULL DEFAULT 0, do_tests INTEGER NOT NULL DEFAULT 0,"
+        " config_json TEXT NOT NULL DEFAULT '', report_json TEXT,"
+        " updated_at TEXT NOT NULL DEFAULT '')"
+    )
+    conn.execute(
+        "INSERT INTO audits (audit_id, status, created_at, source_path, updated_at)"
+        " VALUES ('old1', 'running', '2026-01-01T00:00:00', '/tmp/proj', '2026-01-01T00:00:00')"
+    )
+    conn.execute(
+        "CREATE TABLE events (audit_id TEXT NOT NULL, seq INTEGER NOT NULL,"
+        " event_json TEXT NOT NULL, PRIMARY KEY (audit_id, seq))"
+    )
+    conn.commit()
+    conn.close()
+
+    store = TaskStore(db)  # 打开即迁移（不抛错）
+    try:
+        assert store.get("old1") is not None
+        assert store.get_stage_done("old1") == []  # 存量行无进度
+        assert store.record_stage_done("old1", "ingest") is True  # 补列后立即可写
+        assert store.get_stage_done("old1") == ["ingest"]
+    finally:
+        store.close()
+
+
+def test_legacy_db_stage_done_garbage_value_tolerated(tmp_path: Path):
+    """stage_done 列出现非法 JSON（人为改库）时解析容错为无进度，sweep 走 failed。"""
+    store = _make_store(tmp_path)
+    _create(store, "bad", status="running")
+    with store._lock:  # 直改列值模拟脏数据（测试专用后门）
+        store._conn.execute("UPDATE audits SET stage_done = '{not-json' WHERE audit_id = 'bad'")
+        store._conn.commit()
+    assert store.get_stage_done("bad") == []
+    assert store.sweep_interrupted() == 1
+    assert store.get("bad")["status"] == "failed"  # 解析不出进度：按无进度置 failed
+
+
+def test_sweep_running_with_stage_done_becomes_interrupted(tmp_path: Path):
+    """W24-C 核心：带阶段进度的 running → interrupted（可续跑）；其余行既有语义。"""
+    store = _make_store(tmp_path)
+    _create(store, "run-done", status="running")  # 跑完 ingest/index 后被杀
+    store.record_stage_done("run-done", "ingest")
+    store.record_stage_done("run-done", "index")
+    _create(store, "run-fresh", status="running")  # 一个阶段都没跑完
+    _create(store, "queued1", status="queued")
+    _create(store, "done1", status="done")
+    _create(store, "failed1", status="failed", error="旧错误")
+
+    assert store.sweep_interrupted() == 3
+    interrupted = store.get("run-done")
+    assert interrupted["status"] == "interrupted"
+    assert interrupted["error"] == "服务重启中断（阶段进度已保留，可续跑）"
+    # 无进度 running 与 queued：仍按既有语义 failed
+    assert store.get("run-fresh")["status"] == "failed"
+    assert store.get("run-fresh")["error"] == "服务重启中断"
+    assert store.get("queued1")["status"] == "failed"
+    # 终态不动
+    assert store.get("done1")["status"] == "done"
+    assert store.get("failed1")["status"] == "failed"
+    assert store.get("failed1")["error"] == "旧错误"
+
+
+def test_sweep_queued_with_stage_done_stays_failed(tmp_path: Path):
+    """interrupted 只放行 running：queued 行即使有进度记录也置 failed（从未开跑）。"""
+    store = _make_store(tmp_path)
+    _create(store, "q1", status="queued")
+    store.record_stage_done("q1", "ingest")
+    assert store.sweep_interrupted() == 1
+    assert store.get("q1")["status"] == "failed"
+
+
+def test_sweep_interrupted_preserves_workdir_failed_recycled(tmp_path: Path):
+    """磁盘语义：interrupted 组工作副本保留（resume 前提），failed 组照常回收。"""
+    store = TaskStore(tmp_path / "db.sqlite", work_root=tmp_path)
+    _create(store, "keep-me", status="running", created_at="2026-01-01T00:00:01")
+    store.record_stage_done("keep-me", "ingest")
+    _create(store, "clean-me", status="queued", created_at="2026-01-01T00:00:02")
+    keep_dir, _zip = _materialize_task_files(tmp_path, "keep-me")
+    clean_dir, _zip2 = _materialize_task_files(tmp_path, "clean-me")
+
+    assert store.sweep_interrupted() == 2
+    assert (tmp_path / "keep-me").is_dir()  # interrupted：目录与索引保留
+    assert store.get("keep-me")["status"] == "interrupted"
+    assert not (tmp_path / "clean-me").exists()  # failed：目录照常回收
+    # interrupted 非终态：cleanup 的终态守卫拒绝（双保险）
+    assert store.cleanup_workdir("keep-me") is False
+    assert keep_dir.is_dir()
+
+
+def test_count_active_excludes_interrupted(tmp_path: Path):
+    """429 准入口径：interrupted 无执行体在跑，不计入活跃数。"""
+    store = _make_store(tmp_path)
+    _create(store, "a", status="queued")
+    _create(store, "b", status="running")
+    store.record_stage_done("b", "ingest")
+    assert store.sweep_interrupted() == 2
+    assert store.get("b")["status"] == "interrupted"
+    assert store.count_active() == 0  # interrupted 不算活跃
+    # resume 重建：interrupted → running 后重新计入
+    store.set_status("b", "running")
+    assert store.count_active() == 1
+
+
+def test_prune_keeps_interrupted_rows(tmp_path: Path):
+    """容量淘汰只清终态：interrupted 行保留（可续跑任务不淘汰）。"""
+    store = _make_store(tmp_path)
+    _create(store, "int1", status="running")
+    store.record_stage_done("int1", "ingest")
+    store.sweep_interrupted()
+    _create(store, "old-done", status="done", created_at="2026-01-01T00:00:01")
+    assert store.prune(keep=1) == 1  # 只淘汰 done 行
+    assert store.get("int1") is not None  # interrupted 保留
+    assert store.get_stage_done("int1") == ["ingest"]

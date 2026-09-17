@@ -55,9 +55,10 @@ def test_markdown_reconstruction_section_grouped_by_kind(pipeline_ctx: PipelineC
     assert "1. 抽取校验簇" in md  # 步骤有序列表
     assert "**关联问题**：ISS-0001" in md
     assert "**收益**：降低复杂度" in md
-    # 后续章节顺延编号
+    # 后续章节顺延编号（P0-5 新增「八、测试覆盖盲区」、W24-B 新增「九、检测质量观测」
+    # 后耗时统计顺延为第十节；本 ctx 无质量数据时九节省略，编号直接跳到十）
     assert "## 七、Patch 与测试统计" in md
-    assert "## 八、耗时与 Token 统计" in md
+    assert "## 十、耗时与 Token 统计" in md
 
 
 def test_markdown_placeholder_when_no_proposals(pipeline_ctx: PipelineContext) -> None:

@@ -21,6 +21,7 @@ from pathlib import Path, PurePosixPath
 
 from audit.indexer.base import IndexStore
 from audit.indexer.js_extract import extract_js_ts
+from audit.indexer.java_extract import extract_java
 from audit.indexer.parsers import SUPPORTED_LANGUAGES, parse_source
 from audit.indexer.py_extract import FileIndex, extract_python
 from audit.models import FunctionSlice, Reference, Symbol
@@ -85,7 +86,16 @@ CREATE INDEX IF NOT EXISTS ix_slices_file ON slices(file);
 _JS_EXTS = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs")
 _JS_INDEX_BASENAMES = tuple(f"index{ext}" for ext in _JS_EXTS)
 
-# 派生表清单（_clear_derived / _clear_derived_many 共用；顺序无语义）
+_JAVA_EXT = ".java"
+# java 全限定名按"包目录布局"从文件路径推导时剥离的常见工程根前缀（maven/gradle/朴素 src）
+_JAVA_ROOT_PREFIXES = ("src/main/java/", "src/test/java/", "main/java/", "test/java/", "src/")
+# 变量声明的轻量类型推断（尽力解析）：类型名大写开头 + 变量名小写开头（java 命名约定），
+# 覆盖字段 `private UserDao dao;` 与局部 `UserDao dao = ...` 两种形态，供
+# `dao.find(...)` 这类"变量接收者调用"解析接收者类型。
+_JAVA_VAR_DECL_RE = re.compile(
+    r"(?:^|[^\w.])(?:final\s+)?(?P<type>[A-Z][\w.]*(?:<[^=;(){}]*>)?(?:\[\])?)\s+"
+    r"(?P<name>[a-z$][\w$]*)\s*(?:=|;)"
+)# 派生表清单（_clear_derived / _clear_derived_many 共用；顺序无语义）
 _DERIVED_TABLES = ("symbols", "imports", "calls", "slices")
 
 
@@ -136,6 +146,8 @@ class SqliteIndexStore(IndexStore):
         self._py_files_by_module: dict[str, str] = {}
         self._symbols_by_file: dict[str, set[str]] = {}
         self._js_files: set[str] = set()
+        self._java_files_by_module: dict[str, str] = {}
+        self._java_var_type_cache: dict[str, dict[str, str]] = {}
         # R1-8 修复：预取 language 映射 + 按 caller 缓存 import 别名表，
         # 消除 _resolve_edges 对每行调用边的 2 次 SQL（压测实测 build 省 10.2%）
         self._lang_map: dict[str, str] = {}
@@ -180,6 +192,8 @@ class SqliteIndexStore(IndexStore):
                 continue
             if language == "python":
                 fx = extract_python(data, rel)
+            elif language == "java":
+                fx = extract_java(data, rel)
             else:
                 js_lang = "typescript" if language == "typescript" else "javascript"
                 fx = extract_js_ts(data, rel, language=js_lang)
@@ -263,6 +277,16 @@ class SqliteIndexStore(IndexStore):
         if parts and parts[-1] == "__init__":
             parts = parts[:-1]
         return ".".join(parts)
+
+    def _java_module_of(self, rel: str) -> str:
+        """java 文件路径 → 全限定类名（剥离工程根前缀后按包目录点分）。"""
+        p = rel[:-len(_JAVA_EXT)] if rel.endswith(_JAVA_EXT) else rel
+        posix = PurePosixPath(p.replace("\\", "/")).as_posix()
+        for prefix in _JAVA_ROOT_PREFIXES:
+            if posix.startswith(prefix):
+                posix = posix[len(prefix):]
+                break
+        return ".".join(PurePosixPath(posix).parts)
 
     def _resolve_relative_module(self, module: str, caller_file: str) -> str:
         """把相对模块名（如 .mod / ..pkg）解析为绝对模块名。"""
@@ -428,6 +452,83 @@ class SqliteIndexStore(IndexStore):
             sym = ""
         return _Target(target, sym)
 
+    def _java_aliases(self, caller_file: str) -> tuple[dict[str, _AliasEntry], list[str]]:
+        """caller 文件的 java import 绑定表（含通配导入前缀清单）。
+
+        与 python 侧 _aliases 同思路，按 java 导入语义实现：
+        - import com.x.Y       → entries["Y"]  = module 绑定 com.x.Y
+        - import static a.B.m  → entries["m"]  = symbol 绑定 a.B / m
+        - import a.b.*         → wildcard 前缀 a.b（callee 简名拼接后查文件映射）
+        """
+        entries: dict[str, _AliasEntry] = {}
+        wildcards: list[str] = []
+        for row in self._conn.execute(
+            "SELECT module, imported_name, alias FROM imports WHERE file = ?", (caller_file,)
+        ):
+            module, name = row["module"], row["imported_name"]
+            if name == "*":
+                wildcards.append(module)
+            elif name == "":
+                head = module.split(".")[-1]
+                entries[head] = _AliasEntry("module", module)
+            else:  # static 单成员导入
+                entries.setdefault(name, _AliasEntry("symbol", module, name))
+        return entries, wildcards
+
+    def _resolve_java_call(self, callee: str, caller_file: str) -> _Target | None:
+        """java 调用点跨文件解析：import 别名 → 变量类型推断 → 同包/通配兜底（尽力解析）。"""
+        entries, wildcards = self._java_aliases(caller_file)
+        head, _, rest = callee.partition(".")
+        if not rest:
+            return None  # 简名调用：同文件调用已由通用逻辑滤除，跨文件不做猜测
+        # 接收者名分派：import 过的类型名直用；小写变量名回退声明类型推断（java 约定）
+        type_name = head
+        if head not in entries and not head[:1].isupper():
+            type_name = self._java_var_types(caller_file).get(head) or head
+        target_file = self._java_type_file(type_name, caller_file, entries, wildcards)
+        if target_file is None:
+            return None
+        return _Target(target_file, rest if self._has_symbol(target_file, rest) else "")
+
+    def _java_type_file(
+        self, type_name: str, caller_file: str, entries: dict[str, _AliasEntry], wildcards: list[str]
+    ) -> str | None:
+        """类型名 → 工作副本内文件：全名直查；简名按 import → 同包 → 通配三档。"""
+        if "." in type_name:
+            return self._module_file_java(type_name)
+        entry = entries.get(type_name)
+        if entry is not None:
+            return self._module_file_java(entry.module)
+        module = self._java_module_of(caller_file)
+        pkg = module.rpartition(".")[0]
+        candidate = f"{pkg}.{type_name}" if pkg else type_name
+        target = self._module_file_java(candidate)
+        if target is not None:
+            return target
+        for prefix in wildcards:
+            target = self._module_file_java(f"{prefix}.{type_name}")
+            if target is not None:
+                return target
+        return None
+
+    def _java_var_types(self, caller_file: str) -> dict[str, str]:
+        """caller 文件内 变量名 -> 声明类型（正则轻量推断，结果按文件缓存）。"""
+        cached = self._java_var_type_cache.get(caller_file)
+        if cached is not None:
+            return cached
+        types: dict[str, str] = {}
+        try:
+            text = self._ws.read_file_text(caller_file)
+        except (FileNotFoundError, OSError):
+            text = ""
+        for m in _JAVA_VAR_DECL_RE.finditer(text):
+            types.setdefault(m.group("name"), m.group("type"))
+        self._java_var_type_cache[caller_file] = types
+        return types
+
+    def _module_file_java(self, module: str) -> str | None:
+        return self._java_files_by_module.get(module)
+
     def _resolve_edges(self) -> None:
         """基于全量 calls 表重建 call_edges（增量安全：未变文件行保留）。"""
         # R4-2：_lang_map / _alias_cache 是 build 期预取缓存，跨 build 必须重置，
@@ -437,12 +538,16 @@ class SqliteIndexStore(IndexStore):
         self._py_files_by_module = {}
         self._symbols_by_file: dict[str, set[str]] = {}
         self._js_files: set[str] = set()
+        self._java_files_by_module = {}
+        self._java_var_type_cache = {}
         for row in self._conn.execute("SELECT path, language FROM files"):
             rel, lang = row["path"], row["language"]
             if lang == "python":
                 self._py_files_by_module[self._py_module_of(rel)] = rel
             elif lang in ("javascript", "typescript"):
                 self._js_files.add(rel)
+            elif lang == "java":
+                self._java_files_by_module[self._java_module_of(rel)] = rel
         for row in self._conn.execute("SELECT file, name FROM symbols"):
             self._symbols_by_file.setdefault(row["file"], set()).add(row["name"])
 
@@ -462,6 +567,8 @@ class SqliteIndexStore(IndexStore):
                 target = self._resolve_py_call(callee_name, caller_file)
             elif lang in ("javascript", "typescript"):
                 target = self._resolve_js_call(callee_name, caller_file)
+            elif lang == "java":
+                target = self._resolve_java_call(callee_name, caller_file)
             if target is not None and target.file == caller_file:
                 continue  # 同文件调用：源码直接可见，不建边
             if target is not None:
@@ -605,6 +712,8 @@ class SqliteIndexStore(IndexStore):
                 resolved: str | None
                 if lang == "python":
                     resolved = self._module_file(self._resolve_relative_module(module, file))
+                elif lang == "java":
+                    resolved = self._module_file_java(module)
                 else:
                     resolved = self._resolve_js_spec(module, file)
                 item = resolved if resolved else module
@@ -622,6 +731,8 @@ class SqliteIndexStore(IndexStore):
             lang = self._language_of(src)
             if lang == "python":
                 resolved = self._module_file(self._resolve_relative_module(module, src))
+            elif lang == "java":
+                resolved = self._module_file_java(module)
             else:
                 resolved = self._resolve_js_spec(module, src)
             if resolved == file and src not in seen:
@@ -728,7 +839,7 @@ class SqliteIndexStore(IndexStore):
         dotted = self._module_file(t)
         if dotted:
             return dotted
-        noext = re.sub(r"\.(py|js|jsx|ts|tsx|mjs|cjs)$", "", t)
+        noext = re.sub(r"\.(py|js|jsx|ts|tsx|mjs|cjs|java)$", "", t)
         if self._conn.execute("SELECT 1 FROM files WHERE path = ?", (noext,)).fetchone():
             return noext
         dotted_noext = self._module_file(noext)

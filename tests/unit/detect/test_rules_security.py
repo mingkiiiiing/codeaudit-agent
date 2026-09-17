@@ -195,3 +195,194 @@ class TestUnsafeDeserialize:
     def test_negative_json_loads(self, make_ctx):
         ctx = make_ctx("import json\n\ndata = json.loads(text)\n")
         assert self.rule.check(ctx) == []
+
+
+class TestCommandInjectionW19C:
+    """W19-C 命令注入规则增强：subprocess.Popen / os.execv* / 列表 sh -c 中转三形态。"""
+
+    rule = CommandInjectionRule()
+
+    # ------------------------------------------------ 形态 a：Popen shell=True / 动态首参
+
+    def test_positive_popen_shell_true_var(self, make_ctx):
+        ctx = make_ctx("import subprocess\n\nsubprocess.Popen(cmd, shell=True)\n")
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_popen_shell_true_literal(self, make_ctx):
+        """shell=True 时字符串参数会进入 shell 解释：首参为字面量也报。"""
+        ctx = make_ctx('import subprocess\n\nsubprocess.Popen("ls -l", shell=True)\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_popen_concat(self, make_ctx):
+        ctx = make_ctx('import subprocess\n\nsubprocess.Popen("ping " + host)\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_popen_fstring(self, make_ctx):
+        ctx = make_ctx('import subprocess\n\nsubprocess.Popen(f"kill {pid}")\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_negative_popen_literal_no_shell(self, make_ctx):
+        ctx = make_ctx('import subprocess\n\nsubprocess.Popen("ls -l")\n')
+        assert self.rule.check(ctx) == []
+
+    # ------------------------------------------------ 形态 b：os.execv* 调 shell
+
+    def test_positive_execv_sh_c(self, make_ctx):
+        ctx = make_ctx('import os\n\nos.execv("/bin/sh", ["sh", "-c", cmd])\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_execvp_bash_c(self, make_ctx):
+        ctx = make_ctx('import os\n\nos.execvp("bash", ["bash", "-c", script])\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_negative_execv_fixed_payload(self, make_ctx):
+        """execv 走 sh -c 但负载为纯字面量（无变量残留）不报。"""
+        ctx = make_ctx('import os\n\nos.execv("/bin/sh", ["sh", "-c", "echo fixed"])\n')
+        assert self.rule.check(ctx) == []
+
+    # ------------------------------------------------ 形态 c：run/call/check_output 列表 -c 中转
+
+    def test_positive_run_sh_c_list(self, make_ctx):
+        ctx = make_ctx('import subprocess\n\nsubprocess.run(["sh", "-c", cmd])\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_run_sh_c_list_with_check(self, make_ctx):
+        """带 check=True 不影响注入判定：-c 中转的动态命令仍等价命令注入。"""
+        ctx = make_ctx('import subprocess\n\nsubprocess.run(["sh", "-c", cmd], check=True)\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_check_output_bash_c_list(self, make_ctx):
+        ctx = make_ctx('import subprocess\n\nsubprocess.check_output(["bash", "-c", tgt])\n')
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_negative_run_plain_list(self, make_ctx):
+        """run 无 shell=True 时列表参数本身安全：纯列表（ls -l）不报。"""
+        ctx = make_ctx('import subprocess\n\nsubprocess.run(["ls", "-l"])\n')
+        assert self.rule.check(ctx) == []
+
+    def test_negative_run_fixed_payload_sh_c(self, make_ctx):
+        """列表走 sh -c 但负载为纯字面量（无变量/拼接）不报。"""
+        ctx = make_ctx('import subprocess\n\nsubprocess.run(["sh", "-c", "echo fixed"])\n')
+        assert self.rule.check(ctx) == []
+
+    def test_negative_run_var_no_shell(self, make_ctx):
+        """变量串参数且无 shell=True：保持既有语义（归 PY-SUBPROCESS-WITHOUT-CHECK 管辖）不报。"""
+        ctx = make_ctx("import subprocess\n\nsubprocess.run(cmd, check=True)\n")
+        assert self.rule.check(ctx) == []
+
+    def test_negative_run_list_var_no_shell(self, make_ctx):
+        """变量数组参数 + shell=False：数组形式不进 shell，不报。"""
+        ctx = make_ctx("import subprocess\n\nsubprocess.run(args, shell=False, check=True)\n")
+        assert self.rule.check(ctx) == []
+
+    # ------------------------------------------------ 误报红线：clean 语料 orders.py 片段
+
+    def test_negative_clean_corpus_orders_snippet(self, make_ctx):
+        """clean_corpus/pkg/orders.py 的 run(command, ..., check=True) 列表参数不得报。"""
+        ctx = make_ctx(
+            "import subprocess\n\n"
+            "def run_sync(command: list[str]) -> str:\n"
+            "    proc = subprocess.run(\n"
+            "        command, capture_output=True, text=True, encoding=\"utf-8\", check=True\n"
+            "    )\n"
+            "    return proc.stdout.strip()\n"
+        )
+        assert self.rule.check(ctx) == []
+
+    def test_negative_run_list_with_env_kwarg_fp(self, make_ctx):
+        """列表内无 -c 中转时，kwargs 里的变量（env=...）不得触发列表中转判定。"""
+        ctx = make_ctx(
+            'import subprocess\n\nsubprocess.run(["sh", "script.sh"], env={"A": b})\n'
+        )
+        assert self.rule.check(ctx) == []
+
+
+class TestSqlInjectionW20D:
+    """W20-D SQL 注入二级传播：SQL 常量模板（tmpl/PREFIX 式）的跨行直接拼接使用。"""
+
+    rule = SqlInjectionConcatRule()
+
+    def test_positive_const_template_format(self, make_ctx):
+        """q3 场景：函数内 tmpl 常量模板 + 下行 .format → 归因使用行命中。"""
+        ctx = make_ctx(
+            "def q3(cur, name):\n"
+            "    tmpl = \"SELECT * FROM u WHERE name = '{}'\"\n"
+            "    sql = tmpl.format(name)\n"
+            "    cur.execute(sql)\n"
+        )
+        assert _lines(self.rule, ctx) == [3]
+
+    def test_positive_module_prefix_plus(self, make_ctx):
+        """q5 场景：模块级 PREFIX 常量 + 函数内 execute(PREFIX + x) → 归因使用行。"""
+        ctx = make_ctx(
+            'PREFIX = "SELECT * FROM t WHERE flag = "\n'
+            "\n"
+            "def q5(cur, x):\n"
+            "    cur.execute(PREFIX + x)\n"
+        )
+        assert _lines(self.rule, ctx) == [4]
+
+    def test_positive_const_plus_before(self, make_ctx):
+        """``… + CONST`` 形态（常量在加号右侧）同样命中使用行。"""
+        ctx = make_ctx(
+            'HEAD = "SELECT * FROM t WHERE flag = "\n'
+            "query = other + HEAD\n"
+        )
+        assert _lines(self.rule, ctx) == [2]
+
+    def test_positive_const_fstring_interpolation(self, make_ctx):
+        """f-string 插值 {CONST} 形态命中使用行（掩码行看不到插值，须查原始跨度）。"""
+        ctx = make_ctx(
+            'BASE = "SELECT * FROM t WHERE flag = "\n'
+            'q = f"{BASE}{x}"\n'
+        )
+        assert _lines(self.rule, ctx) == [2]
+
+    def test_negative_const_template_parameterized(self, make_ctx):
+        """误报红线：常量模板走参数化 execute（使用行无拼接形态）不报。"""
+        ctx = make_ctx(
+            'sql = "SELECT * FROM t WHERE id = ?"\n'
+            "cur.execute(sql, (uid,))\n"
+        )
+        assert self.rule.check(ctx) == []
+
+    def test_negative_const_sql_without_concat(self, make_ctx):
+        """常量 SQL 纯引用（无任何拼接形态）不报。"""
+        ctx = make_ctx(
+            'sql = "SELECT * FROM t WHERE id = 1"\n'
+            "cur.execute(sql)\n"
+        )
+        assert self.rule.check(ctx) == []
+
+    def test_negative_multi_step_chain_not_tracked(self, make_ctx):
+        """单步口径：sql→sql2→execute 多步链只按既有单行口径报首行，链路不追踪。"""
+        ctx = make_ctx(
+            'sql = "SELECT * FROM t WHERE a = " + a\n'
+            'sql2 = sql + " LIMIT 10"\n'
+            "cur.execute(sql2)\n"
+        )
+        assert _lines(self.rule, ctx) == [1]
+
+    def test_negative_clean_corpus_repo_snippet(self, make_ctx):
+        """clean_corpus/pkg/repo.py 摘录：内联参数化查询 0 命中（误报红线）。"""
+        ctx = make_ctx(
+            "class Repository:\n"
+            "    def __init__(self, conn):\n"
+            "        self._conn = conn\n"
+            "\n"
+            "    def find_user(self, user_id: int):\n"
+            '        row = self._conn.execute("SELECT id, name FROM users WHERE id = ?", (user_id,)).fetchone()\n'
+            "        if row is None:\n"
+            "            return None\n"
+            '        return {"id": row[0], "name": row[1]}\n'
+        )
+        assert self.rule.check(ctx) == []
+
+    def test_negative_keyword_only_in_comment_const_style(self, make_ctx):
+        """常量名拼接但 SQL 关键字只在注释/非字面量处 → 不收集、不命中。"""
+        ctx = make_ctx(
+            "# SELECT * FROM t 模板见文档\n"
+            "tmpl = load_template()\n"
+            "query = tmpl + suffix\n"
+        )
+        assert self.rule.check(ctx) == []

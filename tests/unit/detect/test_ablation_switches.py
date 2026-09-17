@@ -216,9 +216,10 @@ class TestRuleHintsSwitch:
 
 
 class TestAblationPlan:
-    def test_seven_groups_all_real(self):
+    def test_eight_groups_all_real(self):
+        """W22-E 起为 8 组（新增 llm_focus）。"""
         plan = plan_ablation()
-        assert len(plan) == 7
+        assert len(plan) == 8
         assert set(ABLATION_CONFIGS) == {
             "full",
             "−verify",
@@ -227,6 +228,7 @@ class TestAblationPlan:
             "−cache",
             "rules_only",
             "llm_only",
+            "llm_focus",
         }
         for _name, overrides in plan:
             assert not is_placeholder(overrides)

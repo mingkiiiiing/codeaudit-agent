@@ -15,10 +15,6 @@ class IngestError(AuditError):
     """Stage1 接入失败：路径不存在、zip 损坏、规模超限等。"""
 
 
-class IndexBuildError(AuditError):
-    """Stage2 索引构建失败。"""
-
-
 class LLMError(AuditError):
     """LLM 调用失败（重试耗尽后的最终错误）。"""
 
@@ -29,7 +25,3 @@ class AgentBudgetError(AuditError):
 
 class SandboxError(AuditError):
     """沙箱执行失败。"""
-
-
-class ReportError(AuditError):
-    """报告生成/渲染失败。"""

@@ -272,3 +272,36 @@ def test_env_file_accepts_path_object(tmp_path):
     env_file.write_text("GLM_API_KEY=sk-path\n", encoding="utf-8")
     cfg = AuditConfig.from_env(source_path="x", env_file=env_file)
     assert cfg.api_key == "sk-path"
+
+
+# ---------------------------------------------------------------- W16：from_sources 同样加载 .env
+
+
+def test_from_sources_dotenv_autodiscovered(monkeypatch, tmp_path):
+    """W16 修复（README 承诺对齐）：CLI 路径 from_sources 也自动加载 CWD/.env。
+
+    此前仅 from_env 加载——CLI 填了 .env 仍被判"LLM 未配置"，与 README
+    「cp .env 后无需 export 直接使用」不一致。
+    """
+    (tmp_path / ".env").write_text("GLM_API_KEY=sk-from-dotenv-cli\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    cfg = AuditConfig.from_sources(cli_overrides={"source_path": "C:/tmp/proj"})
+    assert cfg.api_key == "sk-from-dotenv-cli"
+    assert cfg.llm_available
+
+
+def test_from_sources_real_env_still_beats_dotenv(monkeypatch, tmp_path):
+    """真实进程环境变量仍优先于 .env（与 from_env 逐键优先级口径一致）。"""
+    (tmp_path / ".env").write_text("GLM_API_KEY=sk-from-dotenv-cli\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GLM_API_KEY", "sk-real-env")
+    cfg = AuditConfig.from_sources(cli_overrides={"source_path": "C:/tmp/proj"})
+    assert cfg.api_key == "sk-real-env"
+
+
+def test_from_sources_without_dotenv_unchanged(monkeypatch, tmp_path):
+    """无 .env 时 from_sources 行为零变化（api_key 仍为空、llm_available False）。"""
+    monkeypatch.chdir(tmp_path)
+    cfg = AuditConfig.from_sources(cli_overrides={"source_path": "C:/tmp/proj"})
+    assert cfg.api_key == ""
+    assert not cfg.llm_available

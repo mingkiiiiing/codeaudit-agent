@@ -12,8 +12,9 @@ from __future__ import annotations
 import keyword as _keyword
 import math
 import re
-from typing import Pattern
+from typing import Any, Pattern
 
+from audit.detect.ast_util import confirm_hit, ident_text, line_node_map, root_identifier
 from audit.detect.base import Rule, RuleContext, RuleHit
 from audit.detect.rules._python_common import (
     PyScan,
@@ -28,6 +29,14 @@ from audit.detect.rules._python_common import (
     line_in_loops,
     loop_ranges,
 )
+from audit.detect.rules._rule_families import (
+    DeepNestingRuleFamily,
+    HardcodedSecretRuleFamily,
+    LongFunctionRuleFamily,
+    MagicNumberRuleFamily,
+    TodoFixmeCommentRuleFamily,
+)
+from audit.detect.rules._scan_common import string_value
 from audit.models import Category, RuleHit, Severity
 
 __all__ = ["build_python_rules"]
@@ -662,143 +671,64 @@ class RequestNoTimeoutRule(_PyRule):
 # ==================================================================== style 类
 
 
-class LongFunctionRule(_PyRule):
+class LongFunctionRule(_PyRule, LongFunctionRuleFamily):
     """函数超过 80 行。"""
 
     id = "PY-LONG-FUNCTION"
-    category = Category.STYLE
-    severity = Severity.MEDIUM
-    description = "函数体超过 80 行：职责过多、难以测试与复用，应拆分为更小的函数。"
 
-    MAX_LINES = 80
+    # W15-D：消息尾注两语言文案本就不同（PY「圈复杂度高」/ JS「分支爆炸」），以参数显式化
+    _TAIL_DETAIL = "圈复杂度高"
 
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        hits: list[RuleHit] = []
-        for fr in function_ranges(scan.masked):
-            length = fr.end - fr.start + 1
-            if length > self.MAX_LINES:
-                hits.append(
-                    self.make_hit(
-                        ctx,
-                        fr.start,
-                        fr.end,
-                        f"函数 `{fr.name}` 共 {length} 行（第 {fr.start}~{fr.end} 行），超过 80 行上限："
-                        "过长函数通常职责混杂、圈复杂度高，难以测试和维护；建议按职责拆分。",
-                        meta={"lines": length},
-                    )
-                )
-        return hits
+    # W15-D：绑定 Python 掩码扫描器与缩进口径的函数作用域推断（算法骨架在家族基类）
+    _get_scan = staticmethod(get_scan)
+    _function_ranges = staticmethod(function_ranges)
 
 
-class DeepNestingRule(_PyRule):
+class DeepNestingRule(_PyRule, DeepNestingRuleFamily):
     """缩进达到 4 层及以上。"""
 
     id = "PY-DEEP-NESTING"
-    category = Category.STYLE
-    severity = Severity.MEDIUM
-    description = "代码嵌套达到 4 层以上：认知负担大、分支组合爆炸，应通过提前返回/抽取函数降低深度。"
 
-    LEVEL_THRESHOLD = 4  # indent_width // 4 >= 4
+    # W15-D：层级口径以钩子显式化——Python 固定 4 空格/层（JS 按文件缩进单位换算）
+    def _min_indent(self, masked: list[str]) -> int:
+        return self.LEVEL_THRESHOLD * 4
 
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        min_indent = self.LEVEL_THRESHOLD * 4
-        groups: list[tuple[int, int]] = []
-        cur_start: int | None = None
-        prev: int | None = None
-        for idx in range(1, len(scan.masked) + 1):
-            ln = scan.masked[idx - 1]
-            stripped = ln.strip()
-            deep = bool(stripped) and set(stripped) != {'"', "'"} and indent_width(ln) >= min_indent
-            if deep:
-                if cur_start is None:
-                    cur_start = idx
-                prev = idx
-            elif stripped:
-                # 空行不打断分组，非空且未达深度的行打断
-                if cur_start is not None and prev is not None:
-                    groups.append((cur_start, prev))
-                cur_start = None
-                prev = None
-        if cur_start is not None and prev is not None:
-            groups.append((cur_start, prev))
-        return [
-            self.make_hit(
-                ctx,
-                a,
-                b,
-                f"第 {a}~{b} 行代码嵌套达到 {self.LEVEL_THRESHOLD} 层及以上（缩进 ≥{min_indent} 空格）："
-                "深层嵌套显著增加理解与测试成本；建议用卫语句提前返回或将内层逻辑抽取成函数。",
-            )
-            for a, b in groups
-        ]
+    def _is_deep(self, ln: str, stripped: str, min_indent: int) -> bool:
+        # 纯引号行是掩码后残留的字符串壳（Python 掩码保留引号位），不算代码行
+        return bool(stripped) and set(stripped) != {'"', "'"} and indent_width(ln) >= min_indent
+
+    # W15-D：绑定 Python 掩码扫描器
+    _get_scan = staticmethod(get_scan)
 
 
-class MagicNumberRule(_PyRule):
+class MagicNumberRule(_PyRule, MagicNumberRuleFamily):
     """与比较/赋值混用的无上下文大数字面量（≥1000）。"""
 
     id = "PY-MAGIC-NUMBER"
-    category = Category.STYLE
-    severity = Severity.LOW
-    description = "代码中出现无命名的大数字面量（≥1000）：含义不明、散落多处难以统一修改，应提取为具名常量。"
 
+    # W15-D：Python 数字口径——仅十进制（JS 另支持十六进制）；import/from 行整行豁免
     _NUM_RE: Pattern[str] = re.compile(r"\b(\d[\d_]*(?:\.\d+)?(?:[eE][+-]?\d+)?)\b")
     _IMPORT_RE: Pattern[str] = re.compile(r"^\s*(?:from|import)\b")
-    MIN_VALUE = 1000.0
+    _EXAMPLE_HINT = "THRESHOLD = 10000"
 
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        hits: list[RuleHit] = []
-        for idx, ln in enumerate(scan.masked):
-            if self._IMPORT_RE.match(ln):
-                continue
-            for m in self._NUM_RE.finditer(ln):
-                try:
-                    value = float(m.group(1).replace("_", ""))
-                except ValueError:  # pragma: no cover
-                    continue
-                if abs(value) >= self.MIN_VALUE:
-                    hits.append(
-                        self.make_hit(
-                            ctx,
-                            idx + 1,
-                            idx + 1,
-                            f"第 {idx + 1} 行使用魔法数字 `{m.group(1)}`：字面量含义不明确且多处出现时难以统一维护；"
-                            "请提取为具名常量（如 THRESHOLD = 10000）并注释业务含义。",
-                            meta={"value": value},
-                        )
-                    )
-        return hits
+    # W15-D：绑定 Python 掩码扫描器；数字解析/豁免口径按 Python 历史语义实现
+    _get_scan = staticmethod(get_scan)
+
+    def _skip_line(self, ln: str) -> bool:
+        return bool(self._IMPORT_RE.match(ln))
+
+    @staticmethod
+    def _parse_number(text: str) -> float:
+        return float(text.replace("_", ""))
 
 
-class TodoFixmeCommentRule(_PyRule):
+class TodoFixmeCommentRule(_PyRule, TodoFixmeCommentRuleFamily):
     """TODO/FIXME/HACK 注释残留。"""
 
     id = "PY-TODO-FIXME"
-    category = Category.STYLE
-    severity = Severity.LOW
-    description = "注释中的 TODO/FIXME/HACK 标记：代表已知未完成事项或临时绕过，应在交付前清理或建跟踪项。"
 
-    _RE: Pattern[str] = re.compile(r"\b(TODO|FIXME|HACK|XXX)\b")
-
-    def check(self, ctx: RuleContext) -> list[RuleHit]:
-        scan = get_scan(ctx.lines, ctx.meta)
-        hits: list[RuleHit] = []
-        for lineno, text in scan.comments:
-            m = self._RE.search(text)
-            if m:
-                hits.append(
-                    self.make_hit(
-                        ctx,
-                        lineno,
-                        lineno,
-                        f"第 {lineno} 行注释存在 `{m.group(1)}` 标记：{text.strip()[:80]}——"
-                        "这是显式的未完成事项，应转为任务跟踪或立即处理，避免长期滞留。",
-                        meta={"tag": m.group(1)},
-                    )
-                )
-        return hits
+    # W15-D：绑定 Python 掩码扫描器（家族 check 与 JS 侧逐字一致）
+    _get_scan = staticmethod(get_scan)
 
 
 _URL_RE = re.compile(r"https?://[^\s'\"<>，。；]+")
@@ -880,13 +810,111 @@ _SQL_KEYWORD_RE = re.compile(
 _CONCAT_HINT_RE = re.compile(r"['\"]\s*\+|\+\s*['\"]|\.format\s*\(|['\"]\s*%\s*[\w(\[]")
 
 
+def _is_dynamic_string_op(node: Any, source: bytes) -> bool:
+    """AST 判定（P0-3 SQL 佐证）：节点是否为"字符串参与动态构造"的形态。
+
+    覆盖三类 tree-sitter 节点：
+    - ``binary_operator``：操作数含字符串字面量（+ 拼接 / % 格式化）；
+    - ``string``：f-string 且含 ``interpolation`` 插值子节点；
+    - ``call``：函数为 ``.format`` 属性调用。
+    """
+    ntype = node.type
+    if ntype == "binary_operator":
+        return any(c.type == "string" for c in node.children)
+    if ntype == "string":
+        return any(c.type == "interpolation" for c in node.children)
+    if ntype == "call":
+        func = node.child_by_field_name("function")
+        if func is not None and func.type == "attribute":
+            children = func.children
+            return bool(children) and children[-1].type == "identifier" and ident_text(children[-1], source) == "format"
+    return False
+
+
+def _is_const_concat_use(node: Any, source: bytes, const_name: str) -> bool:
+    """AST 判定（P0-3 SQL 二级传播佐证）：行上是否存在以常量为操作数的动态拼接。
+
+    覆盖三形态：``NAME + …`` / ``… + NAME``（binary_operator 的标识符操作数）、
+    ``NAME.format(…``（.format 调用的接收者根标识符）、f-string ``{NAME}`` 插值。
+    """
+    ntype = node.type
+    if ntype == "binary_operator":
+        return any(
+            c.type == "identifier" and ident_text(c, source) == const_name for c in node.children
+        )
+    if ntype == "string":
+        for child in node.children:
+            if child.type != "interpolation":
+                continue
+            if any(
+                gc.type == "identifier" and ident_text(gc, source) == const_name
+                for gc in child.children
+            ):
+                return True
+        return False
+    if ntype == "call":
+        func = node.child_by_field_name("function")
+        if func is None or func.type != "attribute":
+            return False
+        children = func.children
+        if not children or children[-1].type != "identifier":
+            return False
+        if ident_text(children[-1], source) != "format":
+            return False
+        base = root_identifier(func.child_by_field_name("object"))
+        return base is not None and ident_text(base, source) == const_name
+    return False
+
+
 class SqlInjectionConcatRule(_PyRule):
-    """SQL 语句与 +/f-string/%/.format 拼接（对应金标 G2/G12）。"""
+    """SQL 语句与 +/f-string/%/.format 拼接（对应金标 G2/G12）。
+
+    W20-D 增强（二级传播：SQL 常量模板的跨行拼接使用，同函数/同文件单步保守口径）：
+    - 第一遍收集"SQL 常量变量"：形如 ``NAME = "…SELECT…FROM…"`` 的赋值，右侧为
+      纯字符串字面量（含隐式相邻字面量拼接；f-string 前缀不收集），且字面量内容
+      含 SQL 关键字（掩码行判定；支持 ``NAME: 注解 = "…"``,排除 ``==``/``+=``）；
+    - 第二遍查找这些常量的"直接拼接使用"行并归因使用行：``NAME + …``、
+      ``… + NAME``、``NAME.format(…``、f-string ``{NAME}`` 插值四种形态。
+    - 保守取舍：
+      * 作用域按"同文件"放宽：不做 enclosing-function 精确闭包——模块级常量
+        （``PREFIX = "SELECT …"``）在函数内拼接使用本就可见（Python 作用域事实
+        如此），函数内常量的跨函数使用极为罕见；代价是极端的跨函数同名遮蔽
+        可能误报，换取对模板下沉到模块级这一真实场景的覆盖。
+      * 单步限定：只追踪"常量变量直接拼接"，不追踪
+        ``sql2 = sql + x; cur.execute(sql2)`` 的多步链——``sql2`` 右侧不是纯
+        字面量，不会被收集为常量，传播链在第二级自然截断。
+      * 二级判定仍要求"常量字面量含 SQL 关键字 + 使用行存在拼接形态"：
+        参数化查询（``cur.execute(sql, (uid,))``）与纯引用（``cur.execute(sql)``）
+        的使用行无拼接形态，不会命中；``tmpl % x`` 的 % 用法与跨行三引号模板
+        不在单步收集/使用形态内（已知局限）。
+      * 常量与常量拼接（两个操作数均为字面量/常量）与单行口径一致，按"存在
+        拼接形态即报"处理（本规则家族既有的精度水位）。
+    """
 
     id = "PY-SQL-INJECTION"
     category = Category.SECURITY
     severity = Severity.CRITICAL
     description = "SQL 语句以字符串拼接方式引入外部输入：攻击者可注入任意 SQL，导致数据泄露/篡改/删除。"
+
+    # ---- W20-D 二级传播辅助常量（收敛为类属性，不新增模块级命名，避免与其他窗口冲突） ----
+    # SQL 常量赋值头（掩码行上匹配）：分支 1 = ``NAME: 注解 =``，分支 2 = ``NAME =``。
+    # 注解段禁止 = 和 :，天然排除 ``==`` 比较；分支 2 的 ``(?!=)`` 排除 ``==``，
+    # ``NAME +=`` 因 ``+`` 挡位不匹配 ``\s*=`` 而天然不命中。
+    _CONST_ASSIGN_RE: Pattern[str] = re.compile(
+        r"^\s*(?:([A-Za-z_]\w*)\s*:\s*[^=:=]+=\s*|([A-Za-z_]\w*)\s*=(?!=)\s*)"
+    )
+    # 纯字面量右侧允许残留的非引号字符：r/b/u 前缀字母（f-string 不收集）
+    _CONST_PREFIX_CHARS = frozenset("rbu")
+    # 直接拼接使用形态（{name} 处代入 re.escape 后的常量名；在掩码行上匹配，
+    # 字符串内容/注释已被掩码，天然避开字面量与注释内的假名字）
+    _USE_PATTERNS: tuple[str, ...] = (
+        r"(?<![\w.]){name}\s*\+(?!=)",           # NAME + …（排除 NAME +=）
+        r"\+\s*{name}(?![\w.])",                 # … + NAME
+        r"(?<![\w.]){name}\s*\.\s*format\s*\(",  # NAME.format(
+    )
+    # f-string 插值字段 {NAME}（允许转换 !x / 格式说明 :x 后缀；在原始行的
+    # f-string 字面量内容上匹配——掩码行看不到插值内容）
+    _FSTRING_FIELD_RE: Pattern[str] = re.compile(r"\{\s*([A-Za-z_]\w*)\s*(?:![^{}]*|:[^{}]*)?\}")
 
     def check(self, ctx: RuleContext) -> list[RuleHit]:
         scan = get_scan(ctx.lines, ctx.meta)
@@ -918,7 +946,94 @@ class SqlInjectionConcatRule(_PyRule):
                         "请改为参数化查询（占位符 ?/%s + 参数元组）。",
                     )
                 )
+        # ---- W20-D 二级传播：SQL 常量模板的跨行直接拼接使用（同文件、单步） ----
+        hit_lines = {h.line_start for h in hits}
+        const_vars: dict[str, int] = {}  # 常量名 -> 定义行号
+        for idx, raw in enumerate(ctx.lines):
+            masked = scan.masked[idx]
+            m = self._CONST_ASSIGN_RE.match(masked)
+            if m is None:
+                continue
+            rhs = masked[m.end():]
+            if "'" not in rhs and '"' not in rhs:
+                continue  # 右侧无字符串字面量
+            # 右侧须为纯字符串字面量：去掉引号/空白后只允许空或 r/b/u 前缀字母
+            leftover = re.sub(r"[\s'\"]", "", rhs)
+            if leftover and not set(leftover) <= self._CONST_PREFIX_CHARS:
+                continue
+            name = m.group(1) or m.group(2)
+            if name is None:
+                continue
+            # SQL 关键字必须出现在 RHS 字面量内容内，且该字面量非 f-string
+            sql_in_rhs = any(
+                a >= m.end() and "f" not in p and _SQL_KEYWORD_RE.search(raw[a:b])
+                for a, b, p in spans_by_line.get(idx + 1, [])
+            )
+            if sql_in_rhs:
+                const_vars[name] = idx + 1
+        if const_vars:
+            for idx, masked in enumerate(scan.masked):
+                lineno = idx + 1
+                if lineno in hit_lines:
+                    continue  # 该行已有单行命中，不重复归因
+                raw = ctx.lines[idx]
+                used_name: str | None = None
+                for name in const_vars:
+                    esc = re.escape(name)
+                    if any(re.search(p.format(name=esc), masked) for p in self._USE_PATTERNS):
+                        used_name = name
+                        break
+                    for a, b, p in spans_by_line.get(lineno, []):
+                        if "f" not in p:
+                            continue
+                        if any(
+                            fm.group(1) == name
+                            for fm in self._FSTRING_FIELD_RE.finditer(raw[a:b])
+                        ):
+                            used_name = name
+                            break
+                    if used_name is not None:
+                        break
+                if used_name is None:
+                    continue
+                hits.append(
+                    self.make_hit(
+                        ctx,
+                        lineno,
+                        lineno,
+                        f"第 {lineno} 行将 SQL 常量模板 `{used_name}`（第 {const_vars[used_name]} 行定义）"
+                        "与外部输入拼接（跨行构造 SQL 语句）：外部输入可直接改变语句语义，风险同单行拼接，"
+                        "构成 SQL 注入漏洞，可能导致数据泄露或被篡改；"
+                        "请改为参数化查询（占位符 ?/%s + 参数元组）。",
+                        meta={"sql_const_var": used_name, "const_line": const_vars[used_name]},
+                    )
+                )
+        # ---- P0-3 AST 佐证：ctx.tree 可用时证实命中行的"动态拼接"形态，提升置信 ----
+        self._ast_confirm(ctx, hits)
+        hits.sort(key=lambda h: h.line_start)
         return hits
+
+    def _ast_confirm(self, ctx: RuleContext, hits: list[RuleHit]) -> None:
+        """P0-3 AST 佐证（保守口径）：只在 AST 证实动态拼接形态时提升置信。
+
+        - ctx.tree 为 None（无解析器/降级/环境关闭）→ 空操作，行级逻辑即兜底路径；
+        - 佐证失败 → 命中原样保留（默认置信），**绝不删减既有命中**；
+        - 证实形态：单行命中要求行上出现"字符串参与二元运算（+/%）/ f-string 插值 /
+          .format( 调用"任一 AST 节点；二级传播命中（meta["sql_const_var"]）要求
+          行上出现以该常量为操作数的拼接、常量 .format( 或 f-string ``{常量}`` 插值。
+        """
+        if ctx.tree is None or not hits:
+            return
+        source = ctx.source.encode("utf-8", errors="replace")
+        nodes_by_line = line_node_map(ctx.tree)
+        for hit in hits:
+            nodes = nodes_by_line.get(hit.line_start, [])
+            const_name = hit.meta.get("sql_const_var")
+            if const_name is None:
+                if any(_is_dynamic_string_op(n, source) for n in nodes):
+                    confirm_hit(hit)
+            elif any(_is_const_concat_use(n, source, str(const_name)) for n in nodes):
+                confirm_hit(hit)
 
 
 class EvalExecRule(_PyRule):
@@ -952,12 +1067,54 @@ _CMD_RE = re.compile(r"\bos\s*\.\s*(?:system|popen)\s*\(")
 
 
 class CommandInjectionRule(_PyRule):
-    """os.system/os.popen 拼接变量执行命令。"""
+    """os.system/os.popen 拼接变量执行命令。
+
+    W19-C 增强：补充三类语义等价的注入形态——
+    - subprocess.Popen 首参含变量/拼接/f-string 插值，或 kwargs 传 shell=True
+      （shell=True 时字符串参数会进入 shell 解释，首参为字面量也报）；
+    - os.execv/execve/execvp 参数列表中出现 sh/bash（含 /bin/sh 等路径形态）或
+      "-c" 字样字面量，且后续元素含变量；
+    - subprocess.run/call/check_output/Popen 参数为列表字面量且含 "sh"/"bash" +
+      "-c" 字面量、其后元素含变量/拼接（run 无 shell=True 时列表参数本身安全，
+      只有经 -c 中转才危险）。
+    """
 
     id = "PY-COMMAND-INJECTION"
     category = Category.SECURITY
     severity = Severity.HIGH
-    description = "通过 os.system/os.popen 执行拼接了变量的命令：输入含 shell 元字符时可被命令注入。"
+    description = (
+        "通过 os.system/os.popen 执行拼接了变量的命令：输入含 shell 元字符时可被命令注入。"
+        "亦覆盖 subprocess.Popen 动态首参或 shell=True（字符串参数会进入 shell）、"
+        "os.execv* 以 sh/bash -c 调 shell，以及 run/call/check_output/Popen 列表参数经"
+        " `sh -c <动态命令>` 中转的等价注入形态。"
+    )
+
+    # W19-C 增强形态的调用起点：只认字面模块名（与 _CMD_RE 同风格，不做别名追踪）
+    _SUBPROCESS_CALL_RE: Pattern[str] = re.compile(
+        r"\bsubprocess\s*\.\s*(Popen|run|call|check_output)\s*\("
+    )
+    _OS_EXEC_RE: Pattern[str] = re.compile(r"\bos\s*\.\s*execv(?:e|p)?\s*\(")
+    # shell 中转特征：argv 中的 "-c" 标志与 sh/bash 可执行名
+    _SHELL_FLAG = "-c"
+    _SHELL_PROG_NAMES = frozenset({"sh", "bash"})
+
+    # 命中文案（{line} 由调用处填行号），风格对齐旧 os.system/os.popen 路径
+    _MSG_POPEN_SHELL = (
+        "第 {line} 行调用 `subprocess.Popen` 时传入 `shell=True`：字符串形式的命令参数会交由 shell 解释，"
+        "命令中混入外部输入即可实现命令注入；"
+        "请改用列表参数形式并保持 shell=False（默认），必要时对输入做白名单校验。"
+    )
+    _MSG_POPEN_DYNAMIC = (
+        "第 {line} 行通过 `subprocess.Popen` 执行包含变量/拼接的命令："
+        "输入中混入 `; rm -rf /` 等 shell 元字符即可实现命令注入；"
+        "请改用列表参数形式（shell=False）并对输入做白名单校验。"
+    )
+    _MSG_SHELL_RELAY = (
+        "第 {line} 行通过 shell 中转执行动态命令，等价命令注入："
+        "`sh`/`bash -c`（含 os.execv* 调 shell 或 subprocess 列表参数中转）的 `-c` 之后为变量/拼接内容，"
+        "将交由 shell 解释，混入 `; rm -rf /` 等元字符即可执行任意命令；"
+        "请改用固定参数列表（shell=False）并对动态输入做白名单校验。"
+    )
 
     def check(self, ctx: RuleContext) -> list[RuleHit]:
         scan = get_scan(ctx.lines, ctx.meta)
@@ -988,7 +1145,169 @@ class CommandInjectionRule(_PyRule):
                             "请改用 subprocess 数组参数形式（shell=False）并对输入做白名单校验。",
                         )
                     )
+        hits.extend(self._check_extended_forms(ctx, scan, spans_by_line))
         return hits
+
+    # ------------------------------------------------------------ W19-C 增强
+
+    def _check_extended_forms(
+        self,
+        ctx: RuleContext,
+        scan: PyScan,
+        spans_by_line: dict[int, list[tuple[int, int, str]]],
+    ) -> list[RuleHit]:
+        """subprocess 家族 / os.execv* 三形态检测（均在掩码行上匹配调用起点）。"""
+        # 行偏移前缀和：把 (行, 列) 映射为全文件偏移，使字符串跨度可与参数文本按下标对齐
+        line_offsets = [0]
+        for ln in ctx.lines:
+            line_offsets.append(line_offsets[-1] + len(ln) + 1)
+        hits: list[RuleHit] = []
+        for idx, ln in enumerate(scan.masked):
+            for pat in (self._SUBPROCESS_CALL_RE, self._OS_EXEC_RE):
+                for m in pat.finditer(ln):
+                    col = m.end() - 1
+                    if col < 0 or ln[col] != "(":
+                        continue
+                    span = call_span(scan.masked, idx + 1, col)
+                    if span is None:
+                        continue
+                    end_line, end_col, masked_args = span
+                    args_base = line_offsets[idx] + col + 1
+                    args_end = line_offsets[end_line - 1] + end_col
+                    # 落在本调用参数区间内的字符串字面量：(参数文本内起, 止, 前缀, 原始内容)
+                    literals = [
+                        (
+                            line_offsets[lineno - 1] + a - args_base,
+                            line_offsets[lineno - 1] + b - args_base,
+                            prefix,
+                            ctx.lines[lineno - 1][a:b],
+                        )
+                        for lineno, a, b, prefix in scan.strings
+                        if idx + 1 <= lineno <= end_line
+                        and args_base <= line_offsets[lineno - 1] + a
+                        and line_offsets[lineno - 1] + b <= args_end
+                    ]
+                    if pat is self._OS_EXEC_RE:
+                        template = self._match_exec_relay(masked_args, literals)
+                    else:
+                        template = self._match_subprocess(
+                            masked_args, m.group(1), literals
+                        )
+                    if template:
+                        hits.append(
+                            self.make_hit(
+                                ctx, idx + 1, end_line, template.format(line=idx + 1)
+                            )
+                        )
+        return hits
+
+    def _match_subprocess(
+        self,
+        masked_args: str,
+        func: str,
+        literals: list[tuple[int, int, str, str]],
+    ) -> str | None:
+        """run/call/check_output/Popen：列表 -c 中转 / Popen 动态首参或 shell=True。"""
+        relay = self._match_list_relay(masked_args, literals)
+        if relay:
+            return relay
+        if func != "Popen":
+            return None
+        if re.search(r"\bshell\s*=\s*True\b", masked_args):
+            # shell=True 时首参即便是字面量也会进入 shell 解释
+            return self._MSG_POPEN_SHELL
+        comma = self._first_top_level_comma(masked_args)
+        first_end = comma if comma >= 0 else len(masked_args)
+        fstring_interp = any(
+            "f" in prefix and "{" in content and start < first_end
+            for start, end, prefix, content in literals
+        )
+        if self._has_code_leftover(masked_args[:first_end]) or fstring_interp:
+            return self._MSG_POPEN_DYNAMIC
+        return None
+
+    def _match_exec_relay(
+        self,
+        masked_args: str,
+        literals: list[tuple[int, int, str, str]],
+    ) -> str | None:
+        """os.execv/execve/execvp：出现 sh/bash 或 "-c" 字样字面量且其后含变量。"""
+        marker_end: int | None = None
+        for start, end, prefix, content in literals:
+            if self._is_shell_prog(content) or content.strip() == self._SHELL_FLAG:
+                marker_end = end if marker_end is None else max(marker_end, end)
+        if marker_end is None:
+            return None
+        if self._has_name_leftover(masked_args[marker_end:]):
+            return self._MSG_SHELL_RELAY
+        return None
+
+    def _match_list_relay(
+        self,
+        masked_args: str,
+        literals: list[tuple[int, int, str, str]],
+    ) -> str | None:
+        """列表字面量内 "sh"/"bash" + "-c" 且其后（列表内）元素含变量/拼接 → shell 中转。"""
+        flag: tuple[int, int] | None = None  # 取最后一个 "-c" 字面量跨度
+        for start, end, prefix, content in literals:
+            if content.strip() == self._SHELL_FLAG:
+                flag = (start, end)
+        if flag is None:
+            return None
+        region = self._enclosing_list_region(masked_args, flag[0])
+        if region is None:
+            return None
+        region_start, region_end = region
+        has_prog = any(
+            region_start <= start < flag[0] and self._is_shell_prog(content)
+            for start, end, prefix, content in literals
+        )
+        if not has_prog:
+            return None
+        if self._has_name_leftover(masked_args[flag[1] : region_end]):
+            return self._MSG_SHELL_RELAY
+        return None
+
+    def _is_shell_prog(self, content: str) -> bool:
+        """字面量内容是否为 sh/bash 可执行名（"/bin/sh" 等路径形态归一后判断）。"""
+        name = content.strip().replace("\\", "/").rsplit("/", 1)[-1].lower()
+        return name in self._SHELL_PROG_NAMES
+
+    @staticmethod
+    def _first_top_level_comma(text: str) -> int:
+        """掩码参数文本中首个顶层逗号下标（字符串内容已掩码，逗号只来自代码结构）。"""
+        depth = 0
+        for i, ch in enumerate(text):
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                depth -= 1
+            elif ch == "," and depth == 0:
+                return i
+        return -1
+
+    @staticmethod
+    def _has_code_leftover(text: str) -> bool:
+        """去掉引号后是否残留代码成分（变量/加号等）——命令由动态部分构成。"""
+        return bool(text.replace('"', "").replace("'", "").strip())
+
+    @staticmethod
+    def _has_name_leftover(text: str) -> bool:
+        """是否残留标识符成分（字母/数字/下划线）——存在变量参与。"""
+        return bool(re.search(r"\w", text.replace('"', "").replace("'", "")))
+
+    @staticmethod
+    def _enclosing_list_region(text: str, inner: int) -> tuple[int, int] | None:
+        """返回包含偏移 inner 的最内层 `[...]` 区域（起、止下标）；不在列表内返回 None。"""
+        stack: list[int] = []
+        for i, ch in enumerate(text):
+            if ch == "[":
+                stack.append(i)
+            elif ch == "]" and stack:
+                start = stack.pop()
+                if start <= inner <= i:
+                    return start, i
+        return None
 
 
 # 敏感词精确匹配集（R1-9）：标识符按 _/驼峰分词并做单数归一（R4-1）后，token 必须
@@ -1044,7 +1363,7 @@ def _charset_diversity(text: str) -> int:
     )
 
 
-class HardcodedSecretRule(_PyRule):
+class HardcodedSecretRule(_PyRule, HardcodedSecretRuleFamily):
     """硬编码密钥/口令（对应金标 G10）。
 
     R1-9 判定口径：
@@ -1056,12 +1375,12 @@ class HardcodedSecretRule(_PyRule):
       即命中——真实口令常是低熵自然词组合（mysupersecretkey），高熵闸门漏报；
     - 或值为 sk- 前缀的 API key 形态（同样要求随机性校验）。
     低熵占位串（"changeme"、"sk-aaaa..."）与中文提示文案不再误报。
+
+    W15-D：category/severity/description/mask_snippet 上收至 HardcodedSecretRuleFamily
+    （两语言完全一致）；检测强度两语言有意不同（见家族基类决策记录）。
     """
 
     id = "PY-HARDCODED-SECRET"
-    category = Category.SECURITY
-    severity = Severity.CRITICAL
-    description = "密钥/口令硬编码在源码中：随代码库扩散，任何有读权限的人都能获取凭据。"
 
     _ASSIGN_RE: Pattern[str] = re.compile(r"^\s*(?P<name>[A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(?P<q>['\"])")
 
@@ -1072,7 +1391,9 @@ class HardcodedSecretRule(_PyRule):
             if not m:
                 continue
             q_col = m.end() - 1
-            value = self._string_value(raw, q_col)
+            # W15-D：字符串取值收敛至 _scan_common.string_value；
+            # escape_mode="none" 保持 Python 历史语义（反斜杠不转义跳转，见该函数 docstring）
+            value = string_value(raw, q_col, escape_mode="none")
             if value is None:
                 continue
             name = m.group("name")
@@ -1120,16 +1441,6 @@ class HardcodedSecretRule(_PyRule):
         if _shannon_entropy(value) >= 3.0:
             return True
         return _charset_diversity(value) >= 2
-
-    @staticmethod
-    def _string_value(raw: str, quote_col: int) -> str | None:
-        if quote_col >= len(raw) or raw[quote_col] not in "'\"":
-            return None
-        q = raw[quote_col]
-        end = raw.find(q, quote_col + 1)
-        if end < 0:
-            return None
-        return raw[quote_col + 1 : end]
 
 
 class UnsafeDeserializeRule(_PyRule):

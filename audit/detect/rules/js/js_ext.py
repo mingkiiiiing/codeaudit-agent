@@ -17,6 +17,7 @@ import re
 from typing import Pattern
 
 from audit.detect.base import Rule, RuleContext, RuleHit
+from audit.detect.rules._scan_common import string_value
 from audit.detect.rules.js._js_common import (
     call_span,
     enclosing_function,
@@ -110,20 +111,13 @@ def _top_level_split(text: str) -> list[str]:
 
 
 def _string_literal_value(raw: str, quote_col: int, quote: str) -> str | None:
-    """从 raw 的 quote_col 处开引号提取字符串内容（处理转义；未闭合返回 None）。"""
-    i = quote_col + 1
-    out: list[str] = []
-    while i < len(raw):
-        ch = raw[i]
-        if ch == "\\":
-            out.append(raw[i : i + 2])
-            i += 2
-            continue
-        if ch == quote:
-            return "".join(out)
-        out.append(ch)
-        i += 1
-    return None
+    """从 raw 的 quote_col 处开引号提取字符串内容（处理转义；未闭合返回 None）。
+
+    W15-D：实现收敛至 ``_scan_common.string_value``，以 ``escape_mode="keep"``
+    保持本模块历史语义——转义序列按原文两字符保留进结果
+    （与 javascript.py 的 JS-HARDCODED-SECRET「跳过且不保留」有意不同）。
+    """
+    return string_value(raw, quote_col, quote, escape_mode="keep")
 
 
 # ==================================================================== performance 类

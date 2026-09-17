@@ -28,8 +28,17 @@
   1=强制串行；>1=指定并发度（文件数不足阈值仍串行）；
 - 行为等价铁律：命中集合与串行版完全一致（同输入→同 hits，顺序可以不同但内容
   等价，最终统一排序）。worker（_scan_file_worker，模块级、spawn 安全）只负责
-  重建 RuleContext（tree=None，python 文件预计算 meta["pyscan"]）并逐规则 check；
-  行内抑制过滤（filter_suppressed）、rule_errors 记账与排序全部留在主进程；
+  重建 RuleContext（python 文件同样就地解析 AST 传 tree，与串行同口径；另预计算
+  meta["pyscan"]）并逐规则 check；行内抑制过滤（filter_suppressed）、rule_errors
+  记账与排序全部留在主进程；
+
+AST 接线（P0-3，AST 断供修复）：构建 RuleContext 时对 python 文件用 tree-sitter
+解析 AST 传入 ctx.tree（见 audit.detect.ast_util.AstParseGate）——解析失败/超时/
+无解析器/环境开关关闭一律降级为 None 继续扫描，绝不阻断；串行与并行 worker
+同口径解析（同源码→同树→同命中，行为等价铁律不破）。既有规则以 ctx.tree 为
+佐证通道（AST 证实→提升置信 meta["ast_confirmed"]=True / confidence+0.1），
+tree=None 时保留行级逻辑为兜底路径，既有命中一律不删减；新规则 PY-NONE-DEREF
+为 AST-only（tree=None 时返回空，不产命中）。
 - 优雅降级：进程池创建失败 / 平台不支持 / payload 不可 pickle → 整体回退串行，
   原因记录在 ctx.extra["rule_scan_parallel"]={"enabled": False, "reason": ...}；
   成功时记录 {"enabled": True, "workers": N, "files": M}。
@@ -38,19 +47,26 @@
 from __future__ import annotations
 
 import inspect
+import importlib
 import multiprocessing
 import os
 import re
 from concurrent.futures import Executor, ProcessPoolExecutor
+from fnmatch import fnmatch
 from typing import Any, Awaitable, Callable, Sequence
 
+from audit.detect.ast_util import AstParseGate, ast_enabled
 from audit.detect.base import RuleContext, RuleRegistry
 from audit.detect.registry import get_registry
 from audit.detect.rules._python_common import scan_python
-from audit.models import Category, Issue, IssueSource, RuleHit, Severity, Symbol
+from audit.models import SEVERITY_WEIGHT, Category, Issue, IssueSource, RuleHit, Severity, Symbol
 from audit.pipeline import PipelineContext
 from audit.utils import guess_language, make_id
 from audit.workspace import WorkspaceContext
+
+# P0-3 AST 接线语言名单：python（W23 首批，三规则佐证 + PY-NONE-DEREF）、
+# java（W24 跟进，三规则佐证）；js/ts 规则仍为行级启发式，不在名单。
+_AST_LANGUAGES = ("python", "java")
 
 __all__ = [
     "IssueReviewFn",
@@ -96,20 +112,45 @@ _SUGGESTION_BY_CATEGORY: dict[Category, str] = {
 # ---------------------------------------------------------------- 上下文构建
 
 
+def _config_ignore_patterns(ctx: PipelineContext) -> list[str]:
+    """读取 config.ignore_paths（W22-C；防御式：非 AuditConfig 对象缺字段时按空）。"""
+    raw = getattr(ctx.config, "ignore_paths", None) or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(p) for p in raw if str(p).strip()]
+
+
+def _matches_ignore_pattern(rel: str, pattern: str) -> bool:
+    """单条 ignore 模式命中判定（W22-C）：fnmatch 全路径，或目录前缀（vendor/ 覆盖整目录）。"""
+    pat = pattern.replace("\\", "/").rstrip("/")
+    if not pat:
+        return False
+    posix = rel.replace("\\", "/")
+    return fnmatch(posix, pat) or posix.startswith(pat + "/")
+
+
 def build_rule_contexts(ctx: PipelineContext) -> list[RuleContext]:
     """遍历工作区源文件，构建每个文件的规则检查上下文。
 
     - 语言用 audit.utils.guess_language 按扩展名判定，非源码文件跳过；
+    - W22-C：config.ignore_paths 命中的文件跳过（一处过滤同时决定规则扫描与
+      LLM 审查的文件清单——run_detection 的 review jobs 复用本函数产物）；
     - symbols 通过 ctx.index.symbols_for_file 获取（IndexStore 接口），索引缺失或
       查询异常时置空——规则不依赖索引也能工作；
-    - Python 文件额外预计算掩码扫描结果（ctx.meta["pyscan"]）供各规则复用。
+    - Python 文件额外预计算掩码扫描结果（ctx.meta["pyscan"]）供各规则复用；
+    - P0-3 AST 接线：python 文件用 tree-sitter 解析 AST 传入 ctx.tree；失败/超时/
+      无解析器/环境关闭降级为 None（绝不阻断）；接线统计写 ctx.extra["ast_wiring"]。
     """
     contexts: list[RuleContext] = []
+    ignore_patterns = _config_ignore_patterns(ctx)
+    gate = AstParseGate()
     for path in ctx.workspace.source_files(ctx.config.languages or None):
         try:
             rel = ctx.workspace.rel(path)
             language = guess_language(rel)
             if not language:
+                continue
+            if ignore_patterns and any(_matches_ignore_pattern(rel, p) for p in ignore_patterns):
                 continue
             text = ctx.workspace.read_file_text(rel)
         except Exception:
@@ -121,17 +162,29 @@ def build_rule_contexts(ctx: PipelineContext) -> list[RuleContext]:
                 symbols = list(ctx.index.symbols_for_file(rel))
             except Exception:
                 symbols = []
+        tree = gate.parse(language, text) if language in _AST_LANGUAGES else None
         rc = RuleContext(
             rel_path=rel,
             language=language,
             source=text,
             lines=lines,
-            tree=None,
+            tree=tree,
             symbols=symbols,
         )
         if language == "python":
             rc.meta["pyscan"] = scan_python(lines)
         contexts.append(rc)
+    try:  # 接线观测（尽力而为：ctx 无 extra 时静默跳过）
+        extra = getattr(ctx, "extra", None)
+        if isinstance(extra, dict):
+            extra["ast_wiring"] = {
+                "enabled": ast_enabled(),
+                "parsed": gate.stats["parsed"],
+                "degraded": gate.stats["degraded"],
+                "reason": gate.disabled_reason,
+            }
+    except Exception:
+        pass
     return contexts
 
 
@@ -222,16 +275,19 @@ def _scan_file_worker(payload: tuple) -> tuple[list[dict], dict[str, str]]:
 
     Windows spawn 安全约束：必须保持模块级函数；入参与返回值均可 pickle。
     入参 payload：(rel_path, language, source, symbols 序列化列表, disabled_rules,
-    该文件适用的规则实例列表)。worker 端重建 RuleContext（tree=None；python 文件
-    预计算 meta["pyscan"]，与 build_rule_contexts 同口径）并逐规则 check，返回
+    该文件适用的规则实例列表)。worker 端重建 RuleContext（python 文件就地解析
+    AST 传 tree——与 build_rule_contexts 同源码同口径，保证串行/并行行为等价；
+    另预计算 meta["pyscan"]）并逐规则 check，返回
     (RuleHit.to_dict 列表, {规则 id: 错误摘要})。行内抑制过滤（filter_suppressed）
     留在主进程做——与串行路径完全同口径，保证行为等价。
     """
     rel_path, language, source, symbols_payload, disabled_rules, rules = payload
     lines = source.splitlines()
     symbols = [Symbol.from_dict(s) if isinstance(s, dict) else s for s in symbols_payload]
+    # P0-3：worker 端同样接线 AST（独立 Gate 实例，无跨进程共享状态，spawn 安全）
+    tree = AstParseGate().parse(language, source) if language in _AST_LANGUAGES else None
     rc = RuleContext(
-        rel_path=rel_path, language=language, source=source, lines=lines, tree=None, symbols=symbols
+        rel_path=rel_path, language=language, source=source, lines=lines, tree=tree, symbols=symbols
     )
     if language == "python":
         rc.meta["pyscan"] = scan_python(lines)
@@ -365,8 +421,12 @@ def _config_scan_workers(ctx: PipelineContext) -> int:
 
 
 def run_rules(ctx: PipelineContext, registry: RuleRegistry | None = None) -> list[RuleHit]:
-    """对工作区全部源文件执行注册表中该语言的全部规则，返回聚合 RuleHit。"""
+    """对工作区全部源文件执行注册表中该语言的全部规则，返回聚合 RuleHit。
+
+    W22-C：config.disabled_rules 在此合并进 extra（公共 API 直调同样生效）。
+    """
     registry = registry or get_registry()
+    _merge_config_disabled_rules(ctx, registry)
     contexts = build_rule_contexts(ctx)
     hits = _run_rules_on_contexts(
         contexts, registry, ctx.extra, rule_scan_workers=_config_scan_workers(ctx)
@@ -480,6 +540,53 @@ def dedup_issues(issues: Sequence[Issue]) -> list[Issue]:
     return kept
 
 
+# ---------------------------------------------------------------- 后处理扫描器挂点
+
+# W16 全库后处理扫描器（各模块暴露 run(ctx) -> list[Issue]；延迟导入，可独立缺席）。
+# 环境变量 CODEAUDIT_DISABLE_POST_SCAN=1 全关；=逗号分隔模块名则只关列出的。
+_POST_SCANNERS: tuple[str, ...] = (
+    "audit.detect.crossfile",
+    "audit.detect.deadcode",
+    "audit.depcheck.scanner",
+)
+
+
+def _post_scan_disabled() -> set[str]:
+    """解析 CODEAUDIT_DISABLE_POST_SCAN：'1' 全关；模块全名集合按名关。"""
+    raw = os.environ.get("CODEAUDIT_DISABLE_POST_SCAN", "").strip()
+    if not raw:
+        return set()
+    if raw == "1":
+        return set(_POST_SCANNERS)
+    return {part.strip() for part in raw.split(",") if part.strip()}
+
+
+def _post_scan_issues(ctx: PipelineContext, id_start: int) -> list[Issue]:
+    """执行全部后处理扫描器并统一补号（id 从 id_start 起，避免与规则/LLM 编号冲突）。
+
+    每个扫描器独立 try/except：缺失（尚未实现/未接线）或运行异常只记入
+    ctx.extra["post_scan_errors"]，绝不阻断主检测流程。
+    """
+    issues: list[Issue] = []
+    errors: dict[str, str] = ctx.extra.setdefault("post_scan_errors", {})
+    disabled = _post_scan_disabled()
+    next_id = id_start
+    for mod_name in _POST_SCANNERS:
+        if mod_name in disabled:
+            continue
+        try:
+            module = importlib.import_module(mod_name)
+            found = [i for i in (module.run(ctx) or []) if isinstance(i, Issue)]
+        except Exception as exc:  # 扫描器故障不阻断整体检测
+            errors[mod_name] = repr(exc)
+            continue
+        for issue in found:
+            issue.id = make_id("ISS", next_id)
+            next_id += 1
+            issues.append(issue)
+    return issues
+
+
 # ---------------------------------------------------------------- Verify 复核接入
 
 
@@ -538,6 +645,110 @@ async def apply_verify(
     return kept, stats
 
 
+# ---------------------------------------------------------------- W22-B 风险聚焦选择器
+
+
+def _select_review_contexts(
+    ctx: PipelineContext,
+    contexts: list[RuleContext],
+    hits: Sequence[RuleHit],
+) -> list[RuleContext]:
+    """风险聚焦（W22-B）：LLM 审查只深审风险分 top-N 文件。
+
+    - config.llm_review_top_files <= 0 或文件数未超 → 原样全量（默认行为零变化）；
+    - 风险分 = 文件规则命中按 SEVERITY_WEIGHT 加权求和（critical=10/high=5/
+      medium=2/low=0.5）；无命中文件（含 llm_only 模式）按行数降序垫底；
+    - tie-break：文件路径字典序——同输入同选择，不破坏审计确定性不变量；
+    - 被排除文件的规则候选照常进入报告（两级审计：规则兜底全量，LLM 深审 top-N）。
+    """
+    try:
+        top = int(getattr(ctx.config, "llm_review_top_files", 0) or 0)
+    except (TypeError, ValueError):
+        top = 0
+    if top <= 0 or len(contexts) <= top:
+        return contexts
+
+    risk_by_file: dict[str, float] = {}
+    for h in hits:
+        sev = h.severity.value if isinstance(h.severity, Severity) else str(h.severity)
+        risk_by_file[h.file] = risk_by_file.get(h.file, 0.0) + SEVERITY_WEIGHT.get(sev, 0.0)
+
+    def _sort_key(rc: RuleContext) -> tuple[int, float, str]:
+        risk = risk_by_file.get(rc.rel_path, 0.0)
+        if risk > 0:
+            return (0, -risk, rc.rel_path)
+        return (1, -float(len(rc.lines)), rc.rel_path)  # 无命中：大文件优先
+
+    return sorted(contexts, key=_sort_key)[:top]
+
+
+# ---------------------------------------------------------------- W22-C 规则级配置接线
+
+
+def _merge_config_disabled_rules(ctx: PipelineContext, registry: RuleRegistry) -> None:
+    """把 config.disabled_rules 并入 ctx.extra["disabled_rules"]（W22-C）。
+
+    未知规则 id 记 ctx.extra["rule_config_warnings"]；与既有 extra 注入口
+    （测试/内部路径）合并存续。run_rules 与 run_detection 两个入口都调用，
+    保证公共 API 直调时 config 同样生效。
+    """
+    disabled = list(getattr(ctx.config, "disabled_rules", None) or [])
+    if not disabled:
+        return
+    known = {r.id for r in registry.all_rules}
+    valid: list[str] = []
+    warnings: list[str] = ctx.extra.setdefault("rule_config_warnings", [])
+    for rid in disabled:
+        if rid in known:
+            valid.append(rid)
+        else:
+            warnings.append(f"disabled_rules 含未知规则 id：{rid}（已忽略）")
+    if valid:
+        merged = set(ctx.extra.get("disabled_rules") or ())
+        merged.update(valid)
+        ctx.extra["disabled_rules"] = merged
+
+
+def _apply_rule_config(ctx: PipelineContext, registry: RuleRegistry) -> dict[str, Severity]:
+    """把 config 的规则级配置接入检测（W22-C），返回可用的严重度覆盖表。
+
+    - disabled_rules：经 _merge_config_disabled_rules 并入 ctx.extra（既有拦截点
+      _run_rules_on_contexts 消费，串行与并行 worker 同口径）；
+    - severity_overrides：返回 {rule_id: Severity}，由调用方在 hits 聚合后统一改写
+      （保证 LLM hints、verify 触发阈值与报告三处同口径）；
+    - 未知规则 id 与非法严重度值记 ctx.extra["rule_config_warnings"]，不阻断检测。
+    """
+    _merge_config_disabled_rules(ctx, registry)
+    warnings: list[str] = ctx.extra.setdefault("rule_config_warnings", [])
+    overrides_raw = getattr(ctx.config, "severity_overrides", None) or {}
+    overrides: dict[str, Severity] = {}
+    if isinstance(overrides_raw, dict) and overrides_raw:
+        known = {r.id for r in registry.all_rules}
+        for rid, value in overrides_raw.items():
+            if rid not in known:
+                warnings.append(f"severity_overrides 含未知规则 id：{rid}（已忽略）")
+                continue
+            try:
+                overrides[rid] = Severity(str(value))
+            except ValueError:
+                warnings.append(
+                    f"severity_overrides[{rid}] 非法严重度：{value}"
+                    "（合法值 critical|high|medium|low，已忽略）"
+                )
+    return overrides
+
+
+def _apply_severity_overrides(hits: list[RuleHit], overrides: dict[str, Severity]) -> list[RuleHit]:
+    """按覆盖表就地改写 hits 严重度（无覆盖表原样返回）。"""
+    if not overrides:
+        return hits
+    for h in hits:
+        target = overrides.get(h.rule_id)
+        if target is not None:
+            h.severity = target
+    return hits
+
+
 # ---------------------------------------------------------------- 总入口
 
 
@@ -566,6 +777,7 @@ async def run_detection(
     verify_fn 为 None 时行为与旧版完全一致；消融开关语义见 docs/08 §3（契约 v1.3）。
     """
     registry = get_registry()
+    severity_overrides = _apply_rule_config(ctx, registry)  # W22-C：规则级配置接线
     llm_only = bool(getattr(ctx.config, "llm_only_mode", False))
     contexts = build_rule_contexts(ctx)
     if llm_only:  # 纯 LLM 模式：跳过规则执行（文件清单仍复用 build_rule_contexts）
@@ -575,8 +787,14 @@ async def run_detection(
         hits = _run_rules_on_contexts(
             contexts, registry, ctx.extra, rule_scan_workers=_config_scan_workers(ctx)
         )
+        _apply_severity_overrides(hits, severity_overrides)  # W22-C：hits_to_issues 前统一改写
         ctx.rule_hits = hits
     rule_issues = hits_to_issues(hits, id_start=1, registry=registry)
+    # W16 后处理扫描器挂点（克隆/死代码/依赖与配置安全，验收短板清偿）：
+    # 非 llm_only 模式下在规则候选之后追加全库级 Issue；llm_only 语义为跳过全部
+    # 静态检测，故同步跳过。扫描器缺失/异常只记账（post_scan_errors），不阻断。
+    if not llm_only:
+        rule_issues.extend(_post_scan_issues(ctx, id_start=len(rule_issues) + 1))
 
     info: dict[str, Any] = {
         "mode": "llm_only" if llm_only else "rule",
@@ -616,19 +834,37 @@ async def run_detection(
         per_file_results: dict[str, list[Issue]] = {}
         failed_files: set[str] = set()
 
-        if len(contexts) > 1:
+        # W22-B：风险聚焦——LLM 只深审 top-N 高风险文件（默认 0=全量零变化）
+        review_contexts = _select_review_contexts(ctx, contexts, hits)
+        if len(review_contexts) < len(contexts):
+            ctx.extra["llm_focus"] = {
+                "enabled": True,
+                "selected": len(review_contexts),
+                "total": len(contexts),
+            }
+            try:
+                await ctx.emit(
+                    "detect",
+                    f"风险聚焦：LLM 深审 {len(review_contexts)}/{len(contexts)} 个高风险文件，其余仅规则通道",
+                    selected=len(review_contexts),
+                    total=len(contexts),
+                )
+            except Exception:  # pragma: no cover - 进度事件尽力而为
+                pass
+
+        if len(review_contexts) > 1:
             # 文件级并发审查（同进程内直接调用 W2-A3 的 review_files_parallel）
             from audit.agents.review import review_files_parallel
 
-            jobs = [(rc.rel_path, _hints_of(rc.rel_path)) for rc in contexts]
+            jobs = [(rc.rel_path, _hints_of(rc.rel_path)) for rc in review_contexts]
             per_file_results = await review_files_parallel(ctx, jobs, review_fn=review_fn)
             # R1-20 差集判定：review_files_parallel 只为成功的文件返回条目（失败文件
             # 返回 None 不入结果），用"全部 job − 成功集合"判定失败，避免依赖
             # review_errors 的前后差集（同文件重复失败且消息相同时会漏计）。
             failed_files = {rel for rel, _ in jobs} - set(per_file_results)
-        elif contexts:
+        elif review_contexts:
             # 单文件：保持原有顺序路径（含逐文件异常记录语义）
-            rc0 = contexts[0]
+            rc0 = review_contexts[0]
             try:
                 result = review_fn(ctx.workspace, rc0.rel_path, _hints_of(rc0.rel_path))
                 if inspect.isawaitable(result):
@@ -638,7 +874,7 @@ async def run_detection(
                 ctx.extra.setdefault("review_errors", {})[rc0.rel_path] = repr(exc)
                 failed_files.add(rc0.rel_path)
 
-        for rc in contexts:
+        for rc in review_contexts:
             if rc.rel_path in failed_files:
                 continue
             info["files_reviewed"] += 1

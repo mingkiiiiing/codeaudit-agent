@@ -19,12 +19,13 @@ full                   P≥0.85、R≥0.6（基线）
 −cache                 增量审计耗时回升至全量水平
 rules_only             Precision 低、跨文件/语义问题 R≈0
 llm_only               P、R 双降 + token 成本上升
+llm_focus              耗时/tokens 大幅下降，P 降幅 ≤3pp（W22-B 翻默认判据）
 =====================  =========================================
 """
 
 from __future__ import annotations
 
-# 7 组配置名 → config_overrides。
+# 8 组配置名 → config_overrides。
 # 键名约定：以 "_" 开头的键为占位说明，不是 AuditConfig 字段（当前已零占位）。
 ABLATION_CONFIGS: dict[str, dict] = {
     # 完整系统基线
@@ -41,13 +42,15 @@ ABLATION_CONFIGS: dict[str, dict] = {
     "rules_only": {"enable_llm_review": False},
     # 跳过静态规则，仅 LLM 全量审查（契约 v1.3：llm_only_mode 已落地）
     "llm_only": {"llm_only_mode": True},
+    # W22-B 风险聚焦：LLM 只深审风险分 top 25 文件（翻默认判据见 docs/19）
+    "llm_focus": {"llm_review_top_files": 25},
 }
 
 
 def is_placeholder(overrides: dict) -> bool:
     """配置是否仍为占位（含以 "_" 开头的说明键，无法映射到 AuditConfig 字段）。
 
-    7 组配置全部真实化后，对合法配置恒返回 False；保留以兼容历史调用方。
+    8 组配置全部真实化后，对合法配置恒返回 False；保留以兼容历史调用方。
     """
     return any(str(key).startswith("_") for key in overrides)
 

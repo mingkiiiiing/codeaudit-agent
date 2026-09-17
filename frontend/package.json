@@ -1,7 +1,7 @@
 {
   "name": "codeaudit-frontend",
   "private": true,
-  "version": "0.5.0",
+  "version": "0.6.0",
   "type": "module",
   "description": "CodeAudit Agent Web 前端（React 18 + TS + Vite + antd 5）",
   "scripts": {

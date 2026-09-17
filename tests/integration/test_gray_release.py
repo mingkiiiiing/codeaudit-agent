@@ -41,6 +41,8 @@ FROZEN_API_ROUTES = {
     "/api/audits/{audit_id}/report",
     "/api/audits/{audit_id}/issues",
     "/api/audits/{audit_id}/patches",
+    # P0-2（apply-to-source 预览确认回路）：补丁回写源码端点，语义与 CLI apply 一致
+    "/api/audits/{audit_id}/patches/{patch_index}/apply",
     "/api/audits/{audit_id}/summary",
     "/api/audits/{audit_id}/understand",
     "/api/audits/{audit_id}/refactors",

@@ -4,6 +4,135 @@
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [Unreleased]
+
+Wave 13（CI 在线评估、Docker 沙箱后端、多 worker 压测基线、前端降级展示）、Wave 14（全方位审查清偿：报告安全、沙箱可靠性、服务端运维、文档一致性）、Wave 15（全库四维审计清偿：服务端安全治理、多 worker 存储一致性、依赖与 CI 自举、规则族收敛、重构执行闭环、测试盲区补齐）与 Wave 16（专项验收短板清偿：依赖与配置安全扫描、克隆与死代码检测、重构方案分级、分层架构与命名/PII 规则补缺）。API 契约形状零变化（新增治理能力均为 opt-in，env 缺省 = 既有行为）；W13/W14/W15 方案与收口记录分别见 docs/18、docs/19、docs/20。
+
+### Added（Wave 23 审计 P0 第二轮清偿，docs/22）
+
+- **W23-A apply-to-source 预览确认回路（P0-2）**：`codeaudit apply <audit_id> [--patch N] [--all-verified] [--yes]` 把审计补丁应用回源码——**默认 dry-run 预览不落盘**，`--yes` 才写入；服务端新增 `POST /api/audits/{id}/patches/{n}/apply`（语义与 CLI 一致，gray_release 路由冻结断言同步）。原文指纹（Patch.target_sha256 生成侧补记）：目标文件被审计后手改过（sha256 不一致）→ 拒绝该 patch；任何拒绝整体不落盘（all-or-nothing）；老报告无指纹可预览不可落盘（诚实降级）。
+- **W23-B AST 断供修复（P0-3）**：python 文件在 build_rule_contexts 与并行 worker 同口径经 tree-sitter 解析传入 `ctx.tree`（同源码→同树→同命中）；失败/超时/无解析器/`CODEAUDIT_DISABLE_AST=1` 降级 None 绝不阻断，统计写 `extra["ast_wiring"]`。SQL 注入/并发 2 规则/ORM N+1 三规则 AST 佐证只提升置信（`meta["ast_confirmed"]`，confidence 0.7→0.8），命中行号集合与无 AST 完全一致（金标零回退实测达成）。新规则 `PY-NONE-DEREF`（bug/high，AST-only：同函数 None 赋值→解引用；tree=None 不产命中），静态规则库 82 → **83 条**。
+- **W23-C 测试覆盖盲区识别（P0-5）**：报告新增 `untested_hotspots` 节——critical/high 命中的非测试文件公开符号经索引 call_graph callers 反查零测试触达即盲区，输出 TOP 20 + 占比 + methodology（动态调用偏悲观、resolved_ratio 偏低放大误差等局限随节诚实标注，仅供测试补充排期参考）。`AuditReport.untested_hotspots` 为带默认值可选字段（旧报告兼容，契约 schema 不破坏）。
+- **W23-D commit message / PR 描述生成（P0-8）**：`apply` 命令新增 `--commit-message` / `--pr-description`（纯字符串拼接、零 LLM token）；单补丁模板 `fix(<category>): <title> (<rule_id>)`、多补丁去重；rule_id 经 Issue.evidence 的 `rule:XXX` 证据行反查（与 SARIF 导出同款约定，契约零变化），反查不到降级 `fix(general): … (unknown-rule)`；PR 描述含逐补丁验证状态表（tests_run=0 显式标"未运行"、compat_notes 非空才列）；dry-run 输出带「（预览）」标注。
+- 联调与验收：四卡新增 106 用例、全量 pytest 2036 passed（基线 1930）、ruff 绿、demo 闭环 verified、金标 10 项目 240 标签 P=1.000 / R=0.844 / F1=0.916（与基线逐位一致）、gray_release 集成含 apply 端点断言 4 passed。P0-1/P0-7（成本三项翻默认、模型路由 fallback）维持阻塞于 GLM 账户余额（HTTP 429），充值后按 docs/21 §5 判据对数。
+
+### Added（Wave 24 Java 语言包 / resume 断点续跑 / 体验快赢，docs/23）
+
+- **W24-A Java 语言包（P0-4）**：`tree-sitter-java` 接入——`SUPPORTED_LANGUAGES` 3 → **4 语言**，maven/gradle/src 根 FQN 推导、import 三形态（普通/static/通配）别名解析、变量声明类型推断调用点解析（语料 resolved_ratio 实测 **0.517 ≥ 0.4**）；新规则 `JAVA-SQL-INJECTION`（critical）/`JAVA-HARDCODED-SECRET`（critical，复用 python 熵闸门口径）/`JAVA-LONG-FUNCTION`（style/medium，>80 行），AST 佐证走 W23 既有 `confirm_hit` 通路且 engine `_AST_LANGUAGES` 扩 java（js/ts 维持行级）；13 文件语料端到端实测三规则命中 8 处、8 反例零误报、AST 解析生效率 100%；金标存量 10 项目逐位零回退（双门断言口径落地）。
+- **W24-C resume 断点续跑 + 报告对比（P0-6）**：`audits.stage_done` 列（老库 ALTER 自动迁移）+ 阶段完成即发结构化 `stage_done` 事件（同一事务幂等并入列，事件可见⇔进度可见）；重启 sweep 分流——running 且带进度 → **interrupted**（工作副本/索引保留、count_active 排除、prune 守卫拒绝淘汰），无进度 → failed（既有语义逐字节保留）；pipeline `resume_stages` 恢复参数：ingest 跳过重拷、index 仅重开既有库不重建（重开失败回落全量）；`codeaudit diff <A> <B>` 报告对比三栏（fixed/new/persisted，(file, rule, 行号±3) 匹配，audit_id / report.json 路径双支持）。
+- **W24-B 体验三件（P1-快赢，第三轮起遗留整批清偿）**：①`verify_stats` + `ast_wiring` 进报告「检测质量观测」节（verify 四态表 + AST 解析生效率，有则渲染无则省略，JSON 通道零新字段）；②CLI 实时进度——`cmd_run` 逐阶段输出 `[stage n/7]` 到 stderr（`--check` 门禁 stdout 纯净契约不破，`--quiet` 可关）；③`codeaudit doctor`（零 Key 环境自检：Python/git/语言包/.env/配置/Docker 八类，失败退出 1、仅警告退出 0，键值绝不回显）+ `codeaudit init`（.codeaudit.toml 注释模板骨架，已存在拒绝覆盖）。
+- **apply P2 加固（第四轮审计清偿）**：symlink 目标规划期+写入期双重拒绝（防 os.replace 静默把链接替换为普通文件）；生成侧多补丁同文件指纹链顺序语义显式化（docstring 声明勿并行化）。
+- 联调与验收：三卡新增 105 用例 + 集成人接线四件（engine java AST / cli diff / 规则手册 java 语言表 86 条 / apply P2）；联调发现并修复 5 处集成冲突（同一根因：stage_done 事件补 `message` 键满足事件协议不变式）；全量 pytest **2140 passed**（基线 2036 + 净新增 104）、ruff 全域绿、demo 闭环 verified（10.0s）、金标 **P=1.000 / R=0.844 / F1=0.916 与基线逐位一致**。P0-1/P0-7 维持阻塞于 GLM 账户余额（HTTP 429）。
+
+### Added（Wave 22 审计报告短期 P0 清偿，docs/21）
+
+- **W22-D 非回环绑定强制 token（安全默认）**：`codeaudit serve --host <非回环>` 且未设 `CODEAUDIT_API_TOKEN` 且未传 `--allow-insecure` 时拒绝启动（中文报错 + 退出码 1）——堵住"`0.0.0.0` 无鉴权裸奔"部署洞；回环绑定（默认 127.0.0.1/localhost/[::1]）行为零变化。+10 用例（三分支 + 回环判定形态）。
+- **W22-C 规则级配置暴露**：`AuditConfig` 新增 `disabled_rules` / `severity_overrides` / `ignore_paths` 三键（默认空 = 行为零变化），配置文件（`.codeaudit.toml` / `[tool.codeaudit]`）与 CLI（`--disable-rule` / `--ignore-path`，可多次）双入口——按项目裁剪审计口径。禁用经既有 `extra["disabled_rules"]` 拦截点（串行/并行同口径，run_rules 与 run_detection 双入口接线）；严重度覆盖在 hits 层单点改写（LLM hints、verify 触发、报告三处同口径）；路径白名单在 build_rule_contexts 过滤（一处同时决定规则扫描与 LLM 审查清单，不影响索引与后处理扫描器）。未知规则 id / 非法严重度记 `extra["rule_config_warnings"]`。+16 用例。
+- **W22-A 工具循环消息预算**：`AgentLimits.message_budget_chars`（默认 0=不限）+ `AuditConfig.agent_message_budget`（默认 60_000 字符）——tools 审查路径每轮请求前超预算从最旧 tool 消息折叠 content（保留 160 字符前缀 + 折叠标记，只缩短不删消息保 tool_call/tool 配对，标记幂等，折叠尽仍超则保守停止）。清偿在线实测 completion:prompt=3:1 异常的主因（工具结果逐轮累积不裁剪）。+6 用例。注：`audit/agent/base.py` 为契约文件，本次改动为带默认值增量字段（既有构造点零变化），消费点同批次接线。
+- **W22-B 风险聚焦两级审计（默认关闭）**：`llm_review_top_files`（**默认 0=全量，行为零变化**；>0 = LLM 通道只深审风险分 top-N 文件，规则候选仍全量入报告）。风险分 = 规则命中按 SEVERITY_WEIGHT 加权，无命中文件（含 llm_only）按行数降序垫底，tie-break 路径字典序（审计确定性不变量不破坏）；simple/tools/llm_only 全模式生效；生效时 `extra["llm_focus"]` 统计 + 汇总进度事件。默认值翻转判据与 flash 对数结论见 docs/21 §5。+8 用例。
+- **W22-F 受影响测试选择**：fix 阶段现有测试验证从整库运行改为优先聚焦——issue 所在符号经调用图 `callers` 方向收集直接调用方中的测试文件（`test_*.py`/`*_test.py`），单文件聚焦运行（沙箱 `run_tests` 原生 target 参数，沙箱层零改动）；聚焦未收集到用例（pytest exit 5）自动整库兜底复跑；收集不到（无索引/无命中/反查异常）回退整库并在事件中如实标注。`fix_stats` 新增 `focused_tests_runs` 计数。+8 用例。
+- **W22-E 基准对数（GLM-5.3 Flash）**：消融配置表新增第 8 组 `llm_focus`（top 25）；`bench/w22_focus_compare.py` 一次性对数脚本（full vs llm_focus，10 项目 240 金标，模型 glm-5.3-flash，.env 自动加载口径与 CLI 一致）；dry-run 预检通过（零 Key）。在线真跑因 **GLM 账户余额不足**（HTTP 429）未执行成功、无效产物未落盘——待充值后重跑并回填 docs/21 §5，判据达标才翻 W22-B 默认值。
+
+### W21
+
+- **F5 degraded 误报警告修复**：refactor 阶段事件的 `degraded` 计数字段与编排层降级布尔标志同名，CLI 曾把重构方案 LLM 降级计数误判为 ingest 降级并误打"[警告] ingest 未成功"——判断改为仅认 `degraded is True`，+2 回归用例。
+- **自审计门禁 critical 形态误报行内抑制**：taskstore 4+1 处 SQL 构建（f-string 仅拼常量片段/占位符、值全参数化）、config 环境变量名、脱敏测试假密钥夹具共 7 处加 `# codeaudit: ignore[ID]` + 定性理由——`audit-self`（--diff origin/main --fail-on critical）门禁从必红（exit 3）转绿（exit 0，issues 702→696，high/medium/low 零变化）。
+- **Web 路由安全标疑规则与三层环语料实测**：新增 `PY-WEB-ROUTE-NO-AUTH`（medium 标疑，FastAPI/Flask 装饰器路由无鉴权特征）与 `PY-WEB-NO-RATE-LIMIT`（low 标疑，文件无限流特征），鉴权/限流豁免口径 + 29 用例；三层间接环（a→b→c→a）语料实测确认为覆盖缺口而非能力缺口（图级识别 + 方案层全链路，+3 用例）。规则库 80 → **82 条**。
+- **文档同步**：README / 规则手册 / Roadmap（补 0.5.0/0.6.0 条目）与 CHANGELOG 口径同步。
+- 总装终验指标见 `bench/results/w21_总装终验报告.md`。
+
+### Added（Wave 16 专项验收短板清偿）
+
+- **依赖与配置安全扫描（验收 P1/P3 清偿）**：新增 `audit/depcheck/` 全库后处理扫描器——①依赖 CVE 匹配：解析 requirements*.txt / package.json / pyproject.toml [project]，内置 27 条经 GitHub Security Advisory Database 逐条核实的真实 CVE 种子库（pypi 14 / npm 13，含 CVSS→critical/high/medium/low 分级与修复版本建议）；②重复依赖钉扎检出（DEP-DUPLICATE）；③配置文件明文密钥扫描（CFG-SECRET）：.env / .env.* / *.yaml / *.yml / *.properties / *.ini / *.toml 中密钥形态 key，值打码 `********` 呈现，占位值豁免。挂点 `audit.detect.engine._post_scan_issues`（延迟导入、任一扫描器异常只记 `post_scan_errors` 不阻断），`CODEAUDIT_DISABLE_POST_SCAN=1` 全关。专项验收"依赖 CVE 0%、配置文件密钥 0/2"清偿（实测 .env 2/2 + yaml 2/2，critical/high 安全误报 0）。
+- **克隆与死代码检测（验收 P1 清偿）**：`audit/detect/crossfile.py`——行归一化（字符串→STR、数字→NUM、去注释）+ K=6 行窗口滚动哈希的全库克隆检测（PY/JS/TS-CLONE，O(n)，15.4 万行最坏情形实测 2.19s，总行数 >30 万护栏跳过）；`audit/detect/deadcode.py`——保守口径死代码（PY 模块级 `_` 私有符号 / JS/TS 非 export 顶层函数全库零引用，豁免 `__init__.py`、dunder、`__all__`、装饰器、tests）。专项验收"克隆 0/2、死代码 0/2"清偿（dup_block 11 行克隆命中、`_unused_var`/`neverCalledHelper` 命中，clean 语料 0 误报）。
+- **重构方案分级与工时估算（验收 P2 清偿）**：`RefactorProposal` 新增 `priority`（P0=循环依赖/安全类关联；P1=performance/high 关联或长函数超 200 行；其余 P2）与 `estimated_effort_hours`（循环依赖 8h、热点 行数/100、长函数 超限行数/40、dedup 命中数×1h 启发式）两字段（带默认值，旧报告 from_dict 兼容，schema 不破坏）；只填字段不重排，稳定排序留给展示层。
+- **分层架构违规规则（验收 P2 清偿）**：`audit/detect/rules/arch_layers.py`——高层目录（api/controller/handler/routes/presentation/views）直接 import 低层目录（dao/repository/dal/infra/infrastructure/persistence/db）报 PY/JS-LAYER-VIOLATION（style/medium，model/models 有意不入低层表防 schema 误报）。专项验收"跨层调用 0/1"清偿（arch_cycle 的 api→dao 穿透命中）。
+- **命名/PII/JS 命令注入规则（验收 P3 清偿）**：`py_naming.py`——PY-NAMING-STYLE（函数 camelCase/类首字母小写）+ PY-PINYIN-NAMING（66 音节表 ≥2 音节组合且非英文技术词，保守启发式）；`pii_rules.py`——PY-PII-LOG（PII 变量名/身份证/手机号进日志，security/medium）；`js/js_security_ext.py`——JS-COMMAND-INJECTION（child_process exec/execSync/spawn 首参拼接，security/high）+ JS-NAMING-STYLE（大写函数名无 `new` 使用）。静态规则库 **63 → 70 条**（Python 39 / JavaScript 24 / TypeScript 专属 7，含 JS/TS 共享 9）。专项验收"JS 命令注入 0/1、PII 0/2、命名规范 0/6"清偿（6 例命名语料 5 例命中——拼音单音节 jia 为有意豁免口径，PII 日志命中、配置密钥 4/4）。
+
+### Added（Wave 16 补充：验收遗留与 P0 真跑）
+
+- **PY-PII-SQL 明文入库规则（验收遗留清偿）**：`pii_rules.py` 新增第二 PII 规则（security/medium）——SQL 写库语句（INSERT/UPDATE/CREATE TABLE）含 PII 列名或绑定参数含 PII 变量即报；口径注明"关注数据最小化而非注入"（参数化绑定的 PII 入库仍报）。专项验收"敏感字段明文入库 0/2"清偿（实测 `INSERT INTO users(phone)` 命中、参数化 SELECT 零误报）。
+- **OSV 在线口径（验收遗留清偿，opt-in）**：`audit/depcheck/osv.py`——`CODEAUDIT_OSV_ONLINE=1` 时叠加 api.osv.dev 在线查询（零新增依赖、10s 超时、失败静默降级、单次审计 200 次上限、同（文件，CVE）与种子库去重并标 `source:osv`）；默认关闭零触网。实测 jinja2==3.1.2 在线返回含 CVE-2024-22195 的 10 条漏洞并为 requests==2.30.0 追加 3 条种子库外 CVE。
+- **冗余依赖检出（验收遗留清偿）**：DEP-UNUSED（style/low）——requirements 声明但源码零 import（19 条包名↔模块名映射 + PEP503 启发式）、package.json 声明但零 require/import（devDependencies/@types/node 内置白名单豁免）；无对应生态源码的项目跳过（防误报红线）。实测"声明且使用 0 误报 / 未使用命中"。
+- **from_sources 加载 .env（README 承诺对齐）**：CLI 路径此前不读 `.env`（仅 server 的 from_env 读），填了 .env 仍判"LLM 未配置"；现 `from_sources` 以 from_env 同款口径自动加载（真实进程环境 > .env > 默认值，GLM_* 不写 os.environ，`_ENV_LOADED` 幂等），无 .env 时行为零变化。
+- **P0 在线真跑闭环（验收唯一遗留条件清偿）**：2026-09-15 配置 GLM_API_KEY 后 `bench.real_run` 官方真跑（10 金标项目 / 240 金标）：**Precision(critical+high) 0.884 / Recall 0.900 / F1 0.892**（精确率 ≥85% 目标达成），记录见 [bench/results/run_20260915_online_w16.md](run_20260915_online_w16.md)；`--fix --tests --review-mode tools` 真跑实测 LLM Patch 4 条（可变默认参数→None 哨兵、恒真元组→`a and b` 等，2 条沙箱验证未过诚实降级 needs-review——语料无现成测试时 verified 闸门保守工作）、生成回归单测 3/3 passed。
+
+### Changed（Wave 16）
+
+- `audit/detect/engine.py`：`run_detection` 在非 llm_only 模式下经 `_post_scan_issues` 挂载全库后处理扫描器（克隆/死代码/依赖与配置安全），扫描器模块缺失或异常仅记 `ctx.extra["post_scan_errors"]`，主检测零影响。
+- `audit/detect/registry.py` / `rules/__init__.py`：追加注册 W16 规则（63 → 71）。
+
+### Added（Wave 19：深度审计 P1 清偿）
+
+- **圈复杂度数值化（P1）**：PY-CYCLOMATIC-COMPLEXITY（style/medium）——CC=决策点+1（if/elif/for/while/except/and/or/assert，掩码行 token 计数，嵌套函数独立计），阈值 env `CODEAUDIT_CC_THRESHOLD`（默认 10，CC>阈值才报），message 带数值与分支/循环/布尔/异常分布根因。实测 CC=9 不报/CC=14 报（确定性一致），对齐 SonarQube 口径。
+- **并发缺陷规则（P1）**：PY-UNSYNCED-SHARED-MUTATION（bug/medium，threading 在场+模块级可变+函数内无锁增强赋值三条件）与 PY-SLEEP-IN-ASYNC（performance/medium，async def 内 time.sleep 阻塞事件循环）。深度审计 6 例语料 4 命中、对照 0 误报。
+- **ORM N+1 识别（P1）**：PY-ORM-N-PLUS-ONE（performance/medium）——循环内 `session.query(...).get(/.first(/.all(` 与 Django `objects.get(` 链式；`.execute` 让路既有 IO-IN-LOOP。
+- **动态执行四形态（P1）**：PY-DYNAMIC-IMPORT（`__import__`/`importlib.import_module` 非字面量首参）、PY-DYNAMIC-COMPILE（非点号 compile 非字面量首参）、PY-INDIRECT-EXEC（getattr/globals 字符串含危险内建名，security/low 标疑）。深度审计 v_exec 语料 5/5 命中。
+- **命令注入三形态增强（P1）**：PY-COMMAND-INJECTION 扩展 `subprocess.Popen(shell=True/首参动态)`、`os.execv*` sh -c、`run(["sh","-c",var])` 列表中转三形态（既有 os.system/os.popen 路径逐字不变，65 条存量命中基线 diff 零差异）。
+- **package-lock.json 传递依赖解析（P1）**：depcheck 新增 lock 解析（lockfileVersion 1/2/3，dev/根/超 5000 条护栏，5MB 上限）并入 CVE 匹配；配套修复 **F3**——ingest 此前把 lock 文件列入默认忽略导致工作副本无 lock 可扫，现 `is_ignored_copy` 复制阶段对 ≤5MB lock 清单放行（性能护栏与解析上限同口径）。实测 lodash 4.17.20 CVE-2021-23337 端到端命中。
+- **Patch 接口兼容性比对（P1）**：`Patch.compat_notes`（带默认值向后兼容）+ `audit/fix/compat.py`——patch 应用前后公开函数签名 diff（移除/签名变更/方法移除；新增带默认值参数不算破坏），写入 patch 元数据并在事件中提示。
+- **Review Prompt v2→v3（SOLID 实测根因修复）**：SOLID 基准（8 违规+3 对照）V2 实测 LLM 语义命中 0/9，根因为审查维度缺失（仅行级引导）；V3 新增单一职责/开闭分支扩展/依赖方向/接口过胖四个设计审查维度（反幻觉约束保持，PROMPT_VERSION v3 + 版本断言同步）。V3 效果对比因 GLM 资源包耗尽（HTTP 429 余额不足）待复测。
+- 静态规则库 71 → **78 条**；规则手册同步重生成。
+
+### Added（Wave 20：P2 清偿）
+
+- **Type-2 语义克隆（P2）**：`crossfile.py` 二级通道——Type-1（STR/NUM 归一）未命中的区间做标识符折叠归一（关键字/builtins 保留），≥`CODEAUDIT_T2_MIN_LINES`（默认 8）结构相同片段报 low/0.5 "结构相似（Type-2）"标疑；同函数自相似不报、Type-1 优先、64 组护栏沿用。实测标识符改名镜像函数命中（1/1——第二轮审计的 clone_sem 语料经扩行后含唯一真 Type-2 对），Type-1 15 条零回归、clean 0。
+- **默认凭据字典（P2）**：PY-DEFAULT-CREDENTIAL（security/high）——凭据语义命名（password/pwd/secret/token/api_key… 分词边界）+ 32 条弱口令字典（admin/123456/root…整词比对），`${}`/`<...>`/env 豁免。
+- **日志伪造（P2）**：PY-LOG-FORGERY（security/low）——日志格式串含 `
+` 转义（raw 串豁免）且参数含非常量变量的 log forging 标疑。
+- **SQL 常量传播（P2，上轮数据流缺口清偿）**：PY-SQL-INJECTION 二级判定——同文件"SQL 常量变量"（`tmpl = "SELECT..."`）单步传播至 `.format()`/`+ NAME`/f-string 插值使用行；基线 diff 345→347 只增 2 条真阳性零删减。
+- **依赖安全升级（P2）**：`pydantic-settings` 钉扎 `>=2.14.2`（堵 CVE-2026-58203）、`pygments>=2.20`（堵 PYSEC-2026-2987）、dev 组升级 `pytest>=9.0.3` + `pytest-asyncio>=1.4`（堵 PYSEC-2026-1845；pytest 9 零适配成本，asyncio_mode=auto 全兼容）；pip-audit 复查项目直接依赖零漏洞条目，server 冒烟通过。
+- 静态规则库 78 → **80 条**。
+
+### Fixed（Wave 18：第二轮深度审计发现）
+
+- **配置文件自动发现回退被审项目根（F2，README 承诺对齐）**：`.codeaudit.toml` 自动发现此前仅查 CWD——从其他目录（及 serve 常驻场景）审计项目时项目根配置静默失效。现保持 CWD 行为零变化，仅当 CWD 无 `.codeaudit.toml` 且被审路径为目录时回退项目根发现（`.codeaudit.toml` / `pyproject.toml [tool.codeaudit]`）；+2 回归用例。附带 W18 深度审计实测：安全变种泛化 8/8 命中且误报 0、反序列化变种 3/3、死代码动态引用防御全对、自定义规则注册 API 可用；量化缺口（并发/DB 0%、Type-2 克隆 0/2、复杂度无数值、lock 传递依赖漏报）登记于 [bench/results/audit_round2_20260915_深度审计.md](audit_round2_20260915_深度审计.md) 待后续 Wave 清偿。
+
+### Fixed（Wave 17：赛题合规严审计发现）
+
+- **规模超限降级运行的机器可读标志与门禁联动（F1，FR-1.4）**：项目超过 2000 文件 / 50 万行上限时 ingest 降级运行——此前仅 stderr 警告 + `files_total=0` 间接信号且退出码 0，CI 调用方解析 stdout JSON 无法区分"空项目"与"审计未实际执行"。现 `AuditStats` 新增 `degraded_ingest: bool = False`（ingest 失败时置 True，向后兼容），`--check/--fail-on` 门禁模式下降级运行直接判未通过（退出码 3）；普通模式保持退出码 0 + stderr 警告，不阻断交互式使用。附带严审计实测记录：JS/TS 修复闭环在线真跑 verified（SQL 拼接→参数化，node --test 2/2 全绿）、前端契约 12 端点与 server 零漂移、对抗八场景全 OK、GBK 编码容错、报告三格式 10/10 内容项。
+
+### Added（Wave 15 审计清偿）
+
+- **服务端安全治理（审计 P0）**：①API 鉴权——`CODEAUDIT_API_TOKEN` 设置后 `/api/*`（除 health）要求 `Authorization: Bearer <token>` 或 `X-API-Token`，失败 401（常量时间比较），未设置时启动打 WARNING 提醒仅限本机；②源路径白名单——`CODEAUDIT_SOURCE_ROOTS` 非空时 `POST /api/audits` 的 source_path 限白名单根内（越界 400 且先于存在性检查，防路径存在性泄露）；③写端点限流——`CODEAUDIT_RATE_LIMIT`（次/分钟，按 IP 滑动窗口，超限 429，默认关）；④SSE 并发上限 50（超限 429，连接结束归还名额）。方案见 docs/20 §4.1。
+- **LLM 审查路径密钥打码（审计 P0，补 W14 缺口）**：LLM 审查产出的 `code_snippet` 逐行套用字面量打码、`evidence` 逐条过 `mask_secret_text`（audit/detect/base.py 新增）——此前 LLM 路径的密钥行会明文进入报告与下载接口；回归测试覆盖 FakeLLM 含密钥 payload 全链路。
+- **TaskStore 多 worker 一致性（审计 A3 三连清偿）**：①`busy_timeout=5000` + 写操作 locked/busy 指数退避重试（≤3 次）；②`append_event` 改 `BEGIN IMMEDIATE` 单事务原子分配 seq（`INSERT...SELECT COALESCE(MAX(seq),0)+1`）；③`sweep_interrupted(grace_seconds=)` 宽限清扫——行表新增 `updated_at`（自动迁移回填，幂等），多 worker 部署设 `CODEAUDIT_SWEEP_GRACE_SEC` 规避兄弟 worker 运行中任务被误清扫的状态复活竞态；server lifespan 接线并在关停时 close store。附 2 连接 × 8 线程 × 400 事件并发压测（零 OperationalError、seq 严格单调无断档）。
+- **重构执行闭环（审计 A8）**：`--fix` + LLM 可用时，refactor 阶段取 confidence 最高 ≤3 条启发式 proposal 合成 `[Refactor]` 前缀 Issue 复用既有 fix 管线生成可 apply 补丁（结构校验→git apply→tree-sitter+ast 双保险→沙箱测试→四态 FixStatus/失败回滚），产物自然进入 report.patches——重构能力自"建议生成器"补齐"可执行"半环；离线/未开 --fix 零行为变化。`syntax_ok` 对 Python 补 `ast.parse` 双保险（tree-sitter 容错解析对语义级语法错误有漏报面）。
+- **CI 自举与依赖安全（审计 A4/A5）**：①依赖下限钉扎堵已知 CVE（fastapi≥0.115、jinja2≥3.1.6、python-multipart≥0.0.18）；②ci.yml 覆盖率门禁 `--cov-fail-under=85`（2026-09-15 实测 87% 棘轮基线，只升不降）+ pip-audit 步骤 + 删除过授的 issues:write；③新增 `pr-audit.yml`——PR 触发离线自审计（`--diff origin/main --fail-on critical`，SARIF artifact），审计工具自此审计自己；Makefile 增 `audit-self` 本地一键同款。
+- **测试盲区补齐（审计 A9）**：新增 utils（74 例）/pipeline 契约（12）/prompts（14）/architecture 降级路径（7）专属测试 + 前端 SevTag/StatusTag 组件测试（10）；卡F 同步产出 architecture.py 静默吞噬 6 处证据清单（本波已修复，见 Fixed）。
+
+### Changed（Wave 15）
+
+- **PY/JS 规则族收敛（审计 A6）**：新建 `audit/detect/rules/_scan_common.py`（call_span/find_call/enclosing_function/indent_width/is_blank 等逐字重复件上收）与 `_rule_families.py`（TodoFixme/LongFunction/DeepNesting/MagicNumber 四族参数化基类），python.py/javascript.py/js_ext.py 改薄封装，净减约 170 行重复；63 条规则 id/severity/文案/命中行为零变化（16 项 PY/JS 奇偶校验 + 既有金标命中门禁守护）。`audit/errors.py` 删除零引用的 `IndexBuildError`/`ReportError`。
+- **魔法值常量化**：patcher 的 git 超时 30s/截断 500、fix stage 截断 300、Docker 内存 512m/CPU 1 提为具名常量（值不变）。
+- `fix/stage` 修复候选扩展：critical/high 之外放行 `[Refactor]` 前缀 medium（闭环需要，普通 medium 仍不修复）。
+
+### Fixed（Wave 15 集成修复）
+
+- **architecture.py 静默吞噬记账（审计 A7 最重簇）**：6 处 except 静默降级补 logging（信息收集类 debug、LLM 增强失败 warning）——此前 LLM 故障对外完全不可见；降级行为本身零变化（卡F 测试继续全绿）。
+- **W14 沙箱压测用例偶发 flaky 修复**：`test_grandchild_pipe_holder_does_not_hang_run` 原在 t=0 仅打印一次，负载下击杀前排空可能未读到该块（实测约 1/6 失败率）；改为在超时窗口内持续输出，回归意图不变。
+
+### Added（Wave 13）
+
+- **CI 在线评估工作流**（`.github/workflows/online-eval.yml`）：workflow_dispatch 手动 + schedule 每周一 UTC 0:00（repo 变量 `ONLINE_EVAL_SCHEDULED` 控制，默认 false 防误烧 token）；`secrets.GLM_API_KEY` 存在性守卫（缺失自动跳过并标注）；`bench/eval/run_online_eval.py` 新增 `--ci` 模式（简洁输出、`EVAL_RESULT=PASS|FAIL` 语义化退出码，评估不过 workflow 红）；concurrency 防并发、FAIL 也上传 artifact。
+- **Docker 沙箱后端**（`audit/sandbox/`）：`docker run --rm --network none --memory 512m --cpus 1 -v <cwd>:/work -w /work`；启动前探测（`which` + `docker info` 探针，进程内缓存），探测失败自动降级子进程路径并在 `SandboxResult.backend` 诚实标注；镜像默认 `python:3.12-slim`（`CODEAUDIT_DOCKER_IMAGE` 可覆盖）。**默认 opt-in 关闭**（CI 实证自动启用会把宿主解释器包进容器导致全 127，裁决见 e2685b0）。
+- **多 worker 压测基线**（`bench/stress/run_soak_multiworker.py` + [bench/results/soak_multiworker_w13.md](bench/results/soak_multiworker_w13.md)）：双 worker 混合负载 / RSS / 三态判定与单 worker 对照表，额外观测 429 全局准入触发率、active 计数一致性、跨 worker SSE。
+- **前端降级展示**（`frontend/`）：任务详情页预算熔断警示条（含 used_tokens/token_budget）、token 消耗统计、任务列表降级标记（由 report 字段前端推导，不改 server 契约）；vitest 组件用例。
+
+### Fixed（Wave 14 审查清偿）
+
+- **密钥打码（NFR-11 清偿）**：检测到的硬编码密钥在报告 `code_snippet` 中以 `********` 打码呈现（PY/JS 两条密钥规则命中行做值脱敏，变量名与引号结构保留、不泄露长度）——此前明文密钥原样进入 JSON/MD/HTML 报告，与「数据隐私」声明矛盾（实测复现后修复，附管线级回归测试）。
+- **Docker 沙箱接线与容器清理**：沙箱后端配置全层贯通（`codeaudit run --sandbox-backend` / `CODEAUDIT_SANDBOX_BACKEND` / 配置文件 > 默认 `subprocess`，Docker 后端自此可从配置启用）；docker 路径超时与收尾补 `docker rm -f` 容器清理（`--name codeaudit-<uuid>`）——此前仅 kill CLI 进程，容器继续运行、`--rm` 失效。
+- **沙箱管道挂死清偿**：子进程击杀后先关管道促读端 abort + `proc.wait()` 短兜底 + 排空协程 `asyncio.wait` 兜底超时——Windows 下孙进程继承管道写端曾可致 `run()` 永久挂起、服务任务卡死 running（本机实测挂死 ~21s → ~1.5s 返回，截断如实标注）。
+- **服务端运维收口**：①任务工作副本磁盘回收——prune / 启动 sweep / DELETE 三个删行时机同步回收 `<work_root>/<audit_id>/` 与 uploads zip（仅终态任务；路径校验防注入；清理失败仅告警不阻断删行）；②`CODEAUDIT_MAX_RUNNING/PENDING` 改惰性解析，`.env` 配置自此真实生效（与 `CODEAUDIT_DB_PATH` 口径对齐）；③上传路径准入二次校验闭合 TOCTOU（读流后建任务前权威复查，拒绝时临时文件零残留，429 响应与快速路径同形）。
+- **`max_tool_iterations` 接线（NFR-10 口径对齐）**：review 工具迭代上限改由配置消费（默认 12，与原硬编码一致；配置文件可调），此前为无消费点的死配置。
+- **zip 防御加固**：解压全程复核实际写出量（单文件实际 > 声明、累计 > 上限即中止，不再只信中央目录声明值）；Windows 保留设备名（CON/NUL/COM1-9 等，含带扩展名形态）成员过滤。
+- **文档一致性收口**：README 徽章 / Roadmap / 文档索引 / 目录结构 / 沙箱描述五处过期修正；frontend 版本对齐 0.6.0；本文件 Wave 12 段误入的 4 条 Wave 11 重复条目移除、比较链接更新。
+
+### Changed（Wave 14）
+
+- `SandboxExecutor` 新增 `backend` 权威入口（`use_docker` 参数保持向后兼容，非法值诚实降级并在进度事件标注）；`SandboxResult` 注释更新（极端兜底场景 `exit_code` 可为 None，`timed_out=True` 已诚实标注）。
+
 ## [0.6.0] - 2026-09-15
 
 Wave 9 + Wave 10 + Wave 11 + Wave 12：测试体系补全（W9）、服务治理与灰度基建（W10）、形态演进（W11）、在线 GLM 安全治理与评估体系（W12）。契约 v2.1/v2.2 微增 + F6–F9 清偿，全部向后兼容；W9–W12 方案分别见 docs/14–docs/17。
@@ -11,10 +140,6 @@ Wave 9 + Wave 10 + Wave 11 + Wave 12：测试体系补全（W9）、服务治理
 ### Added（Wave 12）
 
 - **在线 GLM 接入与评估体系**：真实 GLM Key 接入（`.env`，已 gitignore）——在线审计实测**双通道融合生效且 LLM 独立发现规则漏报缺陷**（mini_app：`textutil.py` slugify 空分隔符死循环 high）；**提示注入鲁棒性实测通过**（伪 SYSTEM/IGNORE ALL payload 零生效零回显，真缺陷全保留）；成本基准建立（mini_app 约 150s / 7–9 调用 / 3–5 万 tokens）。评估套件 `bench/eval/run_online_eval.py`（注入鲁棒性 / 离线 vs 在线增值 diff / 成本基准三场景；**显式 `--online` 才真实调 GLM**，双守卫防误烧 token；quick 实测 7/7 判据 PASS）。
-- **任务持久化（契约 v2.2）**：新模块 `audit/taskstore.py`——SQLite WAL 任务存储（标准库零依赖，线程锁串行化写），任务、事件流、报告全部落库（`<work_root>/audits.db`，`CODEAUDIT_DB_PATH` 可覆盖）；**服务重启后终态任务与报告仍可查询下载**（新能力），遗留非终态启动时 sweep 为 failed（`服务重启中断`）；FIFO 容量淘汰迁移到 store。启动 sweep 经 FastAPI lifespan 执行（导入零副作用）。
-- **线程池执行**：审计任务从共享事件循环迁到独立线程（`asyncio.to_thread`，每任务独立事件循环）——根治 CPU 密集段饿死服务循环的问题（W9 观察到的 POST 响应推迟、health 失联不复现），读端点在重审计负载下全程可响应。
-- **协作式取消（语义诚实声明）**：DELETE 不再瞬时打断线程，改为事件边界取消——执行协程每次 emit 前检查取消标志/表项存在性（表项被删即取消），七阶段均频繁 emit，典型亚秒级生效；DELETE 的 HTTP 语义不变（204 + 全端点 404 + SSE 收流）。
-- **多 worker（实验特性）**：`codeaudit serve --workers N`（默认 1）——N>1 以 import string 形式启动 uvicorn 多进程，sticky 执行模型（任务由接收 worker 执行），SQLite 跨 worker 可见性经双 worker 冒烟实证；429 准入计数升级为全局口径（count_active 走 store），并发上限 = workers × 每 worker 上限。
 - **内存归因结论（F9 清偿）**：`bench/memdiag/` 逐任务 tracemalloc + 600s 长窗 soak + 服务端 10 项逐证——**结论：有界增长非泄漏**（一次性预热 ~10MB + 稳态残差 ≤13KB/任务收敛于平台期，窗口加倍斜率减半；FIFO 50 兜底下上界 ≈85-90MB），零必须修复项。
 - **预算熔断在线语义硬化（F8 清偿）**：编排层全局预算闸门 `_BudgetGateLLM`（覆盖 simple 审查/verify/understand/refactor 增强/fix/testgen 全部 LLM 调用；此前仅 tools 路径受约束且按文件重置可烧 10 倍预算）——熔断发 warning、后续 fix/testgen 显式跳过、done 事件诚实标注 `degraded+budget_tripped`+最终累计账目；真实小预算（3000）实测熔断中途触发、调用冻结、报告正常产出（推理模型单笔 thinking 可超剩余预算属闸门"发起前设卡"语义的既定边界，诚实记录）。
 - 文档站 nav 补登记 Wave 8–12 方案文档（mkdocs strict 构建通过）。
@@ -158,7 +283,7 @@ Wave 1~3：核心流水线、检测与修复能力、产品化入口与评估基
 - **评估基准**：240 条金标（10 个项目集）、匹配与消融脚本、效率对比；离线纯规则基线实测 Precision(critical+high) 1.000 / Recall 0.844 / P50 5.0 s/KLOC（见 `bench/results/`；LLM 通道指标待真跑）。
 - **工程化**：650 项单元测试全绿（Wave 3 收口基线）、GitHub Actions CI（Python 3.11 / 3.13 × ubuntu / windows 矩阵）、离线全闭环演示 `python demo/run_demo.py`。
 
-[Unreleased]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.6.0...HEAD
 [0.4.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/mingkiiiiing/codeaudit-agent/compare/v0.1.0...v0.2.0

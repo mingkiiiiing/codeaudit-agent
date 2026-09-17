@@ -18,7 +18,7 @@
 路径一致生效；开关判断收在组包入口层（review_file 的 config 可选参数与
 make_tools_review_fn 闭包捕获的 ctx.config），业务逻辑不散落判断。
 
-prompt 使用 audit/agents/prompts.py 的版本化常量（REVIEW_PROMPT_V2，prompt_version=v2）。
+prompt 使用 audit/agents/prompts.py 的版本化常量（REVIEW_PROMPT_V3，prompt_version=v2）。
 """
 
 from __future__ import annotations
@@ -32,12 +32,13 @@ from audit.agent.base import AgentLimits, AgentRuntime, ToolSpec
 from audit.agent.runtime import SimpleAgentRuntime
 from audit.agent.tools import build_default_tools, format_numbered_lines
 from audit.config import AuditConfig
+from audit.detect.base import mask_secret_text, mask_string_literals
 from audit.llm.base import LLMClient, Message
 from audit.models import Category, Issue, IssueSource, Severity
 from audit.pipeline import PipelineContext
 from audit.utils import extract_json
 from audit.workspace import WorkspaceContext
-from audit.agents.prompts import PROMPT_VERSION, REVIEW_PROMPT_V2
+from audit.agents.prompts import PROMPT_VERSION, REVIEW_PROMPT_V3
 
 __all__ = [
     "REVIEW_TOOL_NAMES",
@@ -50,7 +51,7 @@ __all__ = [
     "BATCH_GROUP_SIZE",
     "BATCH_SMALL_FILE_LINES",
     "PROMPT_VERSION",
-    "REVIEW_PROMPT_V2",
+    "REVIEW_PROMPT_V3",
     "REVIEW_SYSTEM_PROMPT_TEMPLATE",
     "REVIEW_TASK_INSTRUCTION",
     "SYMBOL_CONTEXT_DISABLED_TEXT",
@@ -85,8 +86,12 @@ TOOLS_REVIEW_TOOL_NAMES = (
     "get_dependencies",
 )
 
-REVIEW_MAX_ITERATIONS = 12  # docs/02 §3.2：Review Agent 迭代上限
-TOOLS_REVIEW_MAX_ITERATIONS = 12  # 工具取证路径迭代上限（docs/07 §3.2）
+# W14-A2（M-1 归一）：Review 迭代上限的唯一事实来源是 AuditConfig.max_tool_iterations
+# （默认 12，与历史硬编码行为一致，NFR-10"上限可配置"由此兑现）。以下两个常量
+# 降级为"config 缺失/非法时的兜底默认值"继续导出（audit.agents __all__ 不断链），
+# 正常路径不再直接消费（经 _max_iterations_from_config 读取）。
+REVIEW_MAX_ITERATIONS = 12  # docs/02 §3.2：Review Agent 迭代上限（默认/兜底值）
+TOOLS_REVIEW_MAX_ITERATIONS = 12  # 工具取证路径迭代上限（docs/07 §3.2；默认/兜底值）
 TOOLS_REVIEW_TOKEN_BUDGET_CAP = 200_000  # 单文件工具路径 token 预算上限
 SOURCE_LINES_LIMIT = 400  # 单次组包的源码行数上限（>400 行建议走函数切片审查）
 REVIEW_SLICE_LINES = 400  # 大文件切片阈值：>400 行时按 grouped_slices(file, 400) 分片
@@ -94,7 +99,7 @@ BATCH_GROUP_SIZE = 5  # 批量小切片：一次审查调用合并的小文件�
 BATCH_SMALL_FILE_LINES = 80  # 批量小切片准入：无 hint 且 <80 行
 
 # 版本化 prompt（v2）：本模块保留旧常量名作为别名，历史引用不断链
-REVIEW_SYSTEM_PROMPT_TEMPLATE = REVIEW_PROMPT_V2
+REVIEW_SYSTEM_PROMPT_TEMPLATE = REVIEW_PROMPT_V3
 
 REVIEW_TASK_INSTRUCTION = (
     "请审查文件 {file_path}，完成后恰好调用一次 record_issues 提交结论（无问题提交空数组）。"
@@ -137,7 +142,7 @@ def build_review_prompt(
     hints_text: str,
 ) -> str:
     """按 docs/03 §3.1（v2，含反幻觉硬约束）模板组装 Review System Prompt。"""
-    return REVIEW_PROMPT_V2.format(
+    return REVIEW_PROMPT_V3.format(
         architecture_card=architecture_summary.strip() or "（无架构卡片）",
         file_path=file_path,
         loc=loc,
@@ -188,6 +193,35 @@ def _symbols_block(index: Any, file_path: str, include: bool) -> str:
 # ---------------------------------------------------------------------- 主入口
 
 
+def _max_iterations_from_config(config: AuditConfig | None) -> int:
+    """从 config.max_tool_iterations 读取 Review 迭代上限（W14-A2 M-1 接线）。
+
+    config 缺失（review_file 的 config=None 兼容路径）或字段非法（缺失/非数值）
+    时回落 REVIEW_MAX_ITERATIONS（12，历史硬编码值）；非正数钳到 1。
+    """
+    if config is None:
+        return REVIEW_MAX_ITERATIONS
+    try:
+        value = int(getattr(config, "max_tool_iterations", REVIEW_MAX_ITERATIONS))
+    except (TypeError, ValueError):
+        return REVIEW_MAX_ITERATIONS
+    return max(1, value)
+
+
+def _message_budget_from_config(config: AuditConfig | None) -> int:
+    """从 config.agent_message_budget 读取工具循环消息预算（W22-A 接线）。
+
+    config 缺失或字段非法/负数时按 0（关闭折叠，与 W22-A 之前行为一致）。
+    """
+    if config is None:
+        return 0
+    try:
+        value = int(getattr(config, "agent_message_budget", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, value)
+
+
 async def review_file(
     workspace: WorkspaceContext,
     index: Any,
@@ -206,9 +240,10 @@ async def review_file(
     - extra_files：批量小切片合并审查的附加文件 (rel_path, source, hints)；
       主文件与附加文件组合源码（带显式文件分隔标记）合并为一次审查调用，
       要求输出按文件分组（每条 issue 的 file 字段精确归属）；
-    - limits：runtime 路径的运行限制（缺省保持原 AgentLimits(max_iterations=12)）；
-    - config：消融开关载体（契约 v1.3）；config.enable_symbol_context=False 时
-      prompt 不附符号上下文块（架构卡片与文件源码保留）。None 时行为不变。
+    - limits：runtime 路径的运行限制；缺省时 max_iterations 取
+      config.max_tool_iterations（W14-A2 M-1；config 也为 None 时回落 12）；
+    - config：消融开关载体（契约 v1.3）兼迭代上限来源（W14-A2 M-1）；
+      config.enable_symbol_context=False 时 prompt 不附符号上下文块。None 时行为不变。
     """
     hint_list = list(hints or [])
     extras = [
@@ -278,7 +313,13 @@ async def review_file(
         await runtime.run(
             system_prompt,
             messages,
-            limits=limits or AgentLimits(max_iterations=REVIEW_MAX_ITERATIONS),
+            # W14-A2（M-1）：迭代上限从 config.max_tool_iterations 读取（缺省兜底 12）；
+            # W22-A：兜底 limits 同样携带消息预算（显式 limits 优先，主路径已带）
+            limits=limits
+            or AgentLimits(
+                max_iterations=_max_iterations_from_config(config),
+                message_budget_chars=_message_budget_from_config(config),
+            ),
         )
         if not state["record_issues_called"]:
             # R1-26：runtime 非正常结束（从未调用 record_issues）必须显式失败，
@@ -403,11 +444,20 @@ def _issue_from_payload(payload: dict[str, Any], workspace: WorkspaceContext) ->
         confidence = 0.0
     confidence = min(1.0, max(0.0, confidence))
 
-    evidence = [str(e) for e in (payload.get("evidence") or []) if str(e).strip()]
+    # W15-A1（docs/20 §4.2）：LLM 载荷的 evidence 可能携带源码密钥明文，逐条过
+    # mask_secret_text（与规则路径同一打码口径）后再进 Issue。
+    evidence = [
+        mask_secret_text(str(e))
+        for e in (payload.get("evidence") or [])
+        if str(e).strip()
+    ]
     try:
         snippet = "\n".join(workspace.read_lines(file_name, line_start, line_end))
     except OSError:
         snippet = ""
+    # W15-A1（docs/20 §4.2）：code_snippet 套用规则路径 mask_snippet 的同一打码语义
+    # （mask_string_literals 逐行处理）——报告不泄露密钥明文（NFR-11）。
+    snippet = "\n".join(mask_string_literals(ln) for ln in snippet.splitlines())
 
     return Issue(
         id="",  # 由调用方/集成层统一分配
@@ -546,7 +596,8 @@ def make_tools_review_fn(ctx: PipelineContext) -> IssueReviewFnLike:
     - 工具路径：每次审查新建 SimpleAgentRuntime，注册只读工具（list_files/read_file/
       search_code/get_symbol/find_references/get_call_chain/get_dependencies）+
       包装版 record_issues（收集载荷并经工具层行号范围校验）；
-      AgentLimits(max_iterations=12, token_budget=min(200_000, ctx.config.token_budget//10))；
+      AgentLimits(max_iterations=config.max_tool_iterations（W14-A2 M-1，默认 12）,
+      token_budget=min(200_000, ctx.config.token_budget//10))；
       产出 Issue 的 source=IssueSource.LLM；
     - 大文件切片：文件 >400 行且 ctx.index 可用时，按 ctx.index.grouped_slices(file, 400)
       逐片审查后本地合并去重；index 为 None 则整文件截断审查（review_file 默认行为）；
@@ -556,11 +607,14 @@ def make_tools_review_fn(ctx: PipelineContext) -> IssueReviewFnLike:
     - 并在 ctx.extra["prompt_version"] 记录 "v2"。
     """
     architecture_summary = str(getattr(ctx.architecture, "text", "") or "")
+    config = ctx.config  # 闭包捕获：供消融开关判断、迭代上限（M-1）与透传 review_file
     limits = AgentLimits(
-        max_iterations=TOOLS_REVIEW_MAX_ITERATIONS,
+        # W14-A2（M-1）：迭代上限从 config.max_tool_iterations 读取（缺省兜底 12）
+        max_iterations=_max_iterations_from_config(config),
         token_budget=min(TOOLS_REVIEW_TOKEN_BUDGET_CAP, int(ctx.config.token_budget) // 10),
+        # W22-A：消息总字符预算（0=关闭折叠；config 缺字段时按 0 保持旧行为）
+        message_budget_chars=_message_budget_from_config(config),
     )
-    config = ctx.config  # 闭包捕获：供消融开关判断与透传 review_file
     include_symbols = bool(getattr(config, "enable_symbol_context", True))
 
     async def review_fn(

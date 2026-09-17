@@ -429,6 +429,110 @@ def _cycle_proposal(ctx: PipelineContext) -> RefactorProposal | None:
     )
 
 
+# ---------------------------------------------------------------- W16：优先级与工作量估算
+
+# 口径说明（W16 验收短板清偿）：
+# priority —— P0=架构级/安全级风险（立即处理）；P1=显著质量风险；P2=一般改进
+# （保守兜底）。规则：kind="other" 且标题含「循环依赖」→ P0；关联 issue 中存在
+# 安全类（category=security）且 severity ∈ {critical, high}，或标题含「安全」
+# → P0；关联 issue 存在 performance 类或 severity=high（安全类已在上一步拦截），
+# 或长函数超 200 行（行数拿不到则按约定跳过该条件）→ P1；其余 → P2。
+# estimated_effort_hours —— 单人专注工时的启发式估算（非承诺）：循环依赖=8.0
+# （跨模块解耦需梳理接口并回归）；热点拆分=热点行数/100（行数越大拆分与回归
+# 成本越高）；长函数分解=超限行数/40（超限越多子职责越多），下限 1.0；
+# dedup=命中数×1.0（逐处替换逐处验证），下限 0.5；其余一律 1.0。
+# 数值统一 round(…, 1)。只填字段不排序：P0 前 P1 后的稳定排序留给展示层，
+# 此处重排会改变既有方案顺序（集成测试可能断言顺序）。
+
+_CYCLE_TITLE_KEYWORD = "循环依赖"  # _cycle_proposal 标题特征词
+_ARCH_RISK_LONG_FUNCTION_LINES = 200  # 长函数超过该行数视为架构治理级（P1）
+_SECURITY_P0_SEVERITIES = {"critical", "high"}  # 安全类命中触发 P0 的严重级
+
+# rationale 文案中的行数短语（decompose「共 N 行」/ split-module「共 N 行」共用）
+_RATIONALE_LOC_RE = re.compile(r"共\s*(\d+)\s*行")
+
+
+def _category_value(issue: Issue) -> str:
+    """Issue.category → 小写字符串（兼容枚举与裸字符串两种形态）。"""
+    return str(getattr(issue.category, "value", issue.category)).lower()
+
+
+def _proposal_line_count(proposal: RefactorProposal, by_id: dict[str, Issue]) -> int | None:
+    """方案关联的行数（decompose=函数总行数；split-module=热点总行数）。
+
+    优先从关联 issue 的行区间取，回退解析 rationale 中的「共 N 行」文案；
+    两处都拿不到返回 None（调用方按约定跳过 P1 条件 / 回落工时兜底值）。
+    """
+    for rid in proposal.related_issues:
+        issue = by_id.get(rid)
+        if issue is not None and issue.line_end > issue.line_start:
+            return issue.line_end - issue.line_start + 1
+    m = _RATIONALE_LOC_RE.search(proposal.rationale or "")
+    return int(m.group(1)) if m else None
+
+
+def _dedup_hit_count(proposal: RefactorProposal) -> int:
+    """dedup 方案的命中数：优先数关联 issue，回退解析标题「N 处」。"""
+    if proposal.related_issues:
+        return len(proposal.related_issues)
+    m = re.search(r"(\d+)\s*处", proposal.title or "")
+    return int(m.group(1)) if m else 0
+
+
+def _estimate_effort_hours(proposal: RefactorProposal, by_id: dict[str, Issue]) -> float:
+    """按本节顶部注释的口径估算工时；信息不足时回落 1.0 兜底。"""
+    title = proposal.title or ""
+    if proposal.kind == "other" and _CYCLE_TITLE_KEYWORD in title:
+        return 8.0
+    if proposal.kind == "split-module":
+        loc = _proposal_line_count(proposal, by_id)
+        return round(loc / 100.0, 1) if loc else 1.0
+    if proposal.kind == "decompose":
+        lines = _proposal_line_count(proposal, by_id)
+        if lines is None:
+            return 1.0
+        return round(max((lines - _LONG_FUNCTION_MIN_LINES) / 40.0, 1.0), 1)
+    if proposal.kind == "dedup":
+        return round(max(_dedup_hit_count(proposal) * 1.0, 0.5), 1)
+    return 1.0
+
+
+def _priority_of(proposal: RefactorProposal, by_id: dict[str, Issue]) -> str:
+    """单条方案的 P0/P1/P2 判定（规则见本节顶部注释；只分级不排序）。"""
+    title = proposal.title or ""
+    if proposal.kind == "other" and _CYCLE_TITLE_KEYWORD in title:
+        return "P0"  # 循环依赖属架构级风险
+    related = [by_id[rid] for rid in proposal.related_issues if rid in by_id]
+    # P0：关联安全类 issue 且 severity 为 critical/high，或标题直接点明「安全」
+    for issue in related:
+        if _category_value(issue) == "security" and _sev_value(issue) in _SECURITY_P0_SEVERITIES:
+            return "P0"
+    if "安全" in title:
+        return "P0"
+    # P1：关联 issue 存在 performance 类或 severity=high（安全类已在上一步拦截），
+    # 或长函数超限——行数拿不到时按约定跳过该条件
+    for issue in related:
+        if _category_value(issue) == "performance" or _sev_value(issue) == "high":
+            return "P1"
+    if proposal.kind == "decompose":
+        lines = _proposal_line_count(proposal, by_id)
+        if lines is not None and lines > _ARCH_RISK_LONG_FUNCTION_LINES:
+            return "P1"
+    return "P2"
+
+
+def _prioritize(proposals: list[RefactorProposal], issues: list[Issue] | None = None) -> None:
+    """W16 后处理：原地填充 priority 与 estimated_effort_hours（契约 v1.7 新字段）。
+
+    只填新字段：不改旧字段语义、不增删方案、不重排顺序。issues 传 ctx.issues，
+    用于把 related_issues 对照回具体命中（category/severity）参与分级。
+    """
+    by_id = {i.id: i for i in (issues or []) if i.id}
+    for proposal in proposals:
+        proposal.estimated_effort_hours = _estimate_effort_hours(proposal, by_id)
+        proposal.priority = _priority_of(proposal, by_id)
+
+
 # ---------------------------------------------------------------- 入口
 
 
@@ -445,4 +549,5 @@ def generate_proposals(ctx: PipelineContext) -> list[RefactorProposal]:
     for n, proposal in enumerate(proposals, 1):
         proposal.id = make_id("REF", n)
     proposals.sort(key=lambda p: -p.confidence)  # 稳定排序：同分保持生成顺序
+    _prioritize(proposals, issues)  # W16：只填新字段（priority/effort），不重排
     return proposals

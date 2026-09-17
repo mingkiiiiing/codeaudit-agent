@@ -80,7 +80,13 @@ class TestBuildContexts:
         assert rc.source.splitlines() == rc.lines
         assert rc.meta.get("pyscan") is not None  # 预计算掩码
         assert rc.symbols == []  # 无索引时为空
-        assert rc.tree is None
+        # P0-3 AST 接线：接线开启时 python 文件解析 tree（无解析器/失败降级 None 不阻断）
+        wiring = pipeline_ctx.extra.get("ast_wiring") or {}
+        if wiring.get("enabled"):
+            assert wiring.get("degraded") == 0
+            assert rc.tree is not None
+        else:
+            assert rc.tree is None
 
     def test_symbols_from_fake_index(self, pipeline_ctx):
         from audit.models import Symbol

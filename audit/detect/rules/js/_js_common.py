@@ -1,5 +1,10 @@
 """JS/TS 源码轻量扫描工具：字符串/模板/注释/正则掩码、大括号深度、函数作用域、缩进层级。
 
+W15-D：与 Python 侧逐字节一致的通用件（indent_width/is_blank/find_call/call_span/
+enclosing_function）已收敛至 ``audit.detect.rules._scan_common``，此处转发导入以保持
+旧导入路径可用（javascript.py/typescript.py/js_ext.py 与单元测试的既有导入不受影响）；
+JS 专属的扫描产物（JsScan/scan_js）、缩进单位与函数作用域推断留在本模块。
+
 被 audit.detect.rules.js.javascript 与 audit.detect.rules.js.typescript 中的
 静态规则共享，全部为纯函数。与 ``_python_common`` 同一思路：采用逐字符状态机
 而非 tree-sitter，行级启发式即可满足规则对行号精度的要求，且在语法不完全合法
@@ -15,7 +20,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-_TAB_WIDTH = 4
+from audit.detect.rules._scan_common import (  # noqa: F401  W15-D 转发，保持旧路径可导入
+    call_span,
+    enclosing_function,
+    find_call,
+    indent_width,
+    is_blank,
+)
 
 __all__ = [
     "FuncRange",
@@ -300,16 +311,6 @@ def get_scan(ctx_lines: list[str], meta: dict) -> JsScan:
 # ---------------------------------------------------------------- 基础行工具
 
 
-def indent_width(line: str) -> int:
-    """行首缩进宽度（tab 按 4 空格计）。"""
-    expanded = line.expandtabs(_TAB_WIDTH)
-    return len(expanded) - len(expanded.lstrip(" "))
-
-
-def is_blank(line: str) -> bool:
-    return not line.strip()
-
-
 def indent_unit(masked: list[str]) -> int:
     """推断文件的基础缩进单位：全部非空行中最小的正缩进宽度（无则 4）。
 
@@ -428,62 +429,3 @@ def function_ranges(masked: list[str]) -> list[FuncRange]:
             continue
         out.append(FuncRange(name=name, start=idx + 1, end=end, indent=indent_width(ln), kind=kind))
     return out
-
-
-def enclosing_function(ranges: list[FuncRange], lineno: int) -> FuncRange | None:
-    """返回包含该行号的最内层函数作用域。"""
-    best: FuncRange | None = None
-    for r in ranges:
-        if r.start <= lineno <= r.end:
-            if best is None or r.indent > best.indent:
-                best = r
-    return best
-
-
-# ---------------------------------------------------------------- 调用定位
-
-
-def find_call(masked_line: str, call_pattern: re.Pattern[str]) -> list[int]:
-    """在掩码行上找调用起点。
-
-    call_pattern 必须以 ``\\s*\\(`` 结尾（匹配到左括号为止），
-    返回每个匹配的左括号所在列。
-    """
-    out: list[int] = []
-    for m in call_pattern.finditer(masked_line):
-        col = m.end() - 1
-        if col >= 0 and masked_line[col] == "(":
-            out.append(col)
-    return out
-
-
-def call_span(masked: list[str], line: int, open_col: int) -> tuple[int, int, str] | None:
-    """从 (1-based line, open_col 处的 '(') 起跨行匹配括号。
-
-    返回 (结束行号, 结束列, 参数文本)；掩码行保证字符串内的括号不干扰配对。
-    括号永不闭合（语法残缺）时返回 None。
-    """
-    depth = 0
-    buf: list[str] = []
-    i, j = line - 1, open_col
-    n = len(masked)
-    while i < n:
-        cur = masked[i]
-        while j < len(cur):
-            c = cur[j]
-            if c == "(":
-                depth += 1
-                if depth > 1:
-                    buf.append(c)
-            elif c == ")":
-                depth -= 1
-                if depth <= 0:
-                    return i + 1, j, "".join(buf)
-                buf.append(c)
-            elif depth >= 1:
-                buf.append(c)
-            j += 1
-        buf.append(" ")
-        i += 1
-        j = 0
-    return None

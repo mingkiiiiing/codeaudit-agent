@@ -42,7 +42,13 @@ class GitignoreSet:
 
     @classmethod
     def collect(cls, src_root: Path) -> "GitignoreSet":
-        """收集 src_root 下所有 .gitignore 的规则（统一视为相对根目录）。"""
+        """收集 src_root 下所有 .gitignore 的规则。
+
+        W19-F4 作用域修复：嵌套 .gitignore 的规则只作用于**其所在目录子树**
+        （对齐 git 语义）。此前"统一视为相对根目录"——`bench/stress/data/.gitignore`
+        这类全排除型嵌套文件（`*` + `!.gitignore`）会把整库全部文件误判为忽略，
+        导致 ingest 空副本、pr-audit 自审计静默失效。
+        """
         gs = cls()
         for ignore_file in sorted(src_root.rglob(GITIGNORE_NAME)):
             if not ignore_file.is_file():
@@ -51,16 +57,34 @@ class GitignoreSet:
                 text = ignore_file.read_text(encoding="utf-8", errors="replace")
             except OSError:
                 continue
+            scope = ""
+            try:
+                parent = ignore_file.parent.relative_to(src_root)
+                scope = "" if parent.as_posix() == "." else parent.as_posix()
+            except ValueError:
+                scope = ""
             for raw in text.splitlines():
-                gs.add_line(raw)
+                gs.add_line(raw, scope=scope)
         return gs
 
-    def add_line(self, raw: str) -> None:
+    def add_line(self, raw: str, scope: str = "") -> None:
         line = raw.strip()
         if not line or line.startswith("#") or line.startswith("!"):
             return
         line = line.rstrip("/")  # 尾部斜杠仅表示"目录"，简化为名字匹配
         if not line:
+            return
+        if scope:
+            # W19-F4：嵌套规则改写为相对根的路径 glob（限定在所在目录子树）。
+            # fnmatch 的 `*` 可跨 `/`，故 `scope/**/name` 能同时覆盖直接子项与
+            # 深层子孙；`!` 否定行维持既有"忽略"语义（不处理否定）。
+            if "/" in line:
+                self._path_globs.append(f"{scope}/{line.strip('/')}")
+            elif any(ch in line for ch in "*?["):
+                self._path_globs.append(f"{scope}/**/{line}")
+            else:
+                self._path_globs.append(f"{scope}/{line}")
+                self._path_globs.append(f"{scope}/**/{line}")
             return
         if "/" in line:
             self._path_globs.append(line.strip("/"))

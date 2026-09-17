@@ -133,9 +133,13 @@ def test_env_limit_parsing_falls_back_to_defaults(monkeypatch):
 
 
 def test_module_limit_invariants():
-    """模块级上限常量满足契约不变量：running ≥ 1，pending ≥ running。"""
-    assert server_app._MAX_RUNNING_AUDITS >= 1
-    assert server_app._MAX_PENDING_AUDITS >= server_app._MAX_RUNNING_AUDITS
+    """模块级上限常量满足契约不变量：running ≥ 1，pending ≥ running。
+
+    W14/M-5 适配：两个常量改惰性解析（默认 None = 按 env 实时取值），
+    不变量改为对惰性取值函数断言。
+    """
+    assert server_app._get_max_running() >= 1
+    assert server_app._get_max_pending() >= server_app._get_max_running()
 
 
 # ---------------------------------------------------------------- F2 流式上传

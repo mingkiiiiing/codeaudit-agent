@@ -11,7 +11,8 @@ from bench.ablation import ABLATION_CONFIGS, plan_ablation
 MINUS = "\u2212"  # 任务书中的减号（U+2212）
 
 
-def test_seven_configs_present():
+def test_eight_configs_present():
+    """W22-E 起为 8 组（新增 llm_focus，见 bench/ablation.py）。"""
     expected = {
         "full",
         f"{MINUS}verify",
@@ -20,14 +21,15 @@ def test_seven_configs_present():
         f"{MINUS}cache",
         "rules_only",
         "llm_only",
+        "llm_focus",
     }
     assert set(ABLATION_CONFIGS) == expected
-    assert len(ABLATION_CONFIGS) == 7
+    assert len(ABLATION_CONFIGS) == 8
 
 
 def test_plan_ablation_ordered_copies():
     plan = plan_ablation()
-    assert len(plan) == 7
+    assert len(plan) == 8
     assert [name for name, _ in plan] == list(ABLATION_CONFIGS)
     for name, overrides in plan:
         assert isinstance(name, str) and isinstance(overrides, dict)

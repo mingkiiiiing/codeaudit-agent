@@ -12,6 +12,7 @@ audit.indexer.parsers 原生支持，fix 闭环对 JS/TS Issue 直接可用（st
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from typing import Iterator
@@ -25,11 +26,31 @@ from audit.workspace import DEFAULT_IGNORE_DIRS, WorkspaceContext
 __all__ = ["syntax_ok", "find_existing_tests", "run_existing_tests"]
 
 
+def _python_ast_ok(data: bytes) -> bool:
+    """W15-E：对 Python 源码字节跑 ast.parse，可解析即 True。
+
+    直接喂 bytes（compile 按 PEP 263 处理 coding 声明）；null 字节等非法输入
+    抛 ValueError、语法错误抛 SyntaxError，均判语法失败。
+    """
+    try:
+        ast.parse(data)
+    except (SyntaxError, ValueError):
+        return False
+    return True
+
+
 def syntax_ok(workspace: WorkspaceContext, rel_path: str) -> bool:
-    """用 tree-sitter 重新解析补丁后的文件做语法校验。
+    """用 tree-sitter 重新解析补丁后的文件做语法校验（Python 叠加 ast.parse 双保险，W15-E）。
 
     语言不支持或文件不存在（如补丁删除了文件）时不阻塞，返回 True；
     解析失败（root_node.has_error）返回 False。
+
+    W15-E 双保险理由：tree-sitter 以容错恢复方式解析，对部分语义级语法错误
+    （如非法的 except 子句、残缺赋值）存在漏报面——root_node.has_error 未必
+    置位。Python 文件在 tree-sitter 校验之外叠加 stdlib ast.parse，任一校验
+    失败即判语法失败（触发 stage 回滚）；非 Python 语言无等效 stdlib 解析器，
+    维持 tree-sitter 单校验；不支持语言/文件缺失仍返回 True 不阻塞（既有
+    语义不变）。
     """
     language = guess_language(str(rel_path).replace("\\", "/"))
     if language not in SUPPORTED_LANGUAGES:
@@ -41,7 +62,11 @@ def syntax_ok(workspace: WorkspaceContext, rel_path: str) -> bool:
     tree, parsed_ok = parse_source(language, data)
     if tree is None:  # 解析器异常兜底：不阻塞（语言已支持仍解析失败属环境问题）
         return True
-    return parsed_ok
+    if not parsed_ok:
+        return False
+    if language == "python":  # W15-E：ast.parse 双保险（tree-sitter 有漏报面）
+        return _python_ast_ok(data)
+    return True
 
 
 def _walk_files(root: Path) -> Iterator[Path]:
@@ -135,10 +160,12 @@ def find_existing_tests(workspace: WorkspaceContext) -> str | None:
 
 
 async def run_existing_tests(
-    sandbox: SandboxExecutor, workspace: WorkspaceContext, framework: str
+    sandbox: SandboxExecutor, workspace: WorkspaceContext, framework: str, target: str = ""
 ) -> SandboxResult:
     """在沙箱中运行现有测试：直接委托 audit.sandbox（白名单 pytest/jest/node-test）。
 
+    W22-F：target 非空时只跑指定测试文件（受影响测试聚焦；相对 src_root 的
+    posix 路径，如 "tests/test_orders.py"），空串保持整库运行（既有行为）。
     超时等失败语义由沙箱层保证（timed_out / exit_code），本函数不吞不抛。
     """
-    return await sandbox.run_tests(framework, workspace.src_root)
+    return await sandbox.run_tests(framework, workspace.src_root, target=target)

@@ -19,8 +19,7 @@ jobs:
     name: test (py${{ matrix.python-version }} / ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     permissions:
-      contents: read
-      issues: write
+      contents: read   # W15-C 权限收减：删除对 issues 的写权限——全 workflow 无任何 issues 操作
     strategy:
       fail-fast: false
       matrix:
@@ -57,6 +56,18 @@ jobs:
           pip install "ruff==0.12.*"
           ruff check .
 
+      # W15-C：依赖已知漏洞审计（pip-audit 官方 PyPA 漏洞扫描，与 Dependabot 互为兜底）。
+      # continue-on-error: false 为显式声明——发现已知 CVE 即失败，不静默放过。
+      # --strict：审计器自身异常（如依赖无法映射到 PyPI）同样按失败处理。
+      # 注意命令名是带连字符的 pip-audit（pip-audit 包的 console script，
+      # pip 本身没有 audit 子命令，`pip audit` 会报 unknown command——已实测）。
+      - name: Dependency audit (pip-audit)
+        if: matrix.with-cov == 'true'
+        continue-on-error: false
+        run: |
+          pip install pip-audit
+          pip-audit --strict
+
       - name: Install pytest-cov (coverage entry only)
         if: matrix.with-cov == 'true'
         run: pip install pytest-cov
@@ -67,10 +78,11 @@ jobs:
         run: pytest -q --tb=short
 
       - name: Run tests with coverage (py3.13 / ubuntu)
-        # 覆盖率条目：仅统计 audit 包，输出终端报表；
-        # 后续如需上传 Coveralls/Codecov 或生成徽章，可在此追加步骤。
+        # 覆盖率条目：仅统计 audit 包，输出终端报表。
+        # W15-C 棘轮基线：2026-09-15 实测 87%，--cov-fail-under=85（向下取到 5 的倍数），只升不降；
+        # 提升覆盖率后须同步上调该值（并同步 tests/unit/ci/test_ci_config.py 的 COV_FAIL_UNDER）。
         if: matrix.with-cov == 'true'
-        run: pytest -q --tb=short --cov=audit --cov-report=term
+        run: pytest -q --tb=short --cov=audit --cov-report=term --cov-fail-under=85
 
   # W8：前端（frontend/，React + Vite）质量门禁——类型检查、单测、构建三关。
   # 与 Python 矩阵相互独立；npm 缓存按 package-lock.json 哈希。

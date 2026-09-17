@@ -89,6 +89,7 @@ async def test_verified_path_applies_patch_and_runs_tests(tmp_path: Path, fake_e
         "syntax_ok": 0,
         "needs_review": 0,
         "failed": 0,
+        "focused_tests_runs": 0,  # W22-F：ctx.index 为 None（无索引场景）不聚焦
     }
     stages = [e for e in fake_emitter.events if e.get("stage") == "fix"]
     assert any(e.get("issue_id") == "ISS-0001" for e in stages)

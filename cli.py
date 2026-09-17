@@ -2,25 +2,33 @@
 
 用法：
   python cli.py run <source_path> [--out DIR] [--work-root DIR] [--lang python ...]
-                   [--fix] [--tests] [--no-llm] [--json]
+                   [--fix] [--tests] [--no-llm] [--json] [--quiet]
                    [--review-mode simple|tools] [--no-verify]
                    [--fix-max N] [--testgen-max N]
                    [--format json|md|html|sarif] [--check] [--fail-on critical|high|medium|low]
                    [--baseline PATH] [--report-baseline PATH] [--diff REF] [--config PATH]
+                   [--disable-rule RULE_ID] [--ignore-path PATTERN]
                    [--version]
   python cli.py index <source_path> [--work-root DIR]
   python cli.py report <report_json> [--format md|html] [--out PATH]
-  python cli.py serve [--host 127.0.0.1] [--port 8000] [--workers 1]
+  python cli.py apply <audit_id> [--patch N] [--all-verified] [--yes]
+                      [--workdir DIR] [--work-root DIR]
+  python cli.py doctor                      # 环境自检（零 API Key 可跑）
+  python cli.py init [DIR]                  # 生成 .codeaudit.toml 注释模板骨架
+  python cli.py serve [--host 127.0.0.1] [--port 8000] [--workers 1] [--allow-insecure]
 
 退出码约定（docs/09 §3）：0 完成/门禁通过 ｜ 1 运行错误 ｜ 2 bench 保留 ｜ 3 --check 门禁失败。
+（doctor：存在"失败"级检查项时返回 1；仅有"警告"级（如 java 语言包未装）仍为 0。）
 """
 
 from __future__ import annotations
 
 import argparse
 import asyncio
+import ipaddress
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -31,6 +39,93 @@ from audit.models import AuditReport
 # 门禁严重级从高到低（阈值语义：命中 >= 阈值级别的问题即失败）
 _GATE_ORDER: tuple[str, ...] = ("critical", "high", "medium", "low")
 
+# W24-B：CLI 实时进度。阶段序号按 README 七阶段流水线口径（①ingest ②index
+# ③understand ④detect ⑤fix ⑥testgen ⑦report）；refactor 在编排层是 Stage 4c
+# （detect 的子阶段，见 audit/orchestrator/pipeline.py），序号随 detect 记 4。
+_STAGE_ORDINAL: dict[str, int] = {
+    "ingest": 1,
+    "index": 2,
+    "understand": 3,
+    "detect": 4,
+    "refactor": 4,
+    "fix": 5,
+    "testgen": 6,
+    "report": 7,
+}
+
+# 阶段中文名（进度行的描述用；编排层"阶段 X 开始/完成"样板事件替换为中文）。
+_STAGE_LABELS: dict[str, str] = {
+    "ingest": "接入与工作副本",
+    "index": "符号索引构建",
+    "understand": "架构理解",
+    "detect": "双通道检测",
+    "refactor": "重构方案生成",
+    "fix": "修复补丁生成与验证",
+    "testgen": "单测生成与运行",
+    "report": "报告聚合与落盘",
+}
+
+
+def _print_progress_event(event: dict[str, object]) -> None:
+    """把单条流水线事件打印为 stderr 进度行（W24-B）。
+
+    - 进度一律走 stderr：--check 门禁 stdout 纯净契约（R3-12）不可破坏；
+    - 仅 type="progress" 的事件进进度行（其余类型如 resume 的 stage_done 标记
+      事件只入列不打印，缺 type 字段的历史事件按 progress 兼容处理）；
+    - warning 事件（LLM 未配置 / 预算熔断 / diff 跳过等）以 [警告] 前缀整行展示；
+    - init / done 通道不是业务阶段，分别以 [提示] / [完成] 前缀展示；
+    - 业务阶段按 `[stage n/7] 描述` 打印，事件携带 current/total 时追加 ` (c/t)`；
+      编排层"阶段 X 开始/完成"样板文案替换为中文阶段名（完成态译作"结束"，与
+      阶段体自带的"XX完成"消息区分开），其余文案原样透传。
+    """
+    if str(event.get("type", "progress")) != "progress":
+        return
+    stage = str(event.get("stage", ""))
+    message = str(event.get("message", ""))
+    if event.get("warning"):
+        print(f"[警告] {message}", file=sys.stderr)
+        return
+    if stage == "init":
+        print(f"[提示] {message}", file=sys.stderr)
+        return
+    if stage == "done":
+        print(f"[完成] {message}", file=sys.stderr)
+        return
+    ordinal = _STAGE_ORDINAL.get(stage)
+    if ordinal is None:  # 未知阶段（前向兼容）：不编号，原样展示
+        print(f"[进度] {message}", file=sys.stderr)
+        return
+    if message == f"阶段 {stage} 开始":
+        desc = f"{_STAGE_LABELS.get(stage, stage)}开始"
+    elif message == f"阶段 {stage} 完成":
+        desc = f"{_STAGE_LABELS.get(stage, stage)}结束"
+    else:
+        desc = message
+    current, total = event.get("current"), event.get("total")
+    counter = (
+        f" ({current}/{total})"
+        if isinstance(current, int) and isinstance(total, int)
+        else ""
+    )
+    print(f"[stage {ordinal}/7] {desc}{counter}", file=sys.stderr)
+
+
+class _ProgressEvents(list):
+    """事件收集列表：每个事件入列时实时打印进度行（W24-B）。
+
+    run_audit_simple 的收集器逐条 append（真实流水线路径），测试替身多用
+    extend 批量注入——两处都桥接打印，保证真实运行时进度逐阶段实时可见。
+    """
+
+    def append(self, item: object) -> None:
+        super().append(item)  # type: ignore[arg-type]
+        _print_progress_event(item)  # type: ignore[arg-type]
+
+    def extend(self, items: object) -> None:
+        super().extend(items)  # type: ignore[arg-type]
+        for item in items:  # type: ignore[union-attr]
+            _print_progress_event(item)
+
 
 def _print_version() -> int:
     """打印 "codeaudit-agent <版本>"（版本单源：audit.__version__），返回退出码 0。"""
@@ -38,6 +133,23 @@ def _print_version() -> int:
 
     print(f"codeaudit-agent {audit.__version__}")
     return 0
+
+
+def _resolve_config_discovery(args: argparse.Namespace) -> tuple[str, Path | None]:
+    """配置文件发现（W18-F2 修复）：显式 --config 优先；否则 CWD 优先、回退被审项目根。
+
+    此前自动发现仅查 CWD——README 承诺"自动发现项目根的 .codeaudit.toml"，从其他
+    目录（及 serve 常驻场景）审计项目时配置静默失效。现保持 CWD 行为零变化（CWD
+    下存在 .codeaudit.toml 时与旧版完全一致），仅当 CWD 无配置且被审项目为目录时，
+    回退到项目根发现（.codeaudit.toml / pyproject.toml [tool.codeaudit]）。
+    """
+    if args.config:
+        return args.config, None
+    src = Path(args.source_path)
+    if not (Path.cwd() / ".codeaudit.toml").is_file() and src.is_dir():
+        if (src / ".codeaudit.toml").is_file() or (src / "pyproject.toml").is_file():
+            return "", src
+    return "", None
 
 
 def _build_run_config(args: argparse.Namespace) -> AuditConfig:
@@ -62,6 +174,9 @@ def _build_run_config(args: argparse.Namespace) -> AuditConfig:
         overrides["fix_max_patches"] = args.fix_max
     if args.testgen_max is not None:
         overrides["testgen_max_functions"] = args.testgen_max
+    # W14-A2（M-2a）：沙箱后端（CLI 显式参数层，高于配置文件/环境变量层）
+    if args.sandbox_backend is not None:
+        overrides["sandbox_backend"] = args.sandbox_backend
     # 契约 v1.4：门禁阈值 / 基线 / 增量（字段行为由流水线与门禁实现，这里只透传）
     if args.fail_on is not None:
         overrides["fail_on_severity"] = args.fail_on
@@ -71,7 +186,13 @@ def _build_run_config(args: argparse.Namespace) -> AuditConfig:
         overrides["report_baseline_out"] = args.report_baseline
     if args.diff is not None:
         overrides["diff_ref"] = args.diff
-    return AuditConfig.from_sources(cli_overrides=overrides, config_file=args.config or "")
+    # W22-C：规则级配置（CLI 显式参数层；severity_overrides 只走配置文件）
+    if args.disable_rule:
+        overrides["disabled_rules"] = list(args.disable_rule)
+    if args.ignore_path:
+        overrides["ignore_paths"] = list(args.ignore_path)
+    config_file, search_root = _resolve_config_discovery(args)
+    return AuditConfig.from_sources(cli_overrides=overrides, config_file=config_file, search_root=search_root)
 
 
 def _print_summary(report: AuditReport, paths: dict[str, str], sarif_path: Path | None = None) -> None:
@@ -119,11 +240,21 @@ def _enforce_gate(report: AuditReport, threshold: str) -> int:
     hit = sum(counts[sev] for sev in _GATE_ORDER[: cutoff + 1])
     total = sum(counts.values())
     suppressed = int(getattr(report.stats, "suppressed", 0) or 0)
+    degraded = bool(getattr(report.stats, "degraded_ingest", False))
     detail = (
         f"阈值 {threshold}：critical {counts['critical']} ｜ high {counts['high']} ｜ "
         f"medium {counts['medium']} ｜ low {counts['low']}；"
-        f"问题总数 {total}；基线抑制 {suppressed}"
+        f"问题总数 {total}；基线抑制 {suppressed}；降级运行 {'是' if degraded else '否'}"
     )
+    # W17（F1，FR-1.4）：ingest 降级运行（如超规模上限）时门禁视为未通过——
+    # 审计未实际执行，CI 不得凭 exit 0 放行。普通模式（无 --check/--fail-on）
+    # 保持退出码 0 + stderr 警告，不阻断交互式使用。
+    if degraded:
+        print(
+            f"\n[门禁] 未通过：ingest 降级运行（审计未实际执行）——{detail}（退出码 3）",
+            file=sys.stderr,
+        )
+        return 3
     if hit > 0:
         print(f"\n[门禁] 未通过：发现 {hit} 个 >= 阈值的问题——{detail}（退出码 3）", file=sys.stderr)
         return 3
@@ -132,16 +263,23 @@ def _enforce_gate(report: AuditReport, threshold: str) -> int:
 
 
 def cmd_run(args: argparse.Namespace) -> int:
-    """run 子命令：执行完整七阶段审计；可选 SARIF 产物与 CI 门禁。"""
+    """run 子命令：执行完整七阶段审计；可选 SARIF 产物与 CI 门禁。
+
+    W24-B：事件流经 _ProgressEvents 收集（append/extend 时实时打印 stderr 进度行），
+    --quiet 时退回普通 list 关闭进度；stdout 只承载报告/摘要，纯净契约不回退。
+    """
     if not Path(args.source_path).exists():
         raise FileNotFoundError(f"源路径不存在：{args.source_path}")
     config = _build_run_config(args)
     for warning in config.config_warnings:
         print(f"[配置警告] {warning}", file=sys.stderr)
-    # R4-10：收集事件流，ingest 失败（降级运行）时在 stderr 打一行降级警告
-    events: list[dict[str, object]] = []
+    # R4-10：收集事件流，ingest 失败（降级运行）时在 stderr 打一行降级警告。
+    # W24-B：默认（非 --quiet）用 _ProgressEvents 实时把事件打印为 stderr 进度。
+    events: list[dict[str, object]] = [] if args.quiet else _ProgressEvents()
     report = asyncio.run(run_audit_simple(config, events=events))
-    if any(event.get("degraded") for event in events):
+    # W21：refactor 事件的 degraded 是整数计数（LLM 降级次数），只有编排层的
+    # degraded=True 才代表 ingest 降级——恒等比较避免计数真值误报。
+    if any(event.get("degraded") is True for event in events):
         print(
             "[警告] ingest 未成功：本次审计为降级运行（无可用工作副本，"
             "index/detect/understand 已跳过，报告不含代码统计）",
@@ -218,6 +356,351 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_apply(args: argparse.Namespace) -> int:
+    """apply 子命令（P0-2）：把审计补丁应用回源码；默认 dry-run 预览不落盘。
+
+    - 补丁序号 N 为 0 起，与 GET /api/audits/{id}/patches 的顺序一致；
+    - 默认 dry-run：列出将写入的目标文件与 patch 概要，不落盘；
+    - --yes 才真正写入；任何拒绝（指纹漂移 / 无指纹老补丁 / 路径非法）→ 整体不落盘，
+      退出码 1；
+    - --all-verified 仅当选中补丁全部为 verified 才允许；单 --patch N 不限状态，
+      但会输出当前状态提示。
+    """
+    from audit.fix.applyer import apply_patches, locate_audit
+    from audit.fix.patcher import _diff_targets
+
+    record = locate_audit(args.audit_id, args.work_root)
+    report = record.report
+    if not report.patches:
+        print(f"[提示] 审计 {args.audit_id} 没有可应用的补丁（未启用 --fix 或未生成）。")
+        return 0
+    index = args.patch
+    if index is not None and (index < 0 or index >= len(report.patches)):
+        print(
+            f"[错误] 补丁序号越界：--patch {index}（有效范围 0-{len(report.patches) - 1}，"
+            f"共 {len(report.patches)} 个补丁）。",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 目标源码目录：--workdir 显式优先；否则用任务记录的 source_path（须为目录）
+    if args.workdir:
+        workdir = Path(args.workdir)
+    elif record.source_path and Path(record.source_path).is_dir():
+        workdir = Path(record.source_path)
+    else:
+        workdir = Path.cwd()
+    if not workdir.is_dir():
+        print(
+            f"[错误] 目标源码目录不存在或不是目录：{workdir}"
+            "（zip 输入的审计请用 --workdir 指定解包后的源码目录）。",
+            file=sys.stderr,
+        )
+        return 1
+
+    result = apply_patches(
+        report.patches,
+        workdir,
+        yes=args.yes,
+        only_index=index,
+        require_all_verified=args.all_verified,
+    )
+
+    patches = report.patches
+    selected = [
+        (i, p) for i, p in enumerate(patches) if index is None or i == index
+    ]
+    mode = "dry-run 预览（未落盘）" if not args.yes else "写入源码"
+    print(f"\n========== 补丁应用{mode} ==========")
+    print(f"审计：{args.audit_id}（报告来源：{record.location}）")
+    print(f"目标源码目录：{workdir.resolve()}")
+    rejected_by_index = {entry["patch_index"]: entry["reason"] for entry in result.rejected}
+    for i, patch in selected:
+        targets = _diff_targets(patch.diff) or ["-"]
+        line = (
+            f"[{i}] {patch.id}（{patch.apply_status}）→ {', '.join(targets)}\n"
+            f"    rationale：{patch.rationale[:80] or '（无）'}"
+        )
+        print(line)
+        if patch.apply_status != "verified" and index == i:
+            print(
+                f"    [提示] 当前状态为 {patch.apply_status}（非 verified）："
+                "单补丁应用不限状态，应用后建议人工复核或补跑测试。"
+            )
+        reason = rejected_by_index.get(i)
+        if reason:
+            print(f"    [拒绝] {reason}")
+        elif args.yes:
+            print("    [应用成功]")
+        else:
+            print("    [预检通过] 加 --yes 将写入上述文件")
+    print("==================================")
+
+    # P0-8：建议 commit message / PR 描述（纯字符串模板拼接，零 LLM token）。
+    # 选中补丁集（--patch N / --all-verified 的结果集）确定后输出；只增打印，
+    # 不改变 apply 既有行为、参数与退出码语义。dry-run 场景标题带（预览）标注。
+    chosen = [patch for _, patch in selected]
+    if args.commit_message or args.pr_description:
+        from audit.fix.commitmsg import build_commit_message, build_pr_description
+
+        preview_tag = "（预览）" if not args.yes else ""
+        if args.commit_message:
+            print(f"\n========== 建议 commit message{preview_tag} ==========")
+            print(build_commit_message(chosen, report.issues))
+        if args.pr_description:
+            print(f"\n========== 建议 PR 描述{preview_tag} ==========")
+            print(build_pr_description(chosen, report.issues))
+
+    if not args.yes:
+        print("本次为 dry-run：未写入任何文件。确认无误后加 --yes 应用。")
+        return 0
+    if result.rejected:
+        print(
+            f"\n[结果] 存在 {len(result.rejected)} 个被拒绝的补丁，"
+            "整体未落盘（all-or-nothing）。",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"\n[结果] 已应用 {len(result.applied)} 个补丁，写入 {len(result.written_files)} 个文件。")
+    return 0
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    """diff 子命令（W24-C）：两次审计报告对比，输出 fixed / new / persisted 三栏。
+
+    - 两个参数均可为 audit_id（经 audits.db / 报告目录定位）或 report.json 路径；
+    - 匹配口径见 audit/report/comparator.py（(file, rule, 行号±3)）；本命令恒退出
+      0（对比展示而非 CI 门禁，new>0 的门禁口径留待后续轮次定夺）。
+    """
+    from audit.fix.applyer import locate_audit
+    from audit.report.comparator import compare, format_result, load
+
+    def _report_of(token: str):
+        path = Path(token)
+        if path.is_file():
+            return load(path), str(path)
+        record = locate_audit(token, args.work_root)
+        return record.report, record.location
+
+    report_a, loc_a = _report_of(args.audit_a)
+    report_b, loc_b = _report_of(args.audit_b)
+    print("========== 审计报告对比 ==========")
+    print(f"基线（A）：{args.audit_a}（{loc_a}）")
+    print(f"当前（B）：{args.audit_b}（{loc_b}）")
+    print(format_result(compare(report_a, report_b)))
+    return 0
+
+
+# ---------------------------------------------------------------- W24-B：doctor 环境自检
+
+# doctor 检查项状态级：OK 通过 ｜ 警告 有损降级（不影响核心功能）｜ 失败 核心功能受损
+_DOCTOR_OK, _DOCTOR_WARN, _DOCTOR_FAIL = "OK", "警告", "失败"
+
+# doctor 检查行类型：(状态, 检查项名, 说明, 修复建议)；建议为空串表示无需修复。
+_DoctorRow = tuple[str, str, str, str]
+
+# doctor 语言包探测清单：前三个是 pyproject 声明的核心依赖（缺失记"失败"）；
+# java 为 W24-A 新增语言包，缺失只记"警告"（未装如实报未安装，不报错）。
+_DOCTOR_LANGS: tuple[tuple[str, bool], ...] = (
+    ("python", True),
+    ("javascript", True),
+    ("typescript", True),
+    ("java", False),
+)
+
+
+def _import_module(name: str) -> object:
+    """importlib.import_module 薄包装（doctor 语言包探测；测试注入替身用）。"""
+    import importlib
+
+    return importlib.import_module(name)
+
+
+def _check_python() -> _DoctorRow:
+    """Python 版本检查：低于 3.11 记失败（tomllib 等标准库依赖，pyproject 同口径）。"""
+    version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    if (sys.version_info.major, sys.version_info.minor) < (3, 11):
+        return _DOCTOR_FAIL, "Python 版本", f"Python {version}（低于 3.11，缺少 tomllib）", "升级到 Python 3.11 及以上"
+    return _DOCTOR_OK, "Python 版本", f"Python {version}", ""
+
+
+def _check_git() -> _DoctorRow:
+    """git 可用性检查：缺失记警告（--diff 增量与补丁验证降级，核心审计不受损）。"""
+    path = shutil.which("git")
+    if not path:
+        return _DOCTOR_WARN, "git", "未找到 git 命令", "安装 git 并加入 PATH（--diff 增量审计与补丁 git apply 验证依赖 git）"
+    return _DOCTOR_OK, "git", f"git 可用：{path}", ""
+
+
+def _check_tree_sitter() -> list[_DoctorRow]:
+    """tree-sitter 语言包逐个 import 探测：核心三语言缺失记失败，java 缺失记警告。"""
+    rows: list[_DoctorRow] = []
+    for lang, core in _DOCTOR_LANGS:
+        module_name = f"tree_sitter_{lang}"
+        try:
+            _import_module(module_name)
+        except Exception as exc:  # noqa: BLE001 —— 单语言包探测失败不中断 doctor
+            status = _DOCTOR_FAIL if core else _DOCTOR_WARN
+            reason = "导入失败" if core else "未安装（可选语言包）"
+            rows.append(
+                (
+                    status,
+                    f"语言包 {lang}",
+                    f"{module_name} {reason}（{type(exc).__name__}）",
+                    f"pip install {module_name}",
+                )
+            )
+        else:
+            rows.append((_DOCTOR_OK, f"语言包 {lang}", f"{module_name} 可用", ""))
+    return rows
+
+
+def _check_dotenv() -> _DoctorRow:
+    """.env 白名单键合法性检查：白名单外键会被配置加载器静默忽略，这里显式提示。
+
+    只读键名、绝不回显键值（.env 通常是密钥文件）。白名单口径与 audit.config
+    的 _DOTENV_KEYS 单源对齐（cmd_apply 引 _diff_targets 私有名同款先例）。
+    """
+    from audit.config import _DOTENV_KEYS, _parse_dotenv_line  # 单源复用，见 docstring
+
+    path = Path.cwd() / ".env"
+    try:
+        text = path.read_text(encoding="utf-8-sig")
+    except OSError:
+        return _DOCTOR_OK, ".env", "未找到 .env（跳过；需要 LLM 时可配置 GLM_API_KEY）", ""
+    except UnicodeDecodeError:
+        return _DOCTOR_FAIL, ".env", ".env 不是 UTF-8 文本，无法解析", "以 UTF-8（无 BOM 亦可）重新保存 .env"
+    ignored: list[str] = []
+    known = 0
+    for line in text.splitlines():
+        parsed = _parse_dotenv_line(line)
+        if parsed is None:
+            continue
+        key, _value = parsed  # 值不落日志/终端：.env 值通常是密钥
+        if key in _DOTENV_KEYS:
+            known += 1
+        else:
+            ignored.append(key)
+    if ignored:
+        return (
+            _DOCTOR_WARN,
+            ".env",
+            f"含 {len(ignored)} 个白名单外键（将被忽略）：{', '.join(sorted(ignored))}",
+            f"白名单键：{', '.join(sorted(_DOTENV_KEYS))}；其余键请移出 .env",
+        )
+    return _DOCTOR_OK, ".env", f"可解析，含 {known} 个白名单键", ""
+
+
+def _check_config_file() -> _DoctorRow:
+    """配置文件可解析性检查：复用 AuditConfig.from_sources 的解析与未知键告警。"""
+    path = Path.cwd() / ".codeaudit.toml"
+    if not path.is_file():
+        return _DOCTOR_OK, "配置文件", "未找到 .codeaudit.toml（使用默认配置；codeaudit init 可生成模板）", ""
+    try:
+        config = AuditConfig.from_sources(config_file=str(path))
+    except Exception as exc:  # noqa: BLE001 —— 解析异常如实报告，不中断 doctor
+        return _DOCTOR_FAIL, "配置文件", f".codeaudit.toml 解析异常：{type(exc).__name__}: {exc}", "修正 TOML 语法后重试"
+    if config.config_warnings:
+        return (
+            _DOCTOR_WARN,
+            "配置文件",
+            "；".join(config.config_warnings),
+            "改为配置契约内的键（见 audit/config.py AuditConfig 字段）",
+        )
+    return _DOCTOR_OK, "配置文件", ".codeaudit.toml 可解析且无未知键", ""
+
+
+def _check_docker() -> _DoctorRow:
+    """Docker 沙箱后端可用性检查：docker 不存在报"不可用"（警告），绝不崩溃。"""
+    docker_path = shutil.which("docker")
+    if not docker_path:
+        return (
+            _DOCTOR_WARN,
+            "Docker 沙箱",
+            "docker 不可用（未安装 docker CLI；沙箱自动走 subprocess 后端）",
+            "需要容器沙箱时安装 Docker Desktop / Engine，再用 --sandbox-backend docker 显式启用",
+        )
+    try:
+        from audit.sandbox.executor import docker_available  # 延迟导入：探测失败不影响 doctor
+
+        available = bool(docker_available())
+    except Exception as exc:  # noqa: BLE001 —— 探测异常按不可用处理
+        return _DOCTOR_WARN, "Docker 沙箱", f"docker 探测异常（按不可用处理）：{type(exc).__name__}: {exc}", "确认 Docker 已启动后重试"
+    if available:
+        return _DOCTOR_OK, "Docker 沙箱", f"docker 可用：{docker_path}", ""
+    return _DOCTOR_WARN, "Docker 沙箱", "docker CLI 存在，但守护进程不可用（docker info 失败）", "启动 Docker Desktop / Engine 后重试"
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    """doctor 子命令（W24-B）：零 API Key 的环境自检，输出中文诊断表。
+
+    检查项：Python 版本 / git / tree-sitter 语言包（含 java，逐个 import 探测）/
+    .env 白名单键 / .codeaudit.toml 可解析性 / Docker 沙箱后端。任何单项失败不
+    中断整体；存在"失败"级条目时退出码 1，仅"警告"（如 java 未装）仍为 0。
+    """
+    checks: list[_DoctorRow] = [_check_python(), _check_git()]
+    checks.extend(_check_tree_sitter())
+    checks.extend([_check_dotenv(), _check_config_file(), _check_docker()])
+    print("========== CodeAudit 环境诊断 ==========")
+    for status, name, detail, suggestion in checks:
+        line = f"[{status}] {name}：{detail}"
+        if suggestion:
+            line += f"　→ 建议：{suggestion}"
+        print(line)
+    fails = sum(1 for c in checks if c[0] == _DOCTOR_FAIL)
+    warns = sum(1 for c in checks if c[0] == _DOCTOR_WARN)
+    print("-----------------------------------------")
+    print(f"结论：{len(checks) - fails - warns} 项通过，{warns} 项警告，{fails} 项失败")
+    if fails:
+        print("存在失败项：请按上方建议修复后重跑 doctor（退出码 1）。")
+        return 1
+    print("核心环境就绪，可直接运行 codeaudit run。")
+    return 0
+
+
+# ---------------------------------------------------------------- W24-B：init 配置模板
+
+# .codeaudit.toml 注释模板骨架：三键全部注释掉——init 只铺骨架不改行为，
+# 用户按需取消注释（键说明与 audit/config.py W22-C 契约一致）。
+_INIT_TEMPLATE = """\
+# CodeAudit 审计配置（.codeaudit.toml，顶层键）
+# 说明：优先级为 默认值 < 本配置文件 < 环境变量 < CLI 显式参数；
+#       全部键与默认值见 audit/config.py 的 AuditConfig 字段。
+#       pyproject.toml 用户请写在 [tool.codeaudit] 节下（键名相同）。
+# 以下三键为规则级配置（默认全部注释 = 完整默认行为）：
+
+# 禁用指定静态规则（TOML 数组；规则 ID 见 docs-site/rules.md）：
+# disabled_rules = ["PY-EQ-NONE", "PY-BARE-EXCEPT"]
+
+# 覆盖规则严重级别（键 = 规则 id，值 = critical|high|medium|low；只走配置文件）：
+# [severity_overrides]
+# PY-MAGIC-NUMBER = "low"
+
+# 路径白名单：跳过匹配文件不参与检测（fnmatch 或目录前缀；
+# 只影响规则扫描与 LLM 审查，不影响索引构建与后处理扫描器）：
+# ignore_paths = ["vendor/", "tests/fixtures/", "*.min.js"]
+"""
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    """init 子命令（W24-B）：生成 .codeaudit.toml 注释模板骨架。
+
+    目标已存在时拒绝覆盖（退出码 1），绝不改动既有配置内容。
+    """
+    target_dir = Path(args.dir).resolve() if args.dir else Path.cwd()
+    target = target_dir / ".codeaudit.toml"
+    if target.exists():
+        print(
+            f"[错误] 目标已存在，拒绝覆盖：{target}（如需重新生成请先手动删除该文件）。",
+            file=sys.stderr,
+        )
+        return 1
+    target.write_text(_INIT_TEMPLATE, encoding="utf-8")
+    print(f"已生成配置模板：{target}")
+    print("三键（disabled_rules / severity_overrides / ignore_paths）默认注释，按需取消注释后生效。")
+    return 0
+
+
 def _per_worker_concurrency() -> int:
     """读取每 worker 并发上限（env ``CODEAUDIT_MAX_RUNNING``，默认 4，最小 1）。
 
@@ -229,6 +712,23 @@ def _per_worker_concurrency() -> int:
         return max(1, int(raw))
     except ValueError:
         return 4
+
+
+def _is_loopback_host(host: str) -> bool:
+    """判定监听地址是否回环（W22-D）：127.0.0.0/8、::1、localhost。
+
+    - IP 字面量（含 IPv6 ``[::1]`` 方括号形态）走 ``ipaddress`` 判定；
+    - 解析失败按主机名等值 ``localhost`` 判定（uvicorn 对 localhost 绑回环）；
+    - 空值按回环处理（uvicorn 缺省 127.0.0.1）。
+    ``0.0.0.0`` / ``::`` 等 unspecified 地址不是回环，返回 False。
+    """
+    text = str(host or "").strip().strip("[]")
+    if not text:
+        return True
+    try:
+        return ipaddress.ip_address(text).is_loopback
+    except ValueError:
+        return text.lower() == "localhost"
 
 
 def cmd_serve(args: argparse.Namespace) -> int:
@@ -251,6 +751,21 @@ def cmd_serve(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
         return 2
+
+    # W22-D 安全默认：非回环绑定 && 无 API Token && 未显式豁免 → 拒绝启动。
+    # Token 判定与 server 侧 _get_security_config 同口径（CODEAUDIT_API_TOKEN
+    # 真实进程环境直读）；挂点在 cli（lifespan/create_app 拿不到 host）。
+    if not _is_loopback_host(args.host) and not args.allow_insecure:
+        if not os.environ.get("CODEAUDIT_API_TOKEN", "").strip():
+            print(
+                f"[错误] 监听地址 {args.host} 不是回环地址，但未配置 API Token——"
+                "服务将暴露给局域网/公网且 /api/* 无鉴权。请任选其一：\n"
+                "  1) 设置 CODEAUDIT_API_TOKEN 环境变量后再启动；\n"
+                "  2) 确认风险后加 --allow-insecure 显式豁免本检查；\n"
+                "  3) 本机开发改用 --host 127.0.0.1（默认，无需 token）。",
+                file=sys.stderr,
+            )
+            return 1
 
     import uvicorn
 
@@ -332,7 +847,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_run.add_argument(
         "--testgen-max", type=int, default=None, help="单次审计最多生成单测的目标函数数（默认 30）"
     )
+    p_run.add_argument(
+        "--sandbox-backend",
+        choices=["subprocess", "docker"],
+        default=None,
+        help="沙箱后端（默认 subprocess；docker 为 opt-in 实验特性，探测失败自动降级 subprocess）",
+    )
     p_run.add_argument("--json", action="store_true", help="以 JSON 输出完整报告")
+    p_run.add_argument(
+        "--quiet",
+        action="store_true",
+        help="关闭 stderr 实时进度输出（[stage n/7] 行）；门禁结果与报告输出不受影响",
+    )
     p_run.add_argument(
         "--format",
         choices=["json", "md", "html", "sarif"],
@@ -362,6 +888,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="显式配置文件路径；缺省自动发现 .codeaudit.toml / pyproject [tool.codeaudit]",
     )
+    p_run.add_argument(
+        "--disable-rule",
+        action="append",
+        default=None,
+        metavar="RULE_ID",
+        help="禁用指定静态规则（可多次，如 --disable-rule PY-EQ-NONE）；等价配置键 disabled_rules",
+    )
+    p_run.add_argument(
+        "--ignore-path",
+        action="append",
+        default=None,
+        metavar="PATTERN",
+        help="路径白名单：跳过匹配文件不参与检测（fnmatch 或目录前缀，可多次，如 --ignore-path vendor/）；只影响规则扫描与 LLM 审查",
+    )
     p_run.add_argument("--version", action="store_true", help=version_help)
     p_run.set_defaults(func=cmd_run)
 
@@ -378,9 +918,78 @@ def build_parser() -> argparse.ArgumentParser:
     p_report.add_argument("--out", default="", help="输出文件路径（缺省打印到标准输出）")
     p_report.set_defaults(func=cmd_report)
 
+    p_apply = sub.add_parser("apply", help="把审计补丁应用回源码（默认 dry-run 预览，--yes 才写入）")
+    p_apply.add_argument("audit_id", help="审计 ID（report.audit_id / 任务表 audit_id）")
+    p_apply.add_argument(
+        "--patch",
+        type=int,
+        default=None,
+        metavar="N",
+        help="只应用第 N 个补丁（0 起，与 GET /patches 顺序一致；不限状态，会输出状态提示）",
+    )
+    p_apply.add_argument(
+        "--all-verified",
+        action="store_true",
+        help="闸门：仅当选中的补丁全部为 verified 状态才允许应用",
+    )
+    p_apply.add_argument(
+        "--yes", action="store_true", help="真正写入源码（缺省 dry-run 只预览不落盘）"
+    )
+    p_apply.add_argument(
+        "--workdir",
+        default=None,
+        help="目标源码目录（默认用任务记录的 source_path，否则当前目录）",
+    )
+    p_apply.add_argument(
+        "--work-root",
+        default=None,
+        help="审计工作区根（定位 audits.db / 报告，默认 .codeaudit）",
+    )
+    p_apply.add_argument(
+        "--commit-message",
+        action="store_true",
+        help="输出选中补丁集的建议 commit message（模板拼接生成；dry-run 下带（预览）标注）",
+    )
+    p_apply.add_argument(
+        "--pr-description",
+        action="store_true",
+        help="输出选中补丁集的 Markdown PR 描述（含命中规则计数、验证状态表与兼容性说明）",
+    )
+    p_apply.set_defaults(func=cmd_apply)
+
+    p_diff = sub.add_parser(
+        "diff", help="对比两次审计报告：fixed（已修复）/ new（新增）/ persisted（仍存在）三栏"
+    )
+    p_diff.add_argument("audit_a", help="基线审计：audit_id 或 report.json 路径")
+    p_diff.add_argument("audit_b", help="当前审计：audit_id 或 report.json 路径")
+    p_diff.add_argument(
+        "--work-root",
+        default=None,
+        help="审计工作区根（按 audit_id 定位报告用，默认 .codeaudit）",
+    )
+    p_diff.set_defaults(func=cmd_diff)
+
+    p_doctor = sub.add_parser(
+        "doctor", help="环境自检（零 API Key）：Python/git/语言包/.env/配置文件/Docker"
+    )
+    p_doctor.set_defaults(func=cmd_doctor)
+
+    p_init = sub.add_parser(
+        "init", help="生成 .codeaudit.toml 注释模板骨架（目标已存在时拒绝覆盖）"
+    )
+    p_init.add_argument(
+        "dir", nargs="?", default="", help="目标目录（缺省当前目录；文件名固定 .codeaudit.toml）"
+    )
+    p_init.set_defaults(func=cmd_init)
+
     p_serve = sub.add_parser("serve", help="启动 Web 服务（REST API + SSE 进度 + 演示页）")
     p_serve.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     p_serve.add_argument("--port", type=int, default=8000, help="监听端口（默认 8000）")
+    p_serve.add_argument(
+        "--allow-insecure",
+        action="store_true",
+        help="（W22-D）显式豁免非回环绑定的 token 强制检查（自担风险）",
+    )
     p_serve.add_argument(
         "--workers",
         type=int,

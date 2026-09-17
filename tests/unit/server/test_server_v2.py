@@ -406,6 +406,9 @@ def test_refactors_lists_proposals_with_contract_fields(seed_task):
         "related_issues",
         "source",
         "confidence",
+        # W16：重构方案分级契约字段（带默认值，向后兼容）
+        "priority",
+        "estimated_effort_hours",
     }
     assert data["proposals"][0]["steps"] == ["提取参数对象", "拆分分支"]
     assert data["proposals"][0]["related_issues"] == ["ISS-0001"]

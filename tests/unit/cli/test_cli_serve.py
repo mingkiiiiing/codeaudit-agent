@@ -78,7 +78,10 @@ def test_serve_workers_1_same_instance_path(monkeypatch, capsys):
 
 
 def test_serve_workers_2_uses_import_string(monkeypatch, capsys):
-    """--workers 2 时 uvicorn.run 以 import string "server.app:app" + workers=2 启动。"""
+    """--workers 2 时 uvicorn.run 以 import string "server.app:app" + workers=2 启动。
+
+    W22-D 起非回环绑定要求 token：本用例焦点在 workers 路径，补 token 环境保持原意图。
+    """
     import uvicorn
 
     captured: dict = {}
@@ -87,6 +90,7 @@ def test_serve_workers_2_uses_import_string(monkeypatch, capsys):
         captured.update(app=app, host=host, port=port, kwargs=kwargs)
 
     monkeypatch.setattr(uvicorn, "run", fake_run)
+    monkeypatch.setenv("CODEAUDIT_API_TOKEN", "test-token")
     rc = cli.main(["serve", "--host", "0.0.0.0", "--port", "8921", "--workers", "2"])
     assert rc == 0
     assert captured["app"] == "server.app:app"  # import string，非实例
@@ -126,6 +130,73 @@ def test_serve_workers_banner_respects_invalid_max_running_env(monkeypatch, caps
     monkeypatch.setenv("CODEAUDIT_MAX_RUNNING", "not-a-number")
     assert cli.main(["serve", "--workers", "2"]) == 0
     assert "2 × 4 = 8" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- W22-D 非回环绑定强制 token
+
+
+def test_serve_loopback_without_token_allowed(monkeypatch, capsys):
+    """回环绑定（默认 host）无需 token：行为与 W22-D 之前完全一致。"""
+    import uvicorn
+
+    called: list = []
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: called.append((a, k)))
+    monkeypatch.delenv("CODEAUDIT_API_TOKEN", raising=False)
+    assert cli.main(["serve", "--host", "127.0.0.1", "--port", "8921"]) == 0
+    assert called  # 正常进入 uvicorn.run
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "192.168.1.10", "::"])
+def test_serve_non_loopback_without_token_rejected(monkeypatch, capsys, host):
+    """非回环绑定 && 无 token && 未豁免 → 退出码 1、中文报错、不触碰 uvicorn.run。
+
+    ::1 是回环（IPv6 loopback），单独在下方正向用例覆盖；这里只列真非回环地址。
+    """
+    import uvicorn
+
+    called: list = []
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: called.append((a, k)))
+    monkeypatch.delenv("CODEAUDIT_API_TOKEN", raising=False)
+    rc = cli.main(["serve", "--host", host, "--port", "8921"])
+    assert rc == 1
+    assert not called
+    err = capsys.readouterr().err
+    assert "[错误]" in err and "CODEAUDIT_API_TOKEN" in err and host in err
+
+
+def test_serve_non_loopback_with_token_allowed(monkeypatch, capsys):
+    """非回环绑定但配置了 token → 放行（token 生效由 server 侧中间件保证）。"""
+    import uvicorn
+
+    called: list = []
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: called.append((a, k)))
+    monkeypatch.setenv("CODEAUDIT_API_TOKEN", "secret-token")
+    assert cli.main(["serve", "--host", "0.0.0.0", "--port", "8921"]) == 0
+    assert called
+
+
+def test_serve_non_loopback_allow_insecure_bypasses(monkeypatch, capsys):
+    """非回环 && 无 token 但显式 --allow-insecure → 放行并在 stderr 无错误。"""
+    import uvicorn
+
+    called: list = []
+    monkeypatch.setattr(uvicorn, "run", lambda *a, **k: called.append((a, k)))
+    monkeypatch.delenv("CODEAUDIT_API_TOKEN", raising=False)
+    assert cli.main(["serve", "--host", "0.0.0.0", "--port", "8921", "--allow-insecure"]) == 0
+    assert called
+    assert "[错误]" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "127.8.8.8", "[::1]", ""])
+def test_is_loopback_host_accepts_loopback_forms(host):
+    """回环判定：localhost / 127.0.0.0/8 任意段 / [::1] / 空值均按回环。"""
+    assert cli._is_loopback_host(host) is True
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.10", "example.com"])
+def test_is_loopback_host_rejects_non_loopback(host):
+    """回环判定：unspecified / 私网 / 主机名（非 localhost）均非回环。"""
+    assert cli._is_loopback_host(host) is False
 
 
 # ---------------------------------------------------------------- help

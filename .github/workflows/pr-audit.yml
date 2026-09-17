@@ -1,0 +1,61 @@
+# PR 自审计（W15-C）：用本仓库自己的审计 Agent 审计 PR 增量变更，实现"自举"（dogfood）。
+#
+# 设计要点：
+#   - 离线模式：审计器纯规则引擎 + 门禁模式运行，不调用任何 LLM、不依赖任何 secrets；
+#   - 增量审计：--diff origin/main 只审计相对 main 变更的文件；
+#   - 门禁：--fail-on critical 隐含启用 CI 门禁，发现 >= critical 的问题以退出码 3 结束
+#     （步骤失败但 SARIF 仍上传——upload 步骤用 if: always()）；
+#   - SARIF 产物上传为 artifact 供人工下载核查（如需 GitHub Security 集成可在集成阶段追加）。
+#
+# 命令实测记录（W15-C，本地 Python 3.13.9）：`run` 子命令无 --output 参数，
+# --format sarif 时在报告目录（--out 指定，默认 <work-root>/reports）生成 report.sarif，
+# 故此处的产物路径为 ${{ env.AUDIT_OUT }}/report.sarif。
+name: PR Audit
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+# 同一 PR 的新推送取消还在跑的旧审计，避免运行叠加浪费 runner
+concurrency:
+  group: pr-audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# 最小权限：只读代码，零 secrets 依赖
+permissions:
+  contents: read
+
+jobs:
+  self-audit:
+    name: self-audit (offline, critical gate)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      AUDIT_OUT: .codeaudit/reports   # 与 cli.py run 默认报告目录一致，便于本地复现
+    steps:
+      # --diff origin/main 需要 origin/main ref：默认浅克隆（depth=1）拉不到，须全量拉取
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Self audit (diff vs origin/main, fail on critical)
+        run: |
+          python cli.py run . --diff origin/main --fail-on critical --format sarif --out "$AUDIT_OUT"
+
+      - name: Upload SARIF artifact
+        if: always()   # 门禁失败（发现 critical）时也要能拿到 SARIF 供排查
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeaudit-sarif
+          path: ${{ env.AUDIT_OUT }}/report.sarif
+          if-no-files-found: error

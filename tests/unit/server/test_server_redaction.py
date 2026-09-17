@@ -25,7 +25,7 @@ from audit.models import AuditReport
 from server import app as server_app
 
 # 测试假 Key（绝不真实；流水线被假替身替换，零网络）
-_FAKE_KEY = "sk-test-secret-123"
+_FAKE_KEY = "sk-test-secret-123"  # codeaudit: ignore[PY-HARDCODED-SECRET] 脱敏测试的假密钥夹具，非真实凭据（W21 卡2 定性）
 _REDACTED = "<redacted>"
 
 
@@ -85,33 +85,35 @@ def test_config_json_redacted_across_store_sql_and_db_bytes(
         ).json()["audit_id"]
         assert _wait_terminal(client, audit_id)["status"] == "done"
 
-    # a) store API 口径：config_json 已脱敏
-    row = store.get(audit_id)
-    assert row is not None
-    assert _FAKE_KEY not in row["config_json"]
-    cfg_json = json.loads(row["config_json"])
-    assert cfg_json["api_key"] == _REDACTED
+        # a) store API 口径：config_json 已脱敏。
+        # W15-A5：server.app lifespan 在 with 退出（yield 后）即关闭 store——
+        # store API 的访问须在 with 块内完成（close 幂等，fixture teardown 重复关无妨）。
+        row = store.get(audit_id)
+        assert row is not None
+        assert _FAKE_KEY not in row["config_json"]
+        cfg_json = json.loads(row["config_json"])
+        assert cfg_json["api_key"] == _REDACTED
 
-    # b) 绕过 store 层：sqlite3 裸连 db，config_json 列全表扫描
-    # （连接须显式关闭：`with conn` 只管事务；不关会阻止后续 WAL checkpoint）
-    db_path: Path = store._db_path
-    assert db_path.is_file()
-    conn = sqlite3.connect(str(db_path))
-    try:
-        rows = conn.execute("SELECT config_json FROM audits").fetchall()
-    finally:
-        conn.close()
-    assert rows, "audits 表为空，任务行未落库"
-    for (raw,) in rows:
-        assert _FAKE_KEY not in raw
-        assert _REDACTED in raw
+        # b) 绕过 store 层：sqlite3 裸连 db，config_json 列全表扫描
+        # （连接须显式关闭：`with conn` 只管事务；不关会阻止后续 WAL checkpoint）
+        db_path: Path = store._db_path
+        assert db_path.is_file()
+        conn = sqlite3.connect(str(db_path))
+        try:
+            rows = conn.execute("SELECT config_json FROM audits").fetchall()
+        finally:
+            conn.close()
+        assert rows, "audits 表为空，任务行未落库"
+        for (raw,) in rows:
+            assert _FAKE_KEY not in raw
+            assert _REDACTED in raw
 
-    # c) 运行时语义：假流水线收到的是创建请求时的原始 config（真实 Key 在内存对象上）
-    assert fake_pipeline, "任务未被执行"
-    assert all(cfg.api_key == _FAKE_KEY for cfg in fake_pipeline)
+        # c) 运行时语义：假流水线收到的是创建请求时的原始 config（真实 Key 在内存对象上）
+        assert fake_pipeline, "任务未被执行"
+        assert all(cfg.api_key == _FAKE_KEY for cfg in fake_pipeline)
 
-    # d) 字节级兜底：关库（促发 WAL checkpoint）后扫描主库 + WAL + SHM 全部字节
-    store.close()
+    # d) 字节级兜底：W15-A5 起 store 由 lifespan 退出时关闭（等价原 store.close()
+    # 促发 WAL checkpoint），扫描主库 + WAL + SHM 全部字节
     for path in (db_path, Path(f"{db_path}-wal"), Path(f"{db_path}-shm")):
         if not path.is_file():
             continue
@@ -132,8 +134,9 @@ def test_upload_endpoint_config_json_also_redacted(
         ).json()["audit_id"]
         assert _wait_terminal(client, audit_id)["status"] == "done"
 
-    row = store.get(audit_id)
-    assert row is not None
-    assert _FAKE_KEY not in row["config_json"]
-    assert json.loads(row["config_json"])["api_key"] == _REDACTED
+        # W15-A5：store API 访问须在 with 块内完成（lifespan 退出即关闭 store）
+        row = store.get(audit_id)
+        assert row is not None
+        assert _FAKE_KEY not in row["config_json"]
+        assert json.loads(row["config_json"])["api_key"] == _REDACTED
     assert all(cfg.api_key == _FAKE_KEY for cfg in fake_pipeline)

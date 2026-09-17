@@ -49,6 +49,24 @@ NEW_JS_RULE_IDS = [
     "TS-DEPENDS-ON-ANY",
 ]
 BASELINE_RULE_COUNT = 49
+# W16（专项验收短板清偿）追加注册的规则数：arch_layers 2 + py_naming 2 +
+# pii_rules 2（PY-PII-LOG / PY-PII-SQL）+ js_security_ext 2；
+# W19（深度审计 P1 清偿）追加 7 条：py_complexity 1 + py_concurrency 2 +
+# py_orm 1 + py_dynamic_exec 3；规则库 63 -> 78，见 CHANGELOG Wave 16/19。
+W16_RULE_COUNT = 8
+W19_RULE_COUNT = 7
+# W20（P2 清偿）追加：py_security_ops 2（PY-DEFAULT-CREDENTIAL / PY-LOG-FORGERY）；
+# 规则库 63 -> 80，见 CHANGELOG Wave 20。
+W20_RULE_COUNT = 2
+# W21（门禁清白配套）追加：py_web_routing 2（PY-WEB-ROUTE-NO-AUTH / PY-WEB-NO-RATE-LIMIT）；
+# 规则库 80 -> 82，见 CHANGELOG W21。
+W21_RULE_COUNT = 2
+# W23（工作轮 P0-3 AST 断供修复）追加：py_none_deref 1（PY-NONE-DEREF）；
+# 规则库 82 -> 83，见 CHANGELOG Wave 23。
+W23_RULE_COUNT = 1
+# W24-A（Java 语言包）追加：java 3（JAVA-SQL-INJECTION / JAVA-HARDCODED-SECRET /
+# JAVA-LONG-FUNCTION）；规则库 83 -> 86。
+W24_RULE_COUNT = 3
 
 
 def _lines(rule, ctx):
@@ -441,7 +459,7 @@ class TestTsDependsOnAny:
 
 class TestRegistryExt:
     def test_total_count_is_baseline_plus_ext(self):
-        assert len(DEFAULT_REGISTRY) == BASELINE_RULE_COUNT + len(NEW_PY_RULE_IDS) + len(NEW_JS_RULE_IDS)
+        assert len(DEFAULT_REGISTRY) == BASELINE_RULE_COUNT + len(NEW_PY_RULE_IDS) + len(NEW_JS_RULE_IDS) + W16_RULE_COUNT + W19_RULE_COUNT + W20_RULE_COUNT + W21_RULE_COUNT + W23_RULE_COUNT + W24_RULE_COUNT
 
     def test_every_new_rule_registered_exactly_once(self):
         all_ids = [r.id for r in DEFAULT_REGISTRY.all_rules]

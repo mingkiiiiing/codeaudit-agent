@@ -96,7 +96,12 @@ async def run_testgen_stage(ctx: PipelineContext) -> None:
         await ctx.emit("testgen", f"单测生成阶段完成：无目标 {stats}", **stats)
         return
 
-    sandbox = SandboxExecutor()
+    # W14-A2（M-2a）：沙箱后端从配置读取（subprocess/docker，分层见 AuditConfig）；
+    # 非法配置值由 SandboxExecutor 诚实降级 subprocess，backend_note 非空时在
+    # 进度事件中如实标注。
+    sandbox = SandboxExecutor(backend=getattr(ctx.config, "sandbox_backend", "subprocess"))
+    if sandbox.backend_note:
+        await ctx.emit("testgen", sandbox.backend_note)
     tc_seq = 0
     for index, (file, symbol) in enumerate(targets, 1):
         await ctx.emit(
