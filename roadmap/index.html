@@ -853,6 +853,62 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/19-Wave14%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E6%9F%A5%E6%B8%85%E5%81%BF%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%E6%94%B6%E5%8F%A3/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    19 Wave14 方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    21 Wave22 方案
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1171,11 +1227,21 @@
 <li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <strong>MCP Server</strong>：把审计工具（检测 / 索引 / 报告）暴露为 Model Context Protocol 服务，供任意 Agent 调用</li>
 <li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <strong>云端 PR 机器人</strong>：在 PR 里评论 <code>@codeaudit-bot</code> 触发增量审计并回帖报告，免配置工作流</li>
 <li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <strong>Java / Go 语言支持</strong>：扩展 tree-sitter 语法解析与双通道规则库</li>
-<li class="task-list-item"><label class="task-list-control"><input type="checkbox" disabled/><span class="task-list-indicator"></span></label> <strong>Docker 沙箱</strong>：以容器级隔离替代 subprocess 沙箱，提升修复验证与单测运行的安全边界</li>
 </ul>
 <h2 id="_1">已交付<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>0.4.0</strong>（本轮）：Wave 7 赛题合规收口——<strong>重构方案生成器</strong>（确定性启发式 + LLM 增强，报告新增「重构方案」章节，契约 v1.7 <code>RefactorProposal</code>）；<strong>JS/TS 修复与单测验证闭环</strong>（<code>node --check</code> 语法验证 + <code>node --test</code> 单测验证，node 不可用诚实降级）；<strong>性能实验与开关化</strong>——规则多进程并行 / ingest 硬链接作为可选开关交付（默认串行 / 复制，本机 2000 文件档实测负收益诚实回退，命中集合指纹一致，对比数据见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/bench/results/stress_w7_clean.md">bench/results/stress_w7_clean.md</a>）；赛题合规矩阵 10 项最终状态落定——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
+<li>
+<p><strong>0.6.x</strong>：Wave 13——CI 在线评估工作流（weekly 抽样 + 手动触发，GLM_API_KEY 缺失自动跳过）；<strong>Docker 沙箱后端</strong>（容器级隔离，opt-in 默认关闭，<code>CODEAUDIT_SANDBOX_BACKEND</code> 启用，docker 不可用时诚实降级 subprocess）；多 worker 压测基线（<a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/bench/results/soak_multiworker_w13.md">bench/results/soak_multiworker_w13.md</a>）；前端预算熔断 / 降级可视化——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></p>
+</li>
+<li>
+<p><strong>0.6.0</strong>：Wave 9–12 四波合并交付——<strong>测试体系补全</strong>（W9）：对抗八场景滥用测试运行器（<code>make adversarial</code>：恶意 zip 军火库 / 参数滥用矩阵 / 任务洪泛 / SSE 竞态 / 210MB 上传 / 沙箱逃逸 / 提示注入）、算法不变量与灰度发布保障测试进 CI；<strong>服务治理与灰度基建</strong>（W10）：任务准入控制（并发上限 + 排队 + 429，契约 v2.1）、流式上传分块落盘（413 上限语义不变）、沙箱输出限量 + truncated 标记、金丝雀双版本回放对拍（<code>make canary</code>）、Soak 混合负载压测（<code>make soak</code>）；<strong>形态演进</strong>（W11）：任务持久化 SQLite WAL——服务重启后终态任务与报告仍可查询（契约 v2.2）、线程池执行、协作式取消、多 worker 实验特性（<code>--workers N</code>）；<strong>在线 GLM 安全治理与评估体系</strong>（W12）：真实 GLM 接入与评估套件（提示注入鲁棒性实测通过、成本基准）、内存归因结论「有界增长非泄漏」（F9）、预算熔断全局闸门（F8）、Key 落库脱敏（F6）、<code>.env</code> 自动加载（F7）——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></p>
+</li>
+<li>
+<p><strong>0.5.0</strong>：Wave 8 Web 前后端——<strong>前端工作台 <code>frontend/</code></strong>（React 18 + TypeScript + Vite + Ant Design 5 三页式 SPA：仪表盘任务列表 / 新建审计（路径与 zip 双入口）/ 任务详情——SSE 实时进度、ECharts 健康分与严重度分布、问题过滤、修复补丁 diff、报告三格式下载）；<strong>REST API 契约 v2</strong>（health / 任务列表 / 删除 / zip 上传 / 重构方案 / 架构理解端点 + SPA 静态托管）；<strong>Web 压测基线</strong>（读端点突发 / 并发审计 / SSE 并发流 / zip 上传四场景，真实 HTTP 口径）；CI 前端 job（typecheck + vitest + build 三关）——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></p>
+</li>
+<li>
+<p><strong>0.4.0</strong>（本轮）：Wave 7 赛题合规收口——<strong>重构方案生成器</strong>（确定性启发式 + LLM 增强，报告新增「重构方案」章节，契约 v1.7 <code>RefactorProposal</code>）；<strong>JS/TS 修复与单测验证闭环</strong>（<code>node --check</code> 语法验证 + <code>node --test</code> 单测验证，node 不可用诚实降级）；<strong>性能实验与开关化</strong>——规则多进程并行 / ingest 硬链接作为可选开关交付（默认串行 / 复制，本机 2000 文件档实测负收益诚实回退，命中集合指纹一致，对比数据见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/bench/results/stress_w7_clean.md">bench/results/stress_w7_clean.md</a>）；赛题合规矩阵 10 项最终状态落定——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></p>
+</li>
 <li><strong>0.3.0</strong>：Wave 5 质量攻坚 + Wave 6 健壮性清偿与发布——68 项发现修复 25 项（含 git apply 外层仓库静默跳过、review_fn 参数错绑两个高危缺陷）、联调测试 34 用例、压力测试基线 0.245 s/KLOC；R4 复核清偿 4 项必修（密钥规则复数形态漏报回归、增量索引陈旧缓存、删除 / 重命名补丁回滚、understand 未随 ingest 门控）；静态规则库 49 → 63 条并上线<a href="../rules/">内置规则手册</a>；依赖约束治理——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
 <li><strong>0.2.0</strong>：SARIF 输出、CI 门禁（<code>--check --fail-on</code>）、PR 增量审计（<code>--diff</code>）、基线抑制、配置文件、<code>codeaudit</code> 入口、GitHub 协作设施与文档站——见 <a href="https://github.com/mingkiiiiing/codeaudit-agent/blob/main/CHANGELOG.md">CHANGELOG</a></li>
 <li><strong>0.1.0</strong>：七阶段流水线、双通道检测（静态规则 + LLM Agent）、修复与单测闭环、三端入口（CLI / API / Web）、240 条金标的评估基准</li>

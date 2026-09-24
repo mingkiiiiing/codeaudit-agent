@@ -10,31 +10,27 @@
       
       
       
-        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/cli/">
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/23-Wave24%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Java%E8%AF%AD%E8%A8%80%E5%8C%85%E4%B8%8Eresume%E6%96%AD%E7%82%B9%E7%BB%AD%E8%B7%91%E4%B8%8E%E4%BD%93%E9%AA%8C%E5%BF%AB%E8%B5%A2/">
       
       
-        <link rel="prev" href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/">
-      
-      
-        <link rel="next" href="../rules/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>CLI 速查 - CodeAudit Agent</title>
+        <title>23-Wave24 总体方案：Java 语言包 / resume 断点续跑 / 体验快赢 - CodeAudit Agent</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,7 +43,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -72,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cli" class="md-skip">
+        <a href="#23-wave24-java-resume" class="md-skip">
           跳转至
         </a>
       
@@ -88,7 +84,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="页眉">
-    <a href=".." title="CodeAudit Agent" class="md-header__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
+    <a href="../.." title="CodeAudit Agent" class="md-header__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -108,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              CLI 速查
+              23-Wave24 总体方案：Java 语言包 / resume 断点续跑 / 体验快赢
             
           </span>
         </div>
@@ -226,7 +222,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="CodeAudit Agent" class="md-nav__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
+    <a href="../.." title="CodeAudit Agent" class="md-nav__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -256,7 +252,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -330,7 +326,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
+      <a href="../00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
         
   
   
@@ -358,7 +354,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-nav__link">
+      <a href="../01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-nav__link">
         
   
   
@@ -386,7 +382,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/02-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
+      <a href="../02-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
         
   
   
@@ -414,7 +410,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/03-Agent%E5%B7%A5%E5%85%B7%E9%9B%86%E4%B8%8EPrompt%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
+      <a href="../03-Agent%E5%B7%A5%E5%85%B7%E9%9B%86%E4%B8%8EPrompt%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
         
   
   
@@ -442,7 +438,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/04-%E8%AF%84%E4%BC%B0%E4%B8%8E%E6%8C%87%E6%A0%87%E9%AA%8C%E8%AF%81%E6%96%B9%E6%A1%88/" class="md-nav__link">
+      <a href="../04-%E8%AF%84%E4%BC%B0%E4%B8%8E%E6%8C%87%E6%A0%87%E9%AA%8C%E8%AF%81%E6%96%B9%E6%A1%88/" class="md-nav__link">
         
   
   
@@ -470,7 +466,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/05-%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92-%E9%A3%8E%E9%99%A9-%E9%9D%A2%E8%AF%95%E5%87%86%E5%A4%87/" class="md-nav__link">
+      <a href="../05-%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92-%E9%A3%8E%E9%99%A9-%E9%9D%A2%E8%AF%95%E5%87%86%E5%A4%87/" class="md-nav__link">
         
   
   
@@ -498,7 +494,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/06-%E5%A4%9A%E4%BB%BB%E5%8A%A1%E5%B9%B6%E8%A1%8C%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92/" class="md-nav__link">
+      <a href="../06-%E5%A4%9A%E4%BB%BB%E5%8A%A1%E5%B9%B6%E8%A1%8C%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92/" class="md-nav__link">
         
   
   
@@ -526,7 +522,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/" class="md-nav__link">
+      <a href="../07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/" class="md-nav__link">
         
   
   
@@ -554,7 +550,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/" class="md-nav__link">
+      <a href="../08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -582,7 +578,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/" class="md-nav__link">
+      <a href="../09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/" class="md-nav__link">
         
   
   
@@ -610,7 +606,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/10-Wave5%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B4%A8%E9%87%8F%E6%94%BB%E5%9D%9A/" class="md-nav__link">
+      <a href="../10-Wave5%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B4%A8%E9%87%8F%E6%94%BB%E5%9D%9A/" class="md-nav__link">
         
   
   
@@ -638,7 +634,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/11-Wave6%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E4%BE%9D%E8%B5%96%E6%B2%BB%E7%90%86%E4%B8%8E%E5%8F%91%E5%B8%83/" class="md-nav__link">
+      <a href="../11-Wave6%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E4%BE%9D%E8%B5%96%E6%B2%BB%E7%90%86%E4%B8%8E%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -666,7 +662,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/12-Wave7%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B5%9B%E9%A2%98%E5%90%88%E8%A7%84%E4%B8%8E%E6%8F%90%E9%80%9F/" class="md-nav__link">
+      <a href="../12-Wave7%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B5%9B%E9%A2%98%E5%90%88%E8%A7%84%E4%B8%8E%E6%8F%90%E9%80%9F/" class="md-nav__link">
         
   
   
@@ -694,7 +690,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/" class="md-nav__link">
+      <a href="../13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/" class="md-nav__link">
         
   
   
@@ -722,7 +718,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/" class="md-nav__link">
+      <a href="../14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -750,7 +746,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-nav__link">
+      <a href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-nav__link">
         
   
   
@@ -778,7 +774,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-nav__link">
+      <a href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-nav__link">
         
   
   
@@ -806,7 +802,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/" class="md-nav__link">
+      <a href="../17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/" class="md-nav__link">
         
   
   
@@ -834,7 +830,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/" class="md-nav__link">
+      <a href="../18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/" class="md-nav__link">
         
   
   
@@ -862,7 +858,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/19-Wave14%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E6%9F%A5%E6%B8%85%E5%81%BF%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%E6%94%B6%E5%8F%A3/" class="md-nav__link">
+      <a href="../19-Wave14%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E6%9F%A5%E6%B8%85%E5%81%BF%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%E6%94%B6%E5%8F%A3/" class="md-nav__link">
         
   
   
@@ -890,7 +886,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-nav__link">
+      <a href="../21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-nav__link">
         
   
   
@@ -922,37 +918,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    CLI 速查
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
         
   
   
@@ -968,103 +937,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        调用方式
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        退出码约定
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#run" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        run —— 完整审计
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#index-stage-12" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        index —— 只构建接入与索引（Stage 1~2）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#report" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        report —— 报告格式转换
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#serve-web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        serve —— Web 服务
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        典型组合
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1076,7 +948,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rules/" class="md-nav__link">
+      <a href="../../rules/" class="md-nav__link">
         
   
   
@@ -1150,7 +1022,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sarif/" class="md-nav__link">
+      <a href="../../sarif/" class="md-nav__link">
         
   
   
@@ -1178,7 +1050,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pr-review/" class="md-nav__link">
+      <a href="../../pr-review/" class="md-nav__link">
         
   
   
@@ -1213,7 +1085,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../roadmap/" class="md-nav__link">
+      <a href="../../roadmap/" class="md-nav__link">
         
   
   
@@ -1260,10 +1132,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
+  <a href="#0" class="md-nav__link">
     <span class="md-ellipsis">
       
-        调用方式
+        0. 背景与选卡依据
       
     </span>
   </a>
@@ -1271,10 +1143,60 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
+  <a href="#1-auditmodelspy" class="md-nav__link">
     <span class="md-ellipsis">
       
-        退出码约定
+        1. 任务卡与所有权（只准改本卡列出文件；audit/models.py 等契约文件禁改）
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="1. 任务卡与所有权（只准改本卡列出文件；audit/models.py 等契约文件禁改）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#w24-ajava-p0-4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W24-A：Java 语言包（P0-4）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#w24-bp1-" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W24-B：体验三件（P1-快赢）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#w24-cresume-p0-6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        W24-C：resume 断点续跑 + 报告对比（P0-6）
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 设计决策记录
       
     </span>
   </a>
@@ -1282,10 +1204,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#run" class="md-nav__link">
+  <a href="#3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        run —— 完整审计
+        3. 已知边界（诚实声明）
       
     </span>
   </a>
@@ -1293,10 +1215,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#index-stage-12" class="md-nav__link">
+  <a href="#4-2026-09-17" class="md-nav__link">
     <span class="md-ellipsis">
       
-        index —— 只构建接入与索引（Stage 1~2）
+        4. 验收（集成人统一联调实测，2026-09-17）
       
     </span>
   </a>
@@ -1304,32 +1226,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#report" class="md-nav__link">
+  <a href="#5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        report —— 报告格式转换
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#serve-web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        serve —— Web 服务
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        典型组合
+        5. 下一轮入口
       
     </span>
   </a>
@@ -1353,157 +1253,111 @@
 
 
 
-<h1 id="cli">CLI 速查<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h1>
-<div class="admonition note">
-<p class="admonition-title">版本说明</p>
-<p>标注 <strong>0.2.0</strong> 的参数为本轮 Wave 4 新增，功能代码与本文档并行交付，行为以契约 v1.4（<a href="../design/09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/">docs/09 §3</a>）为准；0.1.0 参数已在现网可用。</p>
-</div>
-<h2 id="_1">调用方式<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
-<p><code>pip install -e .</code> 后使用 <code>codeaudit</code> 命令（0.2.0 起提供，版本号单源）；二者完全等价：</p>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>run<span class="w"> </span>./my-project<span class="w"> </span>--no-llm
-<span class="c1"># 等价于</span>
-python<span class="w"> </span>cli.py<span class="w"> </span>run<span class="w"> </span>./my-project<span class="w"> </span>--no-llm
-</code></pre></div>
-<p>帮助与用法信息中的程序名按实际调用方式<strong>动态显示</strong>：<code>python cli.py …</code> 的 <code>--help</code> / usage 显示 <code>cli.py</code>，安装态 <code>codeaudit …</code> 显示 <code>codeaudit</code>，两种方式行为完全一致。</p>
-<p>全局查看版本：<code>codeaudit --version</code>。</p>
-<h2 id="_2">退出码约定<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<h1 id="23-wave24-java-resume">23-Wave24 总体方案：Java 语言包 / resume 断点续跑 / 体验快赢<a class="headerlink" href="#23-wave24-java-resume" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>2026-09-17 ｜ 状态：已完成（联调实测数据见 §4） ｜ 前置：第四轮审计（<code>bench/results/audit_round4_20260917_复审.md</code>，70/100，P0 四项新清单）</p>
+<p>工作流：审计轮（提示词一）→ 工作轮（提示词二）循环；本轮为工作轮，三卡并行（文件所有权互不相交，<code>cli.py</code> 独占归卡 B）+ 集成人统一联调收口。</p>
+</blockquote>
+<h2 id="0">0. 背景与选卡依据<a class="headerlink" href="#0" title="Permanent link">&para;</a></h2>
+<p>第四轮审计 P0 清单 → 本轮三卡：</p>
 <table>
 <thead>
 <tr>
-<th>退出码</th>
-<th>含义</th>
+<th>审计条目</th>
+<th>一句话</th>
+<th>本轮处置</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>0</code></td>
-<td>完成。<strong>含发现问题时</strong>——只要未启用门禁（<code>--check</code> 或 <code>--fail-on</code>），发现多少问题都返回 0</td>
+<td>P0-4</td>
+<td>Java 语言包（3/7 → 4/7 语言；AstParseGate 基建已就绪，"可立即开工"）</td>
+<td><strong>卡 A（本轮）</strong></td>
 </tr>
 <tr>
-<td><code>1</code></td>
-<td>运行错误：路径不存在、报告文件非法、运行期异常等</td>
+<td>P0-6</td>
+<td>resume 断点续跑 + 报告对比（中断=全损；连续两轮顺延）</td>
+<td><strong>卡 C（本轮）</strong></td>
 </tr>
 <tr>
-<td><code>2</code></td>
-<td>bench 真跑缺 <code>GLM_API_KEY</code>（该码已被评估脚本占用，CI 场景不会出现）</td>
+<td>P1-快赢</td>
+<td>verify_stats·ast_wiring 渲染 / CLI 实时进度 / doctor·init（三轮遗留的半天级项）</td>
+<td><strong>卡 B（本轮，固定"每轮至少一张小卡"惯例）</strong></td>
 </tr>
 <tr>
-<td><code>3</code></td>
-<td>门禁失败（由 <code>--check</code> 启用，或单独指定 <code>--fail-on</code> 隐含启用）：问题严重度达到或超过阈值</td>
+<td>P0-1 / P0-7</td>
+<td>成本翻默认 / 模型路由</td>
+<td>维持外部阻塞（GLM 429 余额），充值后按 docs/21 §5 对数</td>
+</tr>
+<tr>
+<td>第四轮 P2</td>
+<td>apply symlink / snapshot 内存 / 多补丁隐式约定</td>
+<td>联调阶段集成人视余力清偿</td>
 </tr>
 </tbody>
 </table>
-<h2 id="run">run —— 完整审计<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>run<span class="w"> </span>&lt;source_path&gt;<span class="w"> </span><span class="o">[</span>参数<span class="o">]</span>
-</code></pre></div>
-<table>
-<thead>
-<tr>
-<th>参数</th>
-<th>说明</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>source_path</code></td>
-<td>待审计项目路径或 zip</td>
-</tr>
-<tr>
-<td><code>--out DIR</code></td>
-<td>报告输出目录（默认 <code>&lt;work-root&gt;/reports</code>）</td>
-</tr>
-<tr>
-<td><code>--work-root DIR</code></td>
-<td>工作区根目录（默认 <code>.codeaudit/</code>）</td>
-</tr>
-<tr>
-<td><code>--lang python javascript ...</code></td>
-<td>限定语言，默认自动检测；支持 Python / JavaScript / TypeScript</td>
-</tr>
-<tr>
-<td><code>--fix</code></td>
-<td>开启修复 Patch 生成（0.1.0）</td>
-</tr>
-<tr>
-<td><code>--tests</code></td>
-<td>开启单测生成（0.1.0）</td>
-</tr>
-<tr>
-<td><code>--no-llm</code></td>
-<td>禁用 LLM，纯规则模式（零网络请求）</td>
-</tr>
-<tr>
-<td><code>--review-mode simple\|tools</code></td>
-<td>LLM 审查模式：单次 JSON 调用 / 工具取证循环（默认 simple）</td>
-</tr>
-<tr>
-<td><code>--no-verify</code></td>
-<td>关闭 Verify Agent 复核</td>
-</tr>
-<tr>
-<td><code>--fix-max N</code> / <code>--testgen-max N</code></td>
-<td>单次审计最多生成的 Patch 数 / 单测目标函数数（默认 50 / 30）</td>
-</tr>
-<tr>
-<td><code>--json</code></td>
-<td>以 JSON 输出完整报告到 stdout（门禁消息一律走 stderr，<code>--json --check</code> 组合下 stdout 仍可整体 <code>json.loads</code>）</td>
-</tr>
-<tr>
-<td><code>--check</code> <strong>0.2.0</strong></td>
-<td>启用 CI 门禁：命中阈值时退出码 <code>3</code>（详见 <a href="../pr-review/">PR 增量审计实践</a>）</td>
-</tr>
-<tr>
-<td><code>--fail-on &lt;sev&gt;</code> <strong>0.2.0</strong></td>
-<td>门禁阈值 <code>critical\|high\|medium\|low</code>（critical &gt; high &gt; medium &gt; low，缺省 <code>high</code>）；<strong>单独指定即隐含启用门禁</strong>，无需同时给 <code>--check</code></td>
-</tr>
-<tr>
-<td><code>--format sarif</code> <strong>0.2.0</strong></td>
-<td>追加生成 SARIF 2.1.0 报告 <code>&lt;out&gt;/report.sarif</code>（与 JSON/Markdown/HTML 并存，见 <a href="../sarif/">SARIF 上传 Security</a>）</td>
-</tr>
-<tr>
-<td><code>--diff &lt;ref&gt;</code> <strong>0.2.0</strong></td>
-<td>只审相对 git ref（如 <code>HEAD~1</code>、<code>origin/main</code>）发生变更的文件；CI 中需 <code>fetch-depth: 0</code></td>
-</tr>
-<tr>
-<td><code>--baseline &lt;file&gt;</code> <strong>0.2.0</strong></td>
-<td>基线文件（问题指纹列表）；命中的存量问题被抑制并计入 <code>stats.suppressed</code></td>
-</tr>
-<tr>
-<td><code>--report-baseline &lt;file&gt;</code> <strong>0.2.0</strong></td>
-<td>审计结束后把当前问题写入该文件，作为后续 <code>--baseline</code> 的存量基线</td>
-</tr>
-<tr>
-<td><code>--config &lt;file&gt;</code> <strong>0.2.0</strong></td>
-<td>显式指定配置文件；缺省时自动发现 <code>.codeaudit.toml</code> / <code>pyproject.toml [tool.codeaudit]</code></td>
-</tr>
-</tbody>
-</table>
-<p>配置合成优先级：<strong>CLI 显式参数 &gt; 环境变量（<code>GLM_*</code>）&gt; 配置文件 &gt; 默认值</strong>；配置文件中的未知键 / 非法值以警告形式输出，不中断审计。</p>
-<h2 id="index-stage-12">index —— 只构建接入与索引（Stage 1~2）<a class="headerlink" href="#index-stage-12" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>index<span class="w"> </span>&lt;source_path&gt;<span class="w"> </span><span class="o">[</span>--work-root<span class="w"> </span>DIR<span class="o">]</span>
-</code></pre></div>
-<p>打印符号表 / 调用图统计，用于快速了解项目结构与索引性能。</p>
-<h2 id="report">report —— 报告格式转换<a class="headerlink" href="#report" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>report<span class="w"> </span>&lt;report_json&gt;<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>md<span class="p">|</span>html<span class="o">]</span><span class="w"> </span><span class="o">[</span>--out<span class="w"> </span>PATH<span class="o">]</span>
-</code></pre></div>
-<p>把已落盘的 <code>report.json</code> 转成 Markdown / HTML；缺省 <code>--out</code> 时打印到标准输出。SARIF 的生成在 <code>run</code> 阶段（<code>--format sarif</code>），本子命令不涉及。</p>
-<h2 id="serve-web">serve —— Web 服务<a class="headerlink" href="#serve-web" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>serve<span class="w"> </span><span class="o">[</span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="o">]</span><span class="w"> </span><span class="o">[</span>--port<span class="w"> </span><span class="m">8000</span><span class="o">]</span>
-</code></pre></div>
-<p>启动 FastAPI 服务：单文件演示页（<code>/</code>）、异步任务（<code>POST /api/audits</code>）、SSE 进度流、报告下载与仪表盘 API。完整端点清单见仓库 README「REST API 与 Web 演示页」节。</p>
-<h2 id="_3">典型组合<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><span class="c1"># 本地全量审计（LLM 双通道 + 修复 + 单测）</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>./my-project<span class="w"> </span>--fix<span class="w"> </span>--tests<span class="w"> </span>--review-mode<span class="w"> </span>tools<span class="w"> </span>--out<span class="w"> </span>./reports
-
-<span class="c1"># CI 门禁：high 及以上问题存在则失败（退出码 3）</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>--no-llm<span class="w"> </span>--check<span class="w"> </span>--fail-on<span class="w"> </span>high
-
-<span class="c1"># PR 增量审计：只审相对 origin/main 的变更，存量用基线豁免</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>--no-llm<span class="w"> </span>--diff<span class="w"> </span>origin/main<span class="w"> </span>--baseline<span class="w"> </span>.codeaudit-baseline.json<span class="w"> </span>--check<span class="w"> </span>--fail-on<span class="w"> </span>high
-
-<span class="c1"># 生成报告 + SARIF 上传 GitHub Security tab</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>--no-llm<span class="w"> </span>--format<span class="w"> </span>sarif
-</code></pre></div>
+<h2 id="1-auditmodelspy">1. 任务卡与所有权（只准改本卡列出文件；<code>audit/models.py</code> 等契约文件禁改）<a class="headerlink" href="#1-auditmodelspy" title="Permanent link">&para;</a></h2>
+<h3 id="w24-ajava-p0-4">W24-A：Java 语言包（P0-4）<a class="headerlink" href="#w24-ajava-p0-4" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>文件所有权</strong>：<code>pyproject.toml</code>（仅依赖段追加 <code>tree-sitter-java</code>）、<code>audit/indexer/parsers.py</code>、<code>audit/indexer/store.py</code>（语言白名单与 java 符号提取分支）、<code>audit/utils.py</code>（语言识别）、<code>audit/detect/rules/java.py</code>（新）、<code>audit/detect/rules/__init__.py</code>（注册）、新测试文件（<code>tests/unit/indexer/test_java_*.py</code>、<code>tests/unit/detect/test_rules_java.py</code>、语料 <code>tests/corpus/java/</code> 新目录）</li>
+<li><strong>交付物</strong>：</li>
+<li><code>tree-sitter-java</code> 依赖接入：parsers 注册 java 语言（<code>get_parser("java")</code>），<code>SUPPORTED_LANGUAGES</code> 扩为 4 语言；<code>store.py</code> 语言白名单放行 java。</li>
+<li>java 符号/imports/调用点提取（参照现有 python/js 提取实现同库同表）：类/方法/字段符号、import 声明、方法调用点 → <code>symbols/imports/calls/call_edges</code>。</li>
+<li>content-based 语言识别双档：扩展名优先，<code>.java</code> 无歧义可维持扩展名档；<code>guess_language</code> 对未知扩展名回退内容探测（<code>package</code> / <code>public class</code> 特征）。</li>
+<li>三规则移植（形态对齐 python 版同款规则，AST 佐证走 AstParseGate 现有通路）：JAVA-SQL-INJECTION（字符串拼接 SQL 进 execute）、JAVA-HARDCODED-SECRET（熵闸门 + 字符集口径复用 <code>_scan_common</code>/python 同款）、JAVA-LONG-FUNCTION（&gt;80 行，复用复杂度口径）。</li>
+<li>语料：<code>tests/corpus/java/</code> ≥10 文件（含注入/密钥/长函数正例与干净反例），定向测试断言：索引 resolved_ratio ≥ 0.4、三规则命中正确、python/js 金标既有命中零变化。</li>
+<li><strong>验收</strong>：<code>python -m pytest tests/unit/indexer tests/unit/detect -q</code> 绿；<code>ruff check audit cli.py server</code> 绿；规则注册计数断言同步（现有 test_rules_ext 的计数口径 + JAVA 三条）。</li>
+<li><strong>禁改</strong>：金标 jsonl 存量文件、<code>audit/models.py</code>、<code>cli.py</code>、<code>audit/report/**</code>、<code>audit/taskstore.py</code>。</li>
+</ul>
+<h3 id="w24-bp1-">W24-B：体验三件（P1-快赢）<a class="headerlink" href="#w24-bp1-" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>文件所有权</strong>：<code>cli.py</code>（独占）、<code>audit/report/builder.py</code>、<code>audit/report/render.py</code>、<code>audit/report/templates/report.md.j2</code>、<code>audit/report/templates/report.html.j2</code>、<code>tests/unit/cli/*</code>、<code>tests/unit/report/*</code> 既有文件追加</li>
+<li><strong>交付物</strong>：</li>
+<li><code>verify_stats</code> 与 <code>ast_wiring</code> 进报告：md/html 摘要节渲染（verify 四态 checked/confirmed/rejected/uncertain + AST parsed/degraded 生效率）；无数据时节省略（老报告/离线模式兼容）。JSON 通道随 <code>ctx.extra</code> 已有，不另加字段。</li>
+<li>CLI 实时进度：<code>cmd_run</code> 消费既有事件流（事件已收集，只差打印），逐阶段输出 <code>[stage n/7] 描述 (current/total)</code>，<code>--quiet</code> 可关；不破坏 <code>--check</code> 门禁 stdout 纯净契约（进度走 stderr）。</li>
+<li><code>codeaudit doctor</code>：零 Key 可跑——Python 版本/git/沙箱后端可用性/tree-sitter 语言包（含 java）/<code>.env</code> 白名单键/配置文件合法性，输出中文诊断表，异常项给修复建议；<code>codeaudit init</code>：写 <code>.codeaudit.toml</code> 注释模板骨架（已存在则拒绝覆盖）。</li>
+<li><strong>验收</strong>：定向 pytest 绿（新增 doctor/init/进度用例 + report 渲染用例）；<code>--check</code> stdout 纯净契约既有测试不回退；<code>ruff</code> 绿。</li>
+<li><strong>禁改</strong>：<code>audit/detect/**</code>、<code>audit/fix/**</code>、<code>audit/taskstore.py</code>、<code>audit/orchestrator/**</code>、<code>audit/models.py</code>。</li>
+</ul>
+<h3 id="w24-cresume-p0-6">W24-C：resume 断点续跑 + 报告对比（P0-6）<a class="headerlink" href="#w24-cresume-p0-6" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>文件所有权</strong>：<code>audit/taskstore.py</code>、<code>audit/orchestrator/pipeline.py</code>、<code>audit/report/comparator.py</code>（新）、新测试文件（<code>tests/unit/taskstore/*</code> 追加、<code>tests/unit/report/test_comparator.py</code>、<code>tests/integration/test_resume.py</code>）</li>
+<li><strong>交付物</strong>：</li>
+<li>resume MVP：stage 粒度 <code>stage_done</code> 清单持久化（每阶段完成即记，尽量由既有事件流推导，避免新表则允许 taskstore 加列）；进程重启恢复同任务时跳过已完成阶段；重启 sweep 不再把带 <code>stage_done</code> 的 running 任务粗暴置 failed，改置 interrupted 可续跑。</li>
+<li>索引阶段复用判定：同 source 指纹且索引库存在 → 跳过重建（项目级缓存的最小版，只做 resume 场景，不做通用缓存目录）。</li>
+<li>报告对比纯模块 <code>audit/report/comparator.py</code>：<code>compare(report_a, report_b) -&gt; {fixed, new, persisted}</code>，issues 按 <code>(file, rule, ±3行)</code> 匹配；CLI 子命令 <code>codeaudit diff &lt;id1&gt; &lt;id2&gt;</code> 的<strong>接线不做</strong>（<code>cli.py</code> 归卡 B），模块提供 <code>__main__</code> 入口可独立运行，CLI 接线由集成人联调时统一加（≤10 行）。</li>
+<li><strong>验收</strong>：模拟中断（pytest monkeypatch 抛异常）→ 恢复 → 已完成阶段不重跑（事件流断言）；demo 项目两次审计 compare 输出与手工比对一致；<code>ruff</code> 绿。</li>
+<li><strong>禁改</strong>：<code>audit/models.py</code>、<code>cli.py</code>、<code>audit/report/builder.py</code>/<code>render.py</code>/<code>templates/**</code>、<code>audit/detect/**</code>、<code>audit/indexer/**</code>。</li>
+</ul>
+<h2 id="2">2. 设计决策记录<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<ol>
+<li><strong>cli.py 独占给卡 B</strong>：三卡 CLI 面需求都存在，但并行改同一文件必冲突；C 的 diff 接线延后到集成人（≤10 行），换取真并行。</li>
+<li><strong>resume 不做通用缓存目录</strong>：第四轮审计的增量索引方案（项目级缓存库）是中期工程；本轮只做 resume 场景的索引复用判定，控制爆炸半径。</li>
+<li><strong>金标双门</strong>（第四轮风险 4 落地）：存量 10 项目逐位一致（零回退门）与 Java 语料增量达标（新增门）分开断言，Java 接入不碰存量金标文件。</li>
+<li><strong>verify_stats/ast_wiring 渲染走既有 extra 通道</strong>：不加 AuditReport 字段（models.py 契约不动），模板按"有则渲染无则省略"。</li>
+</ol>
+<h2 id="3">3. 已知边界（诚实声明）<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Java 为首轮接入：符号提取覆盖类/方法/字段/调用点，泛型/注解处理/lambda 内调用不在本轮口径（语料与测试按此口径写）。</li>
+<li>resume 覆盖"进程被杀后重启续跑"；单阶段中途断点（fix 第 N 个 patch）不在本轮粒度。</li>
+<li>【W24-E 更新】resume 可跳过阶段由 ingest/index 扩至 <strong>detect</strong>（issues+stats 快照落盘 <code>state/detect.json</code>，加载失败回落全量重跑）；<code>codeaudit resume &lt;audit_id&gt;</code> CLI 已接线（interrupted/failed+进度 可续跑，config 重建后 api_key 由 .env/进程环境补全，脱敏值不回传）。understand 之后阶段仍重跑（无盘上产物形态）。</li>
+<li>P0-1/P0-7 维持外部阻塞，本轮不含。</li>
+<li>apply 三件 P2（symlink/snapshot/断言）视联调余力，不承诺。</li>
+</ul>
+<h2 id="4-2026-09-17">4. 验收（集成人统一联调实测，2026-09-17）<a class="headerlink" href="#4-2026-09-17" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>逐卡定向</strong>：W24 三卡新增测试合计 <strong>105 用例</strong>（A：java 提取 26 + 规则 18；B：doctor 16 + init 3 + 进度 6 + 渲染 8；C：taskstore 10 + comparator 15 + resume 集成 3）全部通过；<code>ruff check audit cli.py server</code> 全域绿。卡 A 两处清单外最小增量已申报并经集成人复审接受（<code>registry.py</code> 注册 2 行——不注册则规则不可用；<code>test_rules_ext.py</code> 计数断言同步——任务要点明确要求）。</li>
+<li><strong>集成人接线四件</strong>：①engine <code>_AST_LANGUAGES</code> java 进 AST 名单（python/java 双语言分派，js/ts 维持行级）；②<code>codeaudit diff &lt;A&gt; &lt;B&gt;</code> CLI 子命令（audit_id / report.json 路径双支持）；③<code>scripts/gen_rule_docs.py</code> java 语言表 → docs-site/rules.md 重新生成（86 条规则入库）；④apply P2 清偿（symlink 目标规划期+写入期双拒绝、生成侧顺序语义显式化）。</li>
+<li><strong>联调发现并修复 5 处集成冲突</strong>（同一根因）：W24-C 新增的 <code>stage_done</code> 事件缺 <code>message</code> 键，撞上 4 个基线测试的事件遍历断言（<code>test_baseline_diff</code> ×4 + <code>test_budget</code> ×1 的 <code>e["message"]</code> KeyError）——修复选<strong>给 stage_done 事件补 message</strong>（事件协议不变式「每个事件都有 message」，基线测试零改动；CLI 进度按 type 过滤不受影响）。</li>
+<li><strong>统一联调</strong>：全量 pytest <strong>2140 passed</strong>（2036 基线 + 净新增 104，5 分 06 秒）、ruff 全域绿、demo 离线闭环 verified（10.0s）、金标 10 项目 240 标签 <strong>P=1.000 / R=0.844 / F1=0.916</strong> 与基线逐位一致（<code>w24_goldset_20260917.md</code>）、Java 语料端到端实测：三规则命中 8 处（密钥 ×4 / SQL 注入 ×3 / 长函数 ×1）且 8 个反例文件零误报、AST 解析 13 文件生效率 100%、<code>cli.py doctor</code>/<code>init</code>/进度 stderr 实测符合预期。</li>
+<li><strong>W24-E 追加（2026-09-17，用户指令）</strong>：resume 扩展——detect 产物落盘（issues + stats 快照，尽力写入绝不阻断）+ <code>_RESUMABLE_STAGES</code> 扩 detect（两道降级防线：判定层 schema 校验剔除、执行层加载失败回落全量重跑）+ <code>codeaudit resume</code> CLI 接线（taskstore <code>mark_resuming</code> 仅 interrupted/failed 放行复位、config_json 重建剔除脱敏 api_key 由 from_env 补全、终态 done/再断回 interrupted）。新增 12 测试项（集成 2 / taskstore 3 / cli 7），定向 <strong>70 passed</strong>、ruff 绿、demo 回归 verified。</li>
+<li>阻塞项定性修正（2026-09-17，用户澄清）：账户为 GLM Coding Plan（套餐制），429 系<strong>套餐限流/配额窗口</strong>而非余额不足——P0-1/P0-7 无充值依赖，配额可用时直接重试 <code>python -m bench.w22_focus_compare</code> 对数（docs/21 §5 已加注记）。</li>
+</ul>
+<h2 id="5">5. 下一轮入口<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
+<ul>
+<li>按审计↔工作循环：本轮工作收口后，下一轮 = 新开 GLM-5.3 对话贴提示词一（第五轮审计），复审重点：W24 三卡质量（java 符号提取与三规则口径、resume 状态机与 interrupted 语义、doctor/init/进度/检测质量渲染）+ apply P2 清偿复核 + P0-1/4/6/7 状态复核。</li>
+<li>工作轮候选（按优先级）：①P0-1/P0-7（外部阻塞解除后第一时间）；②~~resume 扩展~~<strong>已由 W24-E 完成</strong>（detect 落盘 + CLI 接线，见 §3/§4）；③Go 语言包视 Java 验收（本轮 resolved_ratio 0.517 ≥ 0.4 达标，已具备跟随条件）；④架构债：detect↔agents 循环引用收敛、分层白名单配置化、扫描器注册表化。</li>
+</ul>
 
 
 
@@ -1535,44 +1389,6 @@ codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </
         <footer class="md-footer">
   
     
-      
-      <nav class="md-footer__inner md-grid" aria-label="页脚" >
-        
-          
-          <a href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 21 Wave22 方案">
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
-            </div>
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                上一页
-              </span>
-              <div class="md-ellipsis">
-                21 Wave22 方案
-              </div>
-            </div>
-          </a>
-        
-        
-          
-          <a href="../rules/" class="md-footer__link md-footer__link--next" aria-label="下一页: 规则手册">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                下一页
-              </span>
-              <div class="md-ellipsis">
-                规则手册
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
-        
-      </nav>
-    
   
   <div class="md-footer-meta md-typeset">
     <div class="md-footer-meta__inner md-grid">
@@ -1599,10 +1415,10 @@ codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.footer", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.footer", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

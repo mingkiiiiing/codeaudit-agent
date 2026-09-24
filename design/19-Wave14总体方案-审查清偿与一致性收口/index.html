@@ -10,31 +10,31 @@
       
       
       
-        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/cli/">
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/19-Wave14%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E6%9F%A5%E6%B8%85%E5%81%BF%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%E6%94%B6%E5%8F%A3/">
       
       
-        <link rel="prev" href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/">
+        <link rel="prev" href="../18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/">
       
       
-        <link rel="next" href="../rules/">
+        <link rel="next" href="../21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/">
       
       
         
       
       
-      <link rel="icon" href="../assets/images/favicon.png">
+      <link rel="icon" href="../../assets/images/favicon.png">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>CLI 速查 - CodeAudit Agent</title>
+        <title>19 Wave14 方案 - CodeAudit Agent</title>
       
     
     
-      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -47,7 +47,7 @@
       
     
     
-    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -72,7 +72,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#cli" class="md-skip">
+        <a href="#wave-14" class="md-skip">
           跳转至
         </a>
       
@@ -88,7 +88,7 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="页眉">
-    <a href=".." title="CodeAudit Agent" class="md-header__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
+    <a href="../.." title="CodeAudit Agent" class="md-header__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -108,7 +108,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              CLI 速查
+              19 Wave14 方案
             
           </span>
         </div>
@@ -226,7 +226,7 @@
 
 <nav class="md-nav md-nav--primary" aria-label="导航栏" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href=".." title="CodeAudit Agent" class="md-nav__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
+    <a href="../.." title="CodeAudit Agent" class="md-nav__button md-logo" aria-label="CodeAudit Agent" data-md-component="logo">
       
   
   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
@@ -256,7 +256,7 @@
   
   
     <li class="md-nav__item">
-      <a href=".." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -280,18 +280,20 @@
       
   
   
+    
   
   
+  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
@@ -312,7 +314,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -330,7 +332,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
+      <a href="../00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
         
   
   
@@ -358,7 +360,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-nav__link">
+      <a href="../01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-nav__link">
         
   
   
@@ -386,7 +388,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/02-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
+      <a href="../02-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
         
   
   
@@ -414,7 +416,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/03-Agent%E5%B7%A5%E5%85%B7%E9%9B%86%E4%B8%8EPrompt%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
+      <a href="../03-Agent%E5%B7%A5%E5%85%B7%E9%9B%86%E4%B8%8EPrompt%E8%AE%BE%E8%AE%A1/" class="md-nav__link">
         
   
   
@@ -442,7 +444,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/04-%E8%AF%84%E4%BC%B0%E4%B8%8E%E6%8C%87%E6%A0%87%E9%AA%8C%E8%AF%81%E6%96%B9%E6%A1%88/" class="md-nav__link">
+      <a href="../04-%E8%AF%84%E4%BC%B0%E4%B8%8E%E6%8C%87%E6%A0%87%E9%AA%8C%E8%AF%81%E6%96%B9%E6%A1%88/" class="md-nav__link">
         
   
   
@@ -470,7 +472,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/05-%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92-%E9%A3%8E%E9%99%A9-%E9%9D%A2%E8%AF%95%E5%87%86%E5%A4%87/" class="md-nav__link">
+      <a href="../05-%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92-%E9%A3%8E%E9%99%A9-%E9%9D%A2%E8%AF%95%E5%87%86%E5%A4%87/" class="md-nav__link">
         
   
   
@@ -498,7 +500,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/06-%E5%A4%9A%E4%BB%BB%E5%8A%A1%E5%B9%B6%E8%A1%8C%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92/" class="md-nav__link">
+      <a href="../06-%E5%A4%9A%E4%BB%BB%E5%8A%A1%E5%B9%B6%E8%A1%8C%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92/" class="md-nav__link">
         
   
   
@@ -526,7 +528,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/" class="md-nav__link">
+      <a href="../07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/" class="md-nav__link">
         
   
   
@@ -554,7 +556,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/" class="md-nav__link">
+      <a href="../08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -582,7 +584,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/" class="md-nav__link">
+      <a href="../09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/" class="md-nav__link">
         
   
   
@@ -610,7 +612,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/10-Wave5%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B4%A8%E9%87%8F%E6%94%BB%E5%9D%9A/" class="md-nav__link">
+      <a href="../10-Wave5%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B4%A8%E9%87%8F%E6%94%BB%E5%9D%9A/" class="md-nav__link">
         
   
   
@@ -638,7 +640,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/11-Wave6%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E4%BE%9D%E8%B5%96%E6%B2%BB%E7%90%86%E4%B8%8E%E5%8F%91%E5%B8%83/" class="md-nav__link">
+      <a href="../11-Wave6%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E4%BE%9D%E8%B5%96%E6%B2%BB%E7%90%86%E4%B8%8E%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -666,7 +668,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/12-Wave7%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B5%9B%E9%A2%98%E5%90%88%E8%A7%84%E4%B8%8E%E6%8F%90%E9%80%9F/" class="md-nav__link">
+      <a href="../12-Wave7%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E8%B5%9B%E9%A2%98%E5%90%88%E8%A7%84%E4%B8%8E%E6%8F%90%E9%80%9F/" class="md-nav__link">
         
   
   
@@ -694,7 +696,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/" class="md-nav__link">
+      <a href="../13-Wave8%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-Web%E5%89%8D%E5%90%8E%E7%AB%AF/" class="md-nav__link">
         
   
   
@@ -722,7 +724,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/" class="md-nav__link">
+      <a href="../14-Wave9%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%B5%8B%E8%AF%95%E4%BD%93%E7%B3%BB%E8%A1%A5%E5%85%A8%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%8F%91%E5%B8%83/" class="md-nav__link">
         
   
   
@@ -750,7 +752,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-nav__link">
+      <a href="../15-Wave10%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%9C%8D%E5%8A%A1%E6%B2%BB%E7%90%86%E4%B8%8E%E7%81%B0%E5%BA%A6%E5%9F%BA%E5%BB%BA/" class="md-nav__link">
         
   
   
@@ -778,7 +780,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-nav__link">
+      <a href="../16-Wave11%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E6%8C%81%E4%B9%85%E5%8C%96%E4%B8%8E%E5%A4%9Aworker%E5%BD%A2%E6%80%81%E6%BC%94%E8%BF%9B/" class="md-nav__link">
         
   
   
@@ -806,7 +808,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/" class="md-nav__link">
+      <a href="../17-Wave12%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%9C%A8%E7%BA%BFGLM%E5%AE%89%E5%85%A8%E6%B2%BB%E7%90%86%E4%B8%8E%E8%AF%84%E4%BC%B0%E4%BD%93%E7%B3%BB/" class="md-nav__link">
         
   
   
@@ -834,7 +836,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/" class="md-nav__link">
+      <a href="../18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/" class="md-nav__link">
         
   
   
@@ -859,10 +861,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../design/19-Wave14%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E6%9F%A5%E6%B8%85%E5%81%BF%E4%B8%8E%E4%B8%80%E8%87%B4%E6%80%A7%E6%94%B6%E5%8F%A3/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    19 Wave14 方案
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -878,6 +907,92 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="目录">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      目录
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#0" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        0. 背景与输入
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. 任务分解与目录所有权（四人并行 + 集成人收口）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. 实施记录（关键设计决策）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-w14-a5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. 集成收口记录（W14-A5）
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. 统一联调与压测结果
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. 诚实边界与遗留
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -890,7 +1005,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-nav__link">
+      <a href="../21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-nav__link">
         
   
   
@@ -922,37 +1037,10 @@
       
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    CLI 速查
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../../cli/" class="md-nav__link">
         
   
   
@@ -968,103 +1056,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        调用方式
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        退出码约定
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#run" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        run —— 完整审计
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#index-stage-12" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        index —— 只构建接入与索引（Stage 1~2）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#report" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        report —— 报告格式转换
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#serve-web" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        serve —— Web 服务
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        典型组合
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1076,7 +1067,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../rules/" class="md-nav__link">
+      <a href="../../rules/" class="md-nav__link">
         
   
   
@@ -1150,7 +1141,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../sarif/" class="md-nav__link">
+      <a href="../../sarif/" class="md-nav__link">
         
   
   
@@ -1178,7 +1169,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../pr-review/" class="md-nav__link">
+      <a href="../../pr-review/" class="md-nav__link">
         
   
   
@@ -1213,7 +1204,7 @@
   
   
     <li class="md-nav__item">
-      <a href="../roadmap/" class="md-nav__link">
+      <a href="../../roadmap/" class="md-nav__link">
         
   
   
@@ -1260,10 +1251,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#_1" class="md-nav__link">
+  <a href="#0" class="md-nav__link">
     <span class="md-ellipsis">
       
-        调用方式
+        0. 背景与输入
       
     </span>
   </a>
@@ -1271,10 +1262,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#_2" class="md-nav__link">
+  <a href="#1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        退出码约定
+        1. 任务分解与目录所有权（四人并行 + 集成人收口）
       
     </span>
   </a>
@@ -1282,10 +1273,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#run" class="md-nav__link">
+  <a href="#2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        run —— 完整审计
+        2. 实施记录（关键设计决策）
       
     </span>
   </a>
@@ -1293,10 +1284,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#index-stage-12" class="md-nav__link">
+  <a href="#3-w14-a5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        index —— 只构建接入与索引（Stage 1~2）
+        3. 集成收口记录（W14-A5）
       
     </span>
   </a>
@@ -1304,10 +1295,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#report" class="md-nav__link">
+  <a href="#4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        report —— 报告格式转换
+        4. 统一联调与压测结果
       
     </span>
   </a>
@@ -1315,21 +1306,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#serve-web" class="md-nav__link">
+  <a href="#5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        serve —— Web 服务
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#_3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        典型组合
+        5. 诚实边界与遗留
       
     </span>
   </a>
@@ -1353,157 +1333,121 @@
 
 
 
-<h1 id="cli">CLI 速查<a class="headerlink" href="#cli" title="Permanent link">&para;</a></h1>
-<div class="admonition note">
-<p class="admonition-title">版本说明</p>
-<p>标注 <strong>0.2.0</strong> 的参数为本轮 Wave 4 新增，功能代码与本文档并行交付，行为以契约 v1.4（<a href="../design/09-Wave4%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%BC%80%E6%BA%90%E7%94%9F%E6%80%81%E5%AF%B9%E6%A0%87/">docs/09 §3</a>）为准；0.1.0 参数已在现网可用。</p>
-</div>
-<h2 id="_1">调用方式<a class="headerlink" href="#_1" title="Permanent link">&para;</a></h2>
-<p><code>pip install -e .</code> 后使用 <code>codeaudit</code> 命令（0.2.0 起提供，版本号单源）；二者完全等价：</p>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>run<span class="w"> </span>./my-project<span class="w"> </span>--no-llm
-<span class="c1"># 等价于</span>
-python<span class="w"> </span>cli.py<span class="w"> </span>run<span class="w"> </span>./my-project<span class="w"> </span>--no-llm
-</code></pre></div>
-<p>帮助与用法信息中的程序名按实际调用方式<strong>动态显示</strong>：<code>python cli.py …</code> 的 <code>--help</code> / usage 显示 <code>cli.py</code>，安装态 <code>codeaudit …</code> 显示 <code>codeaudit</code>，两种方式行为完全一致。</p>
-<p>全局查看版本：<code>codeaudit --version</code>。</p>
-<h2 id="_2">退出码约定<a class="headerlink" href="#_2" title="Permanent link">&para;</a></h2>
+<h1 id="wave-14">Wave 14 总体方案——全方位审查清偿与一致性收口<a class="headerlink" href="#wave-14" title="Permanent link">&para;</a></h1>
+<blockquote>
+<p>2026-09-15 ｜ 状态：已完成 ｜ 前置：docs/18（W13）、v0.6.0 之后的仓库全方位只读审查报告</p>
+</blockquote>
+<h2 id="0">0. 背景与输入<a class="headerlink" href="#0" title="Permanent link">&para;</a></h2>
+<p>W13 合入后、v0.6.0 未打版状态下，对仓库做了一次以 docs/01 需求规格说明书（FR-1~7 / NFR-1~12 / G1~G5）与 docs/18 验收标准为基准的全方位审查，实测验证（全量 pytest、ruff、离线 demo、密钥探针）+ 双路静态扫查产出：<strong>1 项 critical</strong>（C-1 密钥明文进报告，探针实测复现）、<strong>6 项 major</strong>（M-1~M-6）、约 10 项 minor 与一批文档一致性债务（README 五处过期、CHANGELOG Wave 12 段 4 条 Wave 11 重复条目、W13 无 CHANGELOG 条目、比较链接停在 v0.4.0、W13 未打版）。本 Wave 按"四人并行 + 集成人收口"模式清偿。</p>
+<p><strong>契约红线</strong>：全程不改 API 响应形状 / <code>audit/models.py</code> / 任务存储 schema（线格式契约冻结）；发现必须改契约的情形应停下上报（实际未发生）。</p>
+<h2 id="1">1. 任务分解与目录所有权（四人并行 + 集成人收口）<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>退出码</th>
-<th>含义</th>
+<th>任务</th>
+<th>职务</th>
+<th>所有权</th>
+<th>内容</th>
+<th>验收</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>0</code></td>
-<td>完成。<strong>含发现问题时</strong>——只要未启用门禁（<code>--check</code> 或 <code>--fail-on</code>），发现多少问题都返回 0</td>
+<td>W14-A1</td>
+<td>安全工程师</td>
+<td><code>audit/detect/</code>、<code>audit/ingest/core.py</code> + 各自测试</td>
+<td>C-1 密钥打码；zip 实际写出量复核；Windows 保留设备名过滤</td>
+<td>报告 snippet 无明文密钥（cli 端到端自证）；detect/ingest/property 全绿</td>
 </tr>
 <tr>
-<td><code>1</code></td>
-<td>运行错误：路径不存在、报告文件非法、运行期异常等</td>
+<td>W14-A2</td>
+<td>沙箱与运行时接线</td>
+<td><code>audit/sandbox/</code>、<code>audit/config.py</code>、<code>audit/fix/stage.py</code>、<code>audit/testgen/stage.py</code>、<code>audit/agents/review.py</code>、<code>cli.py</code> + 测试</td>
+<td>M-2 Docker 后端接线（<code>sandbox_backend</code> 配置全层 + <code>--sandbox-backend</code>）+ 超时 <code>docker rm -f</code> 容器清理；M-3 管道排空兜底超时；M-1 <code>max_tool_iterations</code> 接线</td>
+<td>既有 docker mock 用例全绿 + 新接线/清理/兜底用例；fix/testgen 联调绿</td>
 </tr>
 <tr>
-<td><code>2</code></td>
-<td>bench 真跑缺 <code>GLM_API_KEY</code>（该码已被评估脚本占用，CI 场景不会出现）</td>
+<td>W14-A3</td>
+<td>服务端工程师</td>
+<td><code>audit/taskstore.py</code>、<code>server/app.py</code> + 测试</td>
+<td>M-4 工作副本磁盘回收（prune/sweep/DELETE 三时机）；M-5 准入常量惰性解析；M-6 上传准入 TOCTOU 二次校验</td>
+<td>API 契约形状零变化（路由面冻结用例绿）；server/taskstore 全绿 + 竞态/回收新用例</td>
 </tr>
 <tr>
-<td><code>3</code></td>
-<td>门禁失败（由 <code>--check</code> 启用，或单独指定 <code>--fail-on</code> 隐含启用）：问题严重度达到或超过阈值</td>
+<td>W14-A4</td>
+<td>文档工程师</td>
+<td><code>README.md</code>、<code>docs/18</code> 状态行、<code>docs-site/roadmap.md</code>、<code>frontend/package.json</code></td>
+<td>README 五处过期修正 + 0.6.x 特性补记；docs/18 收口；版本对齐 0.6.0</td>
+<td>grep 零残留自证；mkdocs strict 通过</td>
+</tr>
+<tr>
+<td>W14-A5</td>
+<td>集成人（主线）</td>
+<td><code>CHANGELOG.md</code>、<code>docs/19</code>、<code>audit/config.py</code> docstring、<code>mkdocs.yml</code> nav</td>
+<td>合并核对、CHANGELOG 去重与 <code>[Unreleased]</code>（W13+W14）、遗留小修、全量联调与三路压测</td>
+<td>全量 pytest + ruff + 前端 build/vitest + adversarial/soak/canary</td>
 </tr>
 </tbody>
 </table>
-<h2 id="run">run —— 完整审计<a class="headerlink" href="#run" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>run<span class="w"> </span>&lt;source_path&gt;<span class="w"> </span><span class="o">[</span>参数<span class="o">]</span>
-</code></pre></div>
+<h2 id="2">2. 实施记录（关键设计决策）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>A1（C-1）</strong>：打码在 <code>make_hit</code> 源头完成——<code>Rule</code> 基类新增类属性 <code>mask_snippet</code>（默认 False），PY/JS 两条 <code>HARDCODED-SECRET</code> 规则置 True，串行/并行/<code>hits_to_issues</code> 全路径自然覆盖，<code>engine.py</code> 零改动；脱敏用<strong>固定长度 <code>********</code></strong>（等长会泄露真实长度）；仅处理命中行。<strong>（Minor-6）</strong> zip 物化弃用 <code>zf.extract</code> 改手工分块（1MB）写出以逐块累计实际字节，双阈值（单文件实际 &gt; 声明、累计 &gt; 上限）即 <code>IngestError</code>；成员名净化语义对齐 <code>zipfile.extract</code>，避免含 Windows 非法字符的正常成员从"净化成功"回归"整体失败"。<strong>（Minor-7）</strong> 预校验与解压两阶段统一按段 <code>stem.upper()</code> 过滤保留设备名（含 <code>CON.txt</code> 形态与目录形态），静默跳过与既有逃逸口径一致。</li>
+<li><strong>A2（M-3）</strong>：挂死点比审查诊断的更深——Windows asyncio 的 <code>proc.wait()</code> 需等<strong>全部管道 transport 关闭</strong>才返回，孙进程持写端时击杀后的回收等待本身挂 ~20s；故除排空 <code>asyncio.wait</code> 兜底外，追加"击杀后先关管道（促 pending recv abort，已缓冲数据不丢）+ <code>proc.wait()</code> 5s 短兜底"，实测挂死 ~21s → ~1.5s 返回。<strong>（M-2）</strong> backend 配置分层：默认值 &lt; 配置文件 &lt; <code>CODEAUDIT_SANDBOX_BACKEND</code>（直读进程环境，与 <code>CODEAUDIT_DOCKER_IMAGE</code> 口径一致）&lt; <code>--sandbox-backend</code>；非法值诚实降级 subprocess 并在进度事件标注。<strong>（M-1）</strong> <code>max_tool_iterations</code> 默认 25→12（与原硬编码一致，保持现网行为；NFR-10"最多 25 次"语义仍满足），review 两条路径改经 <code>_max_iterations_from_config</code> 消费。</li>
+<li><strong>A3（M-4）</strong>：<code>TaskStore</code> 新增 <code>work_root</code> 可选参数 + <code>cleanup_workdir</code>（非终态拒绝、audit_id 单一安全路径段、resolve 后 parent 必须恰为 work_root——防 symlink 逃逸；失败仅 warning 不阻断删行），挂接 prune / sweep / delete 三时机；<strong>DELETE running 任务选"只删行（行消失即协作取消信号），文件由执行体收尾 <code>_cleanup_if_ghost</code> 回收"</strong>，避免与运行中流水线的写竞态。<strong>（M-5）</strong> 准入常量改惰性解析（每次调用实时读 env、缓存键含原始值），保留模块名作为测试覆写入口（None=按 env）；<code>_RUN_GATE</code> 随之惰性化。<strong>（M-6）</strong> 读流后、<code>part_path.replace(zip_path)</code> 之后建任务之前做第二次权威校验（与建任务间无 await），拒绝时 zip 零残留、429 与快速路径同形。</li>
+<li><strong>A4</strong>：Roadmap 待办列表无"已交付"先例，Docker 项直接移除并在 <code>docs-site/roadmap.md</code> 已交付节新增 0.6.x 条目；其余五处按 grep 自证逐项修正。</li>
+</ul>
+<h2 id="3-w14-a5">3. 集成收口记录（W14-A5）<a class="headerlink" href="#3-w14-a5" title="Permanent link">&para;</a></h2>
+<ul>
+<li>合并核对：<code>git status</code> 改动清单与四卡所有权逐一比对，<strong>无越权改动、无交叉冲突</strong>；C-1 探针独立复验（PY/JS 密钥 snippet → <code>********</code>）。</li>
+<li>遗留小修：<code>audit/config.py</code> docstring 中"server 在 import 时固化常量不受 .env 影响"的过期说明（M-5 修复后不成立）改为惰性解析描述；README「横切能力」散文段补"可选 Docker 后端（默认关闭）"；README 测试数 1070+ → 1240+（以 §4 实测为准）。</li>
+<li>CHANGELOG：Wave 12 Added 段移除 4 条 Wave 11 逐字重复条目（任务持久化/线程池执行/协作式取消/多 worker）；新增 <code>[Unreleased]</code>（W13 Added + W14 Fixed/Changed）；比较链接 <code>v0.4.0...HEAD</code> → <code>v0.6.0...HEAD</code>。</li>
+<li><code>mkdocs.yml</code> nav 登记 docs/19；docs/18 状态行改"已完成（收口记录见 docs/19）"。</li>
+</ul>
+<h2 id="4">4. 统一联调与压测结果<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>参数</th>
-<th>说明</th>
+<th>项目</th>
+<th>结果</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>source_path</code></td>
-<td>待审计项目路径或 zip</td>
+<td>全量 pytest（单测 + 联调 + 性质）</td>
+<td><strong>1242 passed</strong>（基线 1163 + W14 新增 79），4 分 43 秒，零失败</td>
 </tr>
 <tr>
-<td><code>--out DIR</code></td>
-<td>报告输出目录（默认 <code>&lt;work-root&gt;/reports</code>）</td>
+<td>ruff check</td>
+<td>通过</td>
 </tr>
 <tr>
-<td><code>--work-root DIR</code></td>
-<td>工作区根目录（默认 <code>.codeaudit/</code>）</td>
+<td>前端 <code>npm run build</code> + vitest</td>
+<td>build 通过；<strong>60 passed</strong>（10 文件）</td>
 </tr>
 <tr>
-<td><code>--lang python javascript ...</code></td>
-<td>限定语言，默认自动检测；支持 Python / JavaScript / TypeScript</td>
+<td>adversarial 八场景（真实 HTTP）</td>
+<td><strong>PASS</strong>：A1~A8 全部 OK（含 A7 沙箱逃逸四件套——实证 W14-A2 改动后的沙箱路径；报告刷新 <code>bench/results/adversarial_w9.md</code>）</td>
 </tr>
 <tr>
-<td><code>--fix</code></td>
-<td>开启修复 Patch 生成（0.1.0）</td>
+<td>soak 300s quick</td>
+<td><strong>PASS</strong>：无 5xx / 接纳任务终态率 100% / RSS 稳态斜率 &lt; 1 MB/min（结束时 RSS 82MB、total=1≤50；实证 M-4/M-5 改动未破坏服务行为；报告刷新 <code>bench/results/soak_w10.md</code>）</td>
 </tr>
 <tr>
-<td><code>--tests</code></td>
-<td>开启单测生成（0.1.0）</td>
-</tr>
-<tr>
-<td><code>--no-llm</code></td>
-<td>禁用 LLM，纯规则模式（零网络请求）</td>
-</tr>
-<tr>
-<td><code>--review-mode simple\|tools</code></td>
-<td>LLM 审查模式：单次 JSON 调用 / 工具取证循环（默认 simple）</td>
-</tr>
-<tr>
-<td><code>--no-verify</code></td>
-<td>关闭 Verify Agent 复核</td>
-</tr>
-<tr>
-<td><code>--fix-max N</code> / <code>--testgen-max N</code></td>
-<td>单次审计最多生成的 Patch 数 / 单测目标函数数（默认 50 / 30）</td>
-</tr>
-<tr>
-<td><code>--json</code></td>
-<td>以 JSON 输出完整报告到 stdout（门禁消息一律走 stderr，<code>--json --check</code> 组合下 stdout 仍可整体 <code>json.loads</code>）</td>
-</tr>
-<tr>
-<td><code>--check</code> <strong>0.2.0</strong></td>
-<td>启用 CI 门禁：命中阈值时退出码 <code>3</code>（详见 <a href="../pr-review/">PR 增量审计实践</a>）</td>
-</tr>
-<tr>
-<td><code>--fail-on &lt;sev&gt;</code> <strong>0.2.0</strong></td>
-<td>门禁阈值 <code>critical\|high\|medium\|low</code>（critical &gt; high &gt; medium &gt; low，缺省 <code>high</code>）；<strong>单独指定即隐含启用门禁</strong>，无需同时给 <code>--check</code></td>
-</tr>
-<tr>
-<td><code>--format sarif</code> <strong>0.2.0</strong></td>
-<td>追加生成 SARIF 2.1.0 报告 <code>&lt;out&gt;/report.sarif</code>（与 JSON/Markdown/HTML 并存，见 <a href="../sarif/">SARIF 上传 Security</a>）</td>
-</tr>
-<tr>
-<td><code>--diff &lt;ref&gt;</code> <strong>0.2.0</strong></td>
-<td>只审相对 git ref（如 <code>HEAD~1</code>、<code>origin/main</code>）发生变更的文件；CI 中需 <code>fetch-depth: 0</code></td>
-</tr>
-<tr>
-<td><code>--baseline &lt;file&gt;</code> <strong>0.2.0</strong></td>
-<td>基线文件（问题指纹列表）；命中的存量问题被抑制并计入 <code>stats.suppressed</code></td>
-</tr>
-<tr>
-<td><code>--report-baseline &lt;file&gt;</code> <strong>0.2.0</strong></td>
-<td>审计结束后把当前问题写入该文件，作为后续 <code>--baseline</code> 的存量基线</td>
-</tr>
-<tr>
-<td><code>--config &lt;file&gt;</code> <strong>0.2.0</strong></td>
-<td>显式指定配置文件；缺省时自动发现 <code>.codeaudit.toml</code> / <code>pyproject.toml [tool.codeaudit]</code></td>
+<td>canary 双版本回放</td>
+<td><strong>PASS（7/7 项归一化后一致）</strong>：v0.5.0 vs 当前工作区（含全部 W14 改动）——health / 列表 / 上传审计至终态 / 报告三格式 / issues 全对拍零漂移（报告 <code>bench/results/canary_20260915.md</code>）</td>
 </tr>
 </tbody>
 </table>
-<p>配置合成优先级：<strong>CLI 显式参数 &gt; 环境变量（<code>GLM_*</code>）&gt; 配置文件 &gt; 默认值</strong>；配置文件中的未知键 / 非法值以警告形式输出，不中断审计。</p>
-<h2 id="index-stage-12">index —— 只构建接入与索引（Stage 1~2）<a class="headerlink" href="#index-stage-12" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>index<span class="w"> </span>&lt;source_path&gt;<span class="w"> </span><span class="o">[</span>--work-root<span class="w"> </span>DIR<span class="o">]</span>
-</code></pre></div>
-<p>打印符号表 / 调用图统计，用于快速了解项目结构与索引性能。</p>
-<h2 id="report">report —— 报告格式转换<a class="headerlink" href="#report" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>report<span class="w"> </span>&lt;report_json&gt;<span class="w"> </span><span class="o">[</span>--format<span class="w"> </span>md<span class="p">|</span>html<span class="o">]</span><span class="w"> </span><span class="o">[</span>--out<span class="w"> </span>PATH<span class="o">]</span>
-</code></pre></div>
-<p>把已落盘的 <code>report.json</code> 转成 Markdown / HTML；缺省 <code>--out</code> 时打印到标准输出。SARIF 的生成在 <code>run</code> 阶段（<code>--format sarif</code>），本子命令不涉及。</p>
-<h2 id="serve-web">serve —— Web 服务<a class="headerlink" href="#serve-web" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit<span class="w"> </span>serve<span class="w"> </span><span class="o">[</span>--host<span class="w"> </span><span class="m">127</span>.0.0.1<span class="o">]</span><span class="w"> </span><span class="o">[</span>--port<span class="w"> </span><span class="m">8000</span><span class="o">]</span>
-</code></pre></div>
-<p>启动 FastAPI 服务：单文件演示页（<code>/</code>）、异步任务（<code>POST /api/audits</code>）、SSE 进度流、报告下载与仪表盘 API。完整端点清单见仓库 README「REST API 与 Web 演示页」节。</p>
-<h2 id="_3">典型组合<a class="headerlink" href="#_3" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code><span class="c1"># 本地全量审计（LLM 双通道 + 修复 + 单测）</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>./my-project<span class="w"> </span>--fix<span class="w"> </span>--tests<span class="w"> </span>--review-mode<span class="w"> </span>tools<span class="w"> </span>--out<span class="w"> </span>./reports
-
-<span class="c1"># CI 门禁：high 及以上问题存在则失败（退出码 3）</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>--no-llm<span class="w"> </span>--check<span class="w"> </span>--fail-on<span class="w"> </span>high
-
-<span class="c1"># PR 增量审计：只审相对 origin/main 的变更，存量用基线豁免</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>--no-llm<span class="w"> </span>--diff<span class="w"> </span>origin/main<span class="w"> </span>--baseline<span class="w"> </span>.codeaudit-baseline.json<span class="w"> </span>--check<span class="w"> </span>--fail-on<span class="w"> </span>high
-
-<span class="c1"># 生成报告 + SARIF 上传 GitHub Security tab</span>
-codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </span>--no-llm<span class="w"> </span>--format<span class="w"> </span>sarif
-</code></pre></div>
+<h2 id="5">5. 诚实边界与遗留<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
+<ul>
+<li>Docker 路径（真实容器执行、<code>rm -f</code> 容器清理）仍为全 mock 单测口径，待有 Docker 环境/CI 实证（沿 W13 惯例，不虚构通过）。</li>
+<li><code>CODEAUDIT_SANDBOX_BACKEND</code> 直读真实进程环境，不进 <code>.env</code> 白名单（与 <code>CODEAUDIT_DOCKER_IMAGE</code> 口径一致）。</li>
+<li>终态任务目录在存活期内（未被 prune/DELETE 触发前）仍占盘——软保留设计；如需"终态即删"另行立项（涉及报告下载语义确认）。</li>
+<li><code>docs-site/roadmap.md</code>「已交付」节缺 0.5.0/0.6.0 完整条目（止于 0.4.0，本次仅补 0.6.x 摘要）。</li>
+<li>赛题合规矩阵 #10（Precision ≥ 85% 真跑）仍待 <code>GLM_API_KEY</code> 在线评估（<code>bench.real_run</code>）；本 Wave 全程未消耗在线 token。</li>
+<li>zip 目录入口（copytree 物化）不做保留设备名检查（本 Wave 范围仅 zip 入口；本机目录名无法建成 CON/ 等保留名，风险低）。</li>
+<li>DELETE 一个持续不吐事件的 running 任务，其文件回收要等执行体真正退出——协作式取消固有延迟，非新引入。</li>
+</ul>
 
 
 
@@ -1539,7 +1483,7 @@ codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </
       <nav class="md-footer__inner md-grid" aria-label="页脚" >
         
           
-          <a href="../design/21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 21 Wave22 方案">
+          <a href="../18-Wave13%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-CI%E8%AF%84%E4%BC%B0%E4%B8%8EDocker%E6%B2%99%E7%AE%B1%E4%B8%8E%E5%A4%9Aworker%E5%9F%BA%E7%BA%BF/" class="md-footer__link md-footer__link--prev" aria-label="上一页: 18 Wave13 方案">
             <div class="md-footer__button md-icon">
               
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
@@ -1549,20 +1493,20 @@ codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </
                 上一页
               </span>
               <div class="md-ellipsis">
-                21 Wave22 方案
+                18 Wave13 方案
               </div>
             </div>
           </a>
         
         
           
-          <a href="../rules/" class="md-footer__link md-footer__link--next" aria-label="下一页: 规则手册">
+          <a href="../21-Wave22%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1P0%E7%9F%AD%E6%9C%9F%E6%B8%85%E5%81%BF/" class="md-footer__link md-footer__link--next" aria-label="下一页: 21 Wave22 方案">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 下一页
               </span>
               <div class="md-ellipsis">
-                规则手册
+                21 Wave22 方案
               </div>
             </div>
             <div class="md-footer__button md-icon">
@@ -1599,10 +1543,10 @@ codeaudit<span class="w"> </span>run<span class="w"> </span>.<span class="w"> </
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "navigation.footer", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "navigation.footer", "navigation.top", "search.highlight", "search.suggest", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "\u5df2\u590d\u5236", "clipboard.copy": "\u590d\u5236", "search.result.more.one": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.more.other": "\u5728\u8be5\u9875\u4e0a\u8fd8\u6709 # \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.none": "\u6ca1\u6709\u627e\u5230\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.one": "\u627e\u5230 1 \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.other": "# \u4e2a\u7b26\u5408\u6761\u4ef6\u7684\u7ed3\u679c", "search.result.placeholder": "\u952e\u5165\u4ee5\u5f00\u59cb\u641c\u7d22", "search.result.term.missing": "\u7f3a\u5c11", "select.version": "\u9009\u62e9\u5f53\u524d\u7248\u672c"}, "version": null}</script>
     
     
-      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

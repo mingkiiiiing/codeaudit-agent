@@ -10,13 +10,9 @@
       
       
       
-        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/">
+        <link rel="canonical" href="https://mingkiiiiing.github.io/codeaudit-agent/design/20-Wave15%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88-%E5%AE%A1%E8%AE%A1%E6%B8%85%E5%81%BF%E5%AE%89%E5%85%A8%E5%8A%A0%E5%9B%BA%E4%B8%8E%E9%87%8D%E6%9E%84%E6%89%A7%E8%A1%8C/">
       
       
-        <link rel="prev" href="../..">
-      
-      
-        <link rel="next" href="../01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/">
       
       
         
@@ -27,7 +23,7 @@
     
     
       
-        <title>00 项目总览 - CodeAudit Agent</title>
+        <title>docs/20 — Wave 15 总体方案：审计清偿、安全加固与重构执行 - CodeAudit Agent</title>
       
     
     
@@ -72,7 +68,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#agent" class="md-skip">
+        <a href="#docs20-wave-15" class="md-skip">
           跳转至
         </a>
       
@@ -108,7 +104,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              00 项目总览
+              docs/20 — Wave 15 总体方案：审计清偿、安全加固与重构执行
             
           </span>
         </div>
@@ -280,20 +276,18 @@
       
   
   
-    
   
   
-  
     
     
     
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="0">
@@ -314,7 +308,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -329,37 +323,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    00 项目总览
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../00-%E9%A1%B9%E7%9B%AE%E6%80%BB%E8%A7%88/" class="md-nav__link">
         
   
   
@@ -375,81 +342,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="目录">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      目录
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#1" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        1. 一页纸项目卡（可直接放简历/答辩）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#2" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        2. 简历项目描述（精简版，可直接抄）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#3" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        3. 文档索引
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#4" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        4. 核心设计思想（三个"不是"，面试一句话讲清差异化）
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#5" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        5. 目录规划（实现阶段参照）
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1243,7 +1135,7 @@
   <a href="#1" class="md-nav__link">
     <span class="md-ellipsis">
       
-        1. 一页纸项目卡（可直接放简历/答辩）
+        1. 背景与审计结论摘要（本波依据）
       
     </span>
   </a>
@@ -1254,7 +1146,7 @@
   <a href="#2" class="md-nav__link">
     <span class="md-ellipsis">
       
-        2. 简历项目描述（精简版，可直接抄）
+        2. 卡片划分与文件所有权（强隔离，违者卡退回）
       
     </span>
   </a>
@@ -1265,7 +1157,7 @@
   <a href="#3" class="md-nav__link">
     <span class="md-ellipsis">
       
-        3. 文档索引
+        3. 非目标（本波明确不做）
       
     </span>
   </a>
@@ -1276,10 +1168,93 @@
   <a href="#4" class="md-nav__link">
     <span class="md-ellipsis">
       
-        4. 核心设计思想（三个"不是"，面试一句话讲清差异化）
+        4. 接口契约（并行卡共同遵守，集成人不改语义）
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="4. 接口契约（并行卡共同遵守，集成人不改语义）">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#41-a-auditconfigpy-auditconfig" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.1 卡A 新增配置（audit/config.py AuditConfig 字段 + 分层来源）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#42-a-llm" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.2 卡A 脱敏（LLM 路径）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#43-b-audittaskstorepy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.3 卡B 存储契约（audit/taskstore.py）
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#44-c-ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.4 卡C CI/依赖
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#45-d" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.5 卡D 规则族收敛
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#46-e" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.6 卡E 重构执行闭环
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#47-f" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4.7 卡F 测试盲区
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1287,7 +1262,18 @@
   <a href="#5" class="md-nav__link">
     <span class="md-ellipsis">
       
-        5. 目录规划（实现阶段参照）
+        5. 验收与集成流程
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. 风险与回滚
       
     </span>
   </a>
@@ -1311,131 +1297,190 @@
 
 
 
-<h1 id="agent">代码库级智能审计与重构 Agent — 项目总览<a class="headerlink" href="#agent" title="Permanent link">&para;</a></h1>
+<h1 id="docs20-wave-15">docs/20 — Wave 15 总体方案：审计清偿、安全加固与重构执行<a class="headerlink" href="#docs20-wave-15" title="Permanent link">&para;</a></h1>
 <blockquote>
-<p>一句话定位：输入一个项目代码文件夹，Agent 自动完成「架构理解 → 问题检测 → 修复方案 → 单元测试生成 → 审计报告」全流程，像一个不知疲倦的资深代码评审员。</p>
+<p>状态：执行中（2026-09-15 立项）。来源：2026-09-15 全库四维审计（代码质量 82 / 安全合规 66 / 架构 78 / 重构落地 68，总分 76，技术债约 30 人日）。
+本波范围 = 审计 P0 全部 + P1 核心；P2 与契约变更项明确排除（见 §3 非目标）。
+开发模式：六卡并行（目录所有权强隔离，卡间零文件交集）→ 单卡验收（审查+ scoped 测试+压力项）→ 集成人统一联调（全量回归 + 前端三门禁 + 压测 + 修复）。</p>
 </blockquote>
-<h2 id="1">1. 一页纸项目卡（可直接放简历/答辩）<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
+<h2 id="1">1. 背景与审计结论摘要（本波依据）<a class="headerlink" href="#1" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>维度</th>
-<th>内容</th>
+<th>#</th>
+<th>审计发现</th>
+<th>级别</th>
+<th>关键证据</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>项目名称</td>
-<td>代码库级智能审计与重构 Agent（CodeAudit Agent）</td>
+<td>A1</td>
+<td>LLM 审查路径密钥明文进报告（evidence 原样透传、snippet 直取不打码）</td>
+<td>P0</td>
+<td>audit/agents/review.py:427-441；tests/unit/detect/test_secret_masking.py 仅覆盖纯规则路径</td>
 </tr>
 <tr>
-<td>基座模型</td>
-<td>GLM-5.3 Flash（OpenAI 兼容 Function Calling 接口）</td>
+<td>A2</td>
+<td>server 全部 14 路由零鉴权；source_path 可指定任意本地目录（本地文件读取通道）</td>
+<td>P0</td>
+<td>server/app.py:412-481（无 Depends/Security）；cli.py:391 默认 127.0.0.1 为唯一缓解</td>
 </tr>
 <tr>
-<td>核心架构</td>
-<td>「静态规则 + LLM Agent」双通道检测，七阶段流水线，ReAct 工具调用循环</td>
+<td>A3</td>
+<td>taskstore 多 worker 三处竞态：无 busy_timeout、seq 非跨进程安全、sweep 复活竞态</td>
+<td>P1</td>
+<td>audit/taskstore.py:95-101, 252-258, 357-376</td>
 </tr>
 <tr>
-<td>技术栈</td>
-<td>Python 3.11 / FastAPI / tree-sitter（多语言 AST）/ SQLite / asyncio / Jinja2 / pytest</td>
+<td>A4</td>
+<td>依赖下限允许带 CVE 版本（python-multipart&lt;0.0.18、jinja2&lt;3.1.6、starlette 无钉扎）</td>
+<td>P1</td>
+<td>pyproject.toml:28-41；上传/渲染通道直接相关</td>
 </tr>
 <tr>
-<td>三大能力</td>
-<td>Bug 与性能检测、自动修复（Patch 生成 + 沙箱验证）、单元测试自动生成</td>
+<td>A5</td>
+<td>SARIF/自审计未自举；ci.yml issues:write 过授；覆盖率无 fail-under 门槛</td>
+<td>P1</td>
+<td>.github/workflows/ci.yml:21-23, 69-73</td>
 </tr>
 <tr>
-<td>关键指标</td>
-<td>问题识别精确率 ≥ 85%；千行代码审计耗时 &lt; 30s；效率较人工初评提升 70%+</td>
+<td>A6</td>
+<td>PY/JS 规则族系统性复制（估 8-12%，call_span 30 行逐字重复、TodoFixme 整类重复）</td>
+<td>P1</td>
+<td>audit/detect/rules/_python_common.py ↔ _js_common.py 等</td>
 </tr>
 <tr>
-<td>交付形态</td>
-<td>CLI + REST API + Web 演示界面；输出 JSON + Markdown/HTML 审计报告</td>
+<td>A7</td>
+<td>静默吞噬簇（architecture.py 6 处）+ 死代码（errors.py 两个异常类零引用）+ 魔法值散落</td>
+<td>P1/P2</td>
+<td>audit/errors.py:18,34；fix/patcher.py:390,424,432 等</td>
+</tr>
+<tr>
+<td>A8</td>
+<td>重构能力止步建议层，无可执行 patch；语法校验无 ast.parse 双保险</td>
+<td>P1</td>
+<td>audit/refactor/*（仅 proposal）；audit/fix/verifier.py:28-44</td>
+</tr>
+<tr>
+<td>A9</td>
+<td>测试盲区：utils/prompts/pipeline 无专属测试；前端组件测试 1/3</td>
+<td>P1</td>
+<td>audit/utils.py 等</td>
 </tr>
 </tbody>
 </table>
-<h2 id="2">2. 简历项目描述（精简版，可直接抄）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
-<blockquote>
-<p>基于 GLM-5.3 Flash 构建代码库级智能审计 Agent：通过 tree-sitter 建立全库 AST 符号索引与调用关系图，采用「静态规则高召回 + LLM Agent 跨文件验证高精确」双通道架构，实现 Bug、性能、规范三类问题的自动检测（精确率 85%+）；对高危问题自动生成修复 Patch 并在沙箱中运行现有测试验证；自动生成可运行的单元测试用例（通过率筛选 + 失败重试）；千行代码端到端审计 &lt; 30s（文件级并发 + 增量缓存），整体效率较人工初评提升 70%+。支持 Python / JavaScript / TypeScript，输出结构化审计报告（健康分 + 分级问题清单 + 修复建议）。</p>
-</blockquote>
-<h2 id="3">3. 文档索引<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
+<h2 id="2">2. 卡片划分与文件所有权（强隔离，违者卡退回）<a class="headerlink" href="#2" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
-<th>文档</th>
-<th>内容</th>
-<th>读者场景</th>
+<th>卡</th>
+<th>代号</th>
+<th>所有权文件（仅允许改这些）</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><a href="../01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/">01-需求规格说明书</a></td>
-<td>功能需求 FR-1~FR-7、非功能需求、指标口径、范围边界</td>
-<td>开工前对齐、答辩讲需求分析</td>
+<td>卡A</td>
+<td>安全 P0</td>
+<td>server/app.py、audit/config.py、audit/agents/review.py、audit/detect/base.py、tests/unit/server/<strong>、tests/unit/agents/</strong>（新增文件限 test_review_masking_w15.py）、tests/unit/detect/test_secret_masking.py</td>
 </tr>
 <tr>
-<td><a href="../02-%E7%B3%BB%E7%BB%9F%E6%9E%B6%E6%9E%84%E8%AE%BE%E8%AE%A1/">02-系统架构设计</a></td>
-<td>七阶段流水线、双通道检测、模块职责、数据模型、并发与沙箱</td>
-<td>架构面试、开发蓝本</td>
+<td>卡B</td>
+<td>存储一致性</td>
+<td>audit/taskstore.py、tests/unit/taskstore/**</td>
 </tr>
 <tr>
-<td><a href="../03-Agent%E5%B7%A5%E5%85%B7%E9%9B%86%E4%B8%8EPrompt%E8%AE%BE%E8%AE%A1/">03-Agent工具集与Prompt设计</a></td>
-<td>10 个工具的完整 JSON Schema、四类 Agent 的 System Prompt 全文</td>
-<td>核心实现参考、面试深挖</td>
+<td>卡C</td>
+<td>依赖与 CI 自举</td>
+<td>pyproject.toml、Makefile、.github/<strong>、tests/unit/ci/</strong></td>
 </tr>
 <tr>
-<td><a href="../04-%E8%AF%84%E4%BC%B0%E4%B8%8E%E6%8C%87%E6%A0%87%E9%AA%8C%E8%AF%81%E6%96%B9%E6%A1%88/">04-评估与指标验证方案</a></td>
-<td>Benchmark 构建、指标定义与公式、消融实验、结果记录模板</td>
-<td>支撑简历数字、答辩质询</td>
+<td>卡D</td>
+<td>规则族收敛</td>
+<td>audit/detect/rules/<strong>（不含 base.py）、audit/errors.py、tests/unit/detect/</strong>（新增文件限 test_rule_family_parity_w15.py）</td>
 </tr>
 <tr>
-<td><a href="../05-%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92-%E9%A3%8E%E9%99%A9-%E9%9D%A2%E8%AF%95%E5%87%86%E5%A4%87/">05-开发计划-风险-面试准备</a></td>
-<td>6 周里程碑、风险清单、10 道高频面试题及答法</td>
-<td>排期执行、面试冲刺</td>
+<td>卡E</td>
+<td>重构执行闭环</td>
+<td>audit/fix/<strong>、audit/refactor/</strong>、audit/sandbox/executor.py、tests/unit/fix/<strong>、tests/unit/refactor/</strong>（新增文件限 test_refactor_patch_w15.py）</td>
 </tr>
 <tr>
-<td><a href="../06-%E5%A4%9A%E4%BB%BB%E5%8A%A1%E5%B9%B6%E8%A1%8C%E5%BC%80%E5%8F%91%E8%AE%A1%E5%88%92/">06-多任务并行开发计划</a></td>
-<td>Wave 1 任务拆分、契约冻结、协作规约</td>
-<td>并行开发总纲</td>
-</tr>
-<tr>
-<td><a href="../07-Wave2%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8E%E4%BB%BB%E5%8A%A1%E5%88%86%E8%A7%A3/">07-Wave2总体方案与任务分解</a></td>
-<td>修复/单测闭环、双通道增强、评估基建</td>
-<td>Wave 2 总纲</td>
-</tr>
-<tr>
-<td><a href="../08-Wave3%E6%80%BB%E4%BD%93%E6%96%B9%E6%A1%88%E4%B8%8EGitHub%E5%8F%91%E5%B8%83/">08-Wave3总体方案与GitHub发布</a></td>
-<td>消融开关、金标扩充、CI、GitHub 发布</td>
-<td>Wave 3 总纲（收尾与发布）</td>
+<td>卡F</td>
+<td>测试盲区</td>
+<td>tests/unit/utils/<strong>（新建）、tests/unit/pipeline/</strong>（新建）、tests/unit/agents/test_prompts.py（新建）、frontend/src/<strong>（新增 *.{test.ts,test.tsx}）、tests/unit/architecture/</strong>（新建，静默吞噬记账断言）</td>
 </tr>
 </tbody>
 </table>
-<h2 id="4">4. 核心设计思想（三个"不是"，面试一句话讲清差异化）<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
+<p>公共禁区（全体卡片）：<code>audit/models.py</code>、<code>audit/pipeline.py</code>、<code>audit/taskstore.py</code>（卡B 外）、<code>CHANGELOG.md</code>、<code>README.md</code>、<code>docs/**</code>、<code>mkdocs.yml</code> 零改动——文档与契约归集成人；前端既有源文件不改（卡F 只新增测试）。</p>
+<h2 id="3">3. 非目标（本波明确不做）<a class="headerlink" href="#3" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>audit/models.py</code> 任何改动：schema_version 校验机制、CallEdge 清理、RefactorProposal→Patch 新字段——<strong>契约文件变更需用户先行批准</strong>，列入集成阶段报备清单。</li>
+<li>isort/pyupgrade 启用（存量批量改造，独立专项）。</li>
+<li>web/ 旧前端下线、agent/agents 双包合并、confkit 更名（纯命名治理，P2）。</li>
+<li>audit/indexer/store.py 并发加固（当前单线程使用安全，P2 文档化即可）。</li>
+<li>pip 完整锁文件（Dependabot + pip-audit 门禁已覆盖，锁文件另行评估）。</li>
+</ul>
+<h2 id="4">4. 接口契约（并行卡共同遵守，集成人不改语义）<a class="headerlink" href="#4" title="Permanent link">&para;</a></h2>
+<h3 id="41-a-auditconfigpy-auditconfig">4.1 卡A 新增配置（audit/config.py AuditConfig 字段 + 分层来源）<a class="headerlink" href="#41-a-auditconfigpy-auditconfig" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>api_token: str = ""</code>——来源 env <code>CODEAUDIT_API_TOKEN</code>；空 = 鉴权关闭（本机开发态默认，兼容既有行为）；非空时 <code>/api/*</code>（除 <code>GET /api/health</code>）要求 <code>Authorization: Bearer &lt;token&gt;</code> 或 <code>X-API-Token: &lt;token&gt;</code>，失败 401。启动时 token 为空打 WARNING 日志（无鉴权提醒）。</li>
+<li><code>allowed_source_roots: list[str] = []</code>——来源 env <code>CODEAUDIT_SOURCE_ROOTS</code>（os.pathsep 分隔）；非空时 <code>POST /api/audits</code> 的 source_path 必须位于任一根之内（resolve 后 relative_to 判定），越界 400；空 = 不限制（兼容）。</li>
+<li><code>rate_limit_per_min: int = 0</code>——来源 env <code>CODEAUDIT_RATE_LIMIT</code>；&gt;0 时对写方法（POST/DELETE）按客户端 IP 滑动窗口限流，超限 429；0 = 关闭（既有测试不受扰）。</li>
+<li>SSE 并发上限：模块常量 <code>_MAX_SSE_STREAMS = 50</code>，超限新建 SSE 返回 429（不做排队）。</li>
+</ul>
+<h3 id="42-a-llm">4.2 卡A 脱敏（LLM 路径）<a class="headerlink" href="#42-a-llm" title="Permanent link">&para;</a></h3>
+<ul>
+<li>audit/detect/base.py 新增模块级 <code>mask_secret_text(text: str) -&gt; str</code>：对单行文本做密钥形态打码（复用/对齐 W14 mask 语义，占位 <code>********</code>）；<code>mask_snippet</code> 既有语义不变。</li>
+<li>review.py <code>_issue_from_payload</code>：<code>snippet = mask_snippet(...)</code>（或等效套用），<code>evidence</code> 逐条过 <code>mask_secret_text</code>。</li>
+<li>验收：新增 LLM 路径脱敏测试（FakeLLM 返回含密钥行区间的 payload → 断言报告 Issue 中无明文密钥）；既有 test_secret_masking.py 全绿。</li>
+</ul>
+<h3 id="43-b-audittaskstorepy">4.3 卡B 存储契约（audit/taskstore.py）<a class="headerlink" href="#43-b-audittaskstorepy" title="Permanent link">&para;</a></h3>
+<ul>
+<li>连接即设 <code>PRAGMA busy_timeout=5000</code>；写操作遇 <code>sqlite3.OperationalError: database is locked</code> 指数退避重试（≤3 次）。</li>
+<li><code>append_event</code> 改单事务 <code>BEGIN IMMEDIATE</code> + <code>INSERT ... SELECT COALESCE(MAX(seq),0)+1</code>（跨连接并发追加 seq 严格单调、无 PK 冲突）。</li>
+<li><code>sweep_interrupted(grace_seconds: int = 0)</code> 新增参数：&gt;0 时仅清扫 <code>updated_at</code> 早于 now-grace 的 queued/running 行（多 worker 部署设 CODEAUDIT_SWEEP_GRACE_SEC 规避兄弟 worker 复活竞态）；0 = 既有语义不变。行表需有 updated_at 维护（若无则补充，写入路径统一 touch）。</li>
+<li>server 侧接线归卡A（其所有权）：lifespan 改 <code>_get_store().sweep_interrupted(grace_seconds=_int_from_env("CODEAUDIT_SWEEP_GRACE_SEC", 0, minimum=0))</code>，并在 lifespan yield 后 close store（TaskStore.close 已幂等）。</li>
+<li>验收：新增双连接并发压测（2 实例 × N 线程 × M 事件，断言零 OperationalError、seq 严格递增、事件零丢失）；grace 语义单测。</li>
+</ul>
+<h3 id="44-c-ci">4.4 卡C CI/依赖<a class="headerlink" href="#44-c-ci" title="Permanent link">&para;</a></h3>
+<ul>
+<li>pyproject：<code>python-multipart&gt;=0.0.18</code>、<code>jinja2&gt;=3.1.6</code>、<code>fastapi&gt;=0.115</code>（带起 starlette&gt;=0.40）；先实测当前环境可满足再改下限。</li>
+<li>ci.yml：删 <code>issues: write</code>；3.13 覆盖率 job 加 <code>--cov-fail-under=&lt;基线&gt;</code>（先跑 <code>--cov</code> 实测取整十向下基线，注释注明棘轮策略）；新增 pip-audit step（continue-on-error: false）。</li>
+<li>新增 .github/workflows/pr-audit.yml：PR 触发，离线模式自审计（<code>python cli.py run &lt;repo&gt; --diff origin/main --fail-on critical --format sarif &gt; codeaudit.sarif</code>），上传 SARIF artifact；无 secrets 依赖。</li>
+<li>tests/unit/ci/test_ci_config.py 同步断言更新。</li>
+</ul>
+<h3 id="45-d">4.5 卡D 规则族收敛<a class="headerlink" href="#45-d" title="Permanent link">&para;</a></h3>
+<ul>
+<li>新建 <code>audit/detect/rules/_scan_common.py</code>（或同名承载）：收纳 _python_common/_js_common 逐字重复的通用件（call_span/find_call/enclosing_function/indent_width/is_blank 等），两个 common 改为转发导入，<strong>公共函数签名与行为不变</strong>。</li>
+<li>同构规则（TodoFixme/LongFunction/DeepNesting/MagicNumber 至少这四类）参数化基类或工厂（<code>make_xxx_rule(lang_prefix, ...)</code>），python.py/javascript.py 改为薄封装；<strong>规则 id、severity、文案语义、命中结果完全不变</strong>。</li>
+<li>errors.py 删除 IndexBuildError/ReportError（先 grep 确认零引用）。</li>
+<li>验收：新增 test_rule_family_parity_w15.py（PY/JS 同名规则对同构夹具命中等价性）；tests/unit/detect 全绿（夹具金标准命中数不得变化）。</li>
+</ul>
+<h3 id="46-e">4.6 卡E 重构执行闭环<a class="headerlink" href="#46-e" title="Permanent link">&para;</a></h3>
+<ul>
+<li>fix/verifier.py：Python 文件语法校验叠加 <code>ast.parse</code>（tree-sitter + ast 双保险，ast 失败即 syntax 失败回滚）；其他语言维持 tree-sitter 单校验（不支持语言仍返回 True 不阻塞，语义不变）。</li>
+<li>fix/patcher.py + sandbox/executor.py：散落超时 30 / 截断 500 / 截断 300 / Docker <code>"512m"</code> 提为具名模块常量（值不变）。</li>
+<li>重构 proposal→patch 最小闭环（契约零改动方案）：refactor/stage 对 top-N（≤3，confidence 过滤）启发式 proposal 合成 <code>Issue(source=LLM, severity=medium, title="[Refactor] &lt;proposal.title&gt;", ...)</code> 喂给既有 fix 阶段管线（LLM 生成 diff → 校验 → 应用 → tree-sitter+ast 校验 → 沙箱测试 → 四态 FixStatus/回滚），产物自然进入 report.patches；开关沿用 enable_llm_review &amp;&amp; llm_available，离线零行为变化。models.py 不加新字段。</li>
+<li>验收：新增 test_refactor_patch_w15.py（FakeLLM 脚本化：合法 patch→verified；坏语法 patch→回滚 needs-review）；tests/unit/fix + tests/unit/refactor 全绿。</li>
+</ul>
+<h3 id="47-f">4.7 卡F 测试盲区<a class="headerlink" href="#47-f" title="Permanent link">&para;</a></h3>
+<ul>
+<li>新建 tests/unit/utils/test_utils.py（extract_json/fingerprint/truncate/make_id 边界全覆盖）、tests/unit/pipeline/test_context.py（PipelineContext/EventEmitter 契约）、tests/unit/agents/test_prompts.py（PROMPT_VERSION/模板装载）、tests/unit/architecture/test_architecture_logging.py（静默吞噬路径存在记账/日志断言——只加测试不改 architecture.py，若现状确无记账则测试标注 expected-fail 上报集成人裁决）。</li>
+<li>frontend 新增 SevTag.test.tsx、StatusTag.test.tsx（渲染分级断言）；<code>cd frontend &amp;&amp; npx vitest run</code> 全绿。</li>
+<li>不改任何生产代码；发现的生产缺陷只记录上报。</li>
+</ul>
+<h2 id="5">5. 验收与集成流程<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
 <ol>
-<li><strong>不是"纯 LLM 扫代码"</strong> —— 纯 LLM 有幻觉、漏报且贵。静态规则（AST 模式 + 正则）先做零成本高召回扫描，把候选问题作为"线索"喂给 LLM 定向验证，再由 Agent 用工具追跨文件调用链确认，这就是 85% 精确率的来源。</li>
-<li><strong>不是"单文件审查器"</strong> —— 每个文件审查时注入符号表 + 被调函数源码切片 + 依赖图上下文，Agent 可主动调用 <code>find_references</code> / <code>get_symbol</code> 等工具跨文件取证，实现"代码库级"理解。</li>
-<li><strong>不是"只报告不闭环"</strong> —— 检测结果直接进入修复与验证闭环：生成 Patch → 沙箱应用 → 跑现有测试 → 生成回归单测再跑一遍，只有验证通过的修复才标记为 <code>verified</code>。</li>
+<li><strong>单卡验收</strong>（每卡完成后立即）：集成人审查 diff（对照所有权与契约）→ 跑该卡 scoped 测试 → 卡内压力项（卡B 并发压测 / 卡A 限流与 SSE 上限测试）→ 问题当卡修复或退回。</li>
+<li><strong>统一联调</strong>（六卡齐后）：ruff 全仓 → pytest 全量（基线 1242 passed，零 fail 零 error）→ 前端 tsc+vitest+build → CHANGELOG [Unreleased] 追加 W15 段（集成人）→ 服务级压测（若 bench/soak 脚本可在 5 分钟内完成则跑，否则以卡A/B 压测项 + 全量回归替代并如实说明）。</li>
+<li><strong>报备清单</strong>（集成阶段向用户提出，批准后另起 W15.5）：models.py schema_version 校验、CallEdge 死模型清理、Rate-limit/SSE 上限是否改默认开启。</li>
 </ol>
-<h2 id="5">5. 目录规划（实现阶段参照）<a class="headerlink" href="#5" title="Permanent link">&para;</a></h2>
-<div class="highlight"><pre><span></span><code>codeaudit-agent/
-├── audit/                    # 核心包
-│   ├── ingest/               # Stage1 接入：路径/zip、语言识别、过滤
-│   ├── indexer/              # Stage2 索引：tree-sitter、符号表、调用图
-│   ├── understand/           # Stage3 理解：map-reduce 架构摘要
-│   ├── detect/               # Stage4 检测：rules/（静态规则库）+ llm/（审查Agent）
-│   ├── fix/                  # Stage5 修复：patch 生成与沙箱应用
-│   ├── testgen/              # Stage6 单测生成
-│   ├── report/               # Stage7 报告：JSON 聚合 + Markdown/HTML 渲染
-│   ├── agent/                # Agent 运行时：循环、工具注册、预算控制（复用既有框架）
-│   ├── llm/                  # GLM API 客户端：限流、重试、缓存、token 统计
-│   └── sandbox/              # 沙箱执行器：subprocess、超时、资源限制
-├── server/                   # FastAPI 服务（异步任务 + SSE 进度）
-├── web/                      # 演示前端（上传/进度/报告查看）
-├── cli.py                    # 命令行入口
-├── bench/                    # Benchmark 构建与评估脚本（指标计算）
-├── tests/                    # 自身单元测试
-└── docs/                     # 本套文档
-</code></pre></div>
+<h2 id="6">6. 风险与回滚<a class="headerlink" href="#6" title="Permanent link">&para;</a></h2>
+<ul>
+<li>所有新增治理均 opt-in（env 缺省 = 既有行为），单点回滚 = 还原对应卡文件；规则收敛（卡D）以「夹具命中金标准不变」为硬门禁，任何命中差异即回退该重构。</li>
+<li>并行开发基于同一工作区（W14 未提交改动之上），目录所有权隔离冲突为零；集成人统一负责文档/CHANGELOG 收口。</li>
+</ul>
 
 
 
@@ -1466,44 +1511,6 @@
       
         <footer class="md-footer">
   
-    
-      
-      <nav class="md-footer__inner md-grid" aria-label="页脚" >
-        
-          
-          <a href="../.." class="md-footer__link md-footer__link--prev" aria-label="上一页: 首页">
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
-            </div>
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                上一页
-              </span>
-              <div class="md-ellipsis">
-                首页
-              </div>
-            </div>
-          </a>
-        
-        
-          
-          <a href="../01-%E9%9C%80%E6%B1%82%E8%A7%84%E6%A0%BC%E8%AF%B4%E6%98%8E%E4%B9%A6/" class="md-footer__link md-footer__link--next" aria-label="下一页: 01 需求规格说明书">
-            <div class="md-footer__title">
-              <span class="md-footer__direction">
-                下一页
-              </span>
-              <div class="md-ellipsis">
-                01 需求规格说明书
-              </div>
-            </div>
-            <div class="md-footer__button md-icon">
-              
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
-            </div>
-          </a>
-        
-      </nav>
     
   
   <div class="md-footer-meta md-typeset">
