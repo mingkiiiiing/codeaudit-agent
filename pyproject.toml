@@ -32,6 +32,10 @@ dependencies = [
     "tree-sitter-typescript>=0.23",
     # W24-A：Java 语言包接入（符号提取与规则 AST 佐证共用）
     "tree-sitter-java>=0.23",
+    # W26-C：Go 语言包接入（符号提取与规则 AST 佐证共用；当前环境实测安装 0.25.0）
+    "tree-sitter-go>=0.23",
+    # W28-C：C++ 语言包接入（符号提取与规则 AST 佐证共用；当前环境实测安装 0.23.4）
+    "tree-sitter-cpp>=0.23",
     "httpx>=0.27",
     # W15-C：下限钉扎堵已知 CVE——
     #   fastapi>=0.115（自该版起强制 starlette>=0.40，堵 CVE-2024-47874 starlette DoS）；

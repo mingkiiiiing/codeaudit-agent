@@ -47,7 +47,7 @@ class TestGuessLanguage:
             ("a.jsx", "javascript"),
             ("a.ts", "typescript"),
             ("a.tsx", "typescript"),
-            ("a.go", None),  # 未登记扩展名
+            ("a.go", "go"),  # W26 卡 C：Go 语言包接入
             ("a", None),  # 无扩展名
             ("a.PYTHON", None),  # 非精确后缀不误判
         ],

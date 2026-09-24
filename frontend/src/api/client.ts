@@ -13,6 +13,10 @@ import type {
   IssueItem,
   PatchItem,
   RefactorProposalItem,
+  RenameRequest,
+  RenameResult,
+  ReportHistoryList,
+  ReportVersionDetail,
   TaskListItem,
 } from "./types";
 
@@ -26,6 +30,11 @@ export type {
   IssueItem,
   PatchItem,
   RefactorProposalItem,
+  RenameRequest,
+  RenameResult,
+  ReportHistoryList,
+  ReportVersionDetail,
+  ReportVersionSummary,
   TaskListItem,
 } from "./types";
 
@@ -161,6 +170,31 @@ export function getUnderstand(id: string): Promise<{ architecture: ArchitectureC
 
 export function reportUrl(id: string, fmt: "json" | "md" | "html"): string {
   return `/api/audits/${encodeURIComponent(id)}/report?format=${fmt}`;
+}
+
+/** 报告历史版本摘要列表（W27-B：seq/created_at/health_score/issue_count，seq 升序；任务不存在 404）。 */
+export function listReports(id: string): Promise<ReportHistoryList> {
+  return request(`/api/audits/${encodeURIComponent(id)}/reports`);
+}
+
+/** 指定历史版本完整报告 JSON（seq 从 1 起；任务或版本不存在 404）。 */
+export function getReport(id: string, seq: number): Promise<ReportVersionDetail> {
+  return request(`/api/audits/${encodeURIComponent(id)}/reports/${seq}`);
+}
+
+/**
+ * POST /api/rename（W28-B safe-rename 符号重命名）：
+ * - apply 缺省/false = dry-run 预览（返回 unified diff 不落盘，applied=false）；
+ * - apply=true 写入源码，all-or-nothing：复检失败 → 409（未写入任何文件）；
+ * - plan 拒绝（非法名 / old==new / 多定义点 / 非法 language 等）→ 400 中文 detail；
+ * - 未授权 → 401。language 透传（组件不传时由后端缺省 "python"）。
+ */
+export function renameSymbol(body: RenameRequest): Promise<RenameResult> {
+  return request<RenameResult>("/api/rename", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
 }
 
 // ---------------------------------------------------------------------- SSE

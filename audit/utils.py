@@ -19,6 +19,11 @@ _EXTENSION_LANGUAGE = {
     ".ts": "typescript",
     ".tsx": "typescript",
     ".java": "java",
+    ".go": "go",
+    # W28-C：C++ 语言包（.h 为 C/C++ 共享歧义头文件，不纳入——按需后续再议）
+    ".cpp": "cpp",
+    ".cc": "cpp",
+    ".hpp": "cpp",
 }
 
 # W24-A 内容探测特征（扩展名未知时的回退档）：命中任一即判为 java

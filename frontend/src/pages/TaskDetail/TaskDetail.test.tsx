@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, getAudit, getSummary, getUnderstand, listIssues, listPatches, listRefactors, subscribeEvents } from "../../api/client";
+import { ApiError, getAudit, getReport, getSummary, getUnderstand, listIssues, listPatches, listRefactors, listReports, subscribeEvents } from "../../api/client";
 import type { AuditEvent } from "../../api/types";
 import TaskDetail from "./index";
 
@@ -21,6 +21,8 @@ vi.mock("../../api/client", () => ({
   listPatches: vi.fn(),
   listRefactors: vi.fn(),
   getUnderstand: vi.fn(),
+  listReports: vi.fn(),
+  getReport: vi.fn(),
   deleteAudit: vi.fn(),
   reportUrl: vi.fn(
     (id: string, fmt: string) => `/api/audits/${id}/report?format=${fmt}`,
@@ -87,6 +89,18 @@ vi.mocked(listRefactors).mockResolvedValue({
 });
 vi.mocked(getUnderstand).mockResolvedValue({
   architecture: null,
+});
+// 报告历史面板（W29 卡D）：默认空列表（面板降级为「暂无历史版本」空态，不影响既有断言）
+vi.mocked(listReports).mockResolvedValue({ total: 0, reports: [] });
+vi.mocked(getReport).mockResolvedValue({
+  audit_id: "aaaaaaaa1111ffff",
+  project_name: "demo_proj",
+  languages: {},
+  loc: 1200,
+  health_score: 88,
+  summary: { critical: 0, high: 0, medium: 0, low: 0 },
+  created_at: "2026-09-19T08:15:00",
+  schema_version: "1.7",
 });
 
 const SUMMARY = {

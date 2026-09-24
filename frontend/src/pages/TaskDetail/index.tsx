@@ -16,6 +16,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ApiError, deleteAudit, getAudit, getSummary, subscribeEvents } from "../../api/client";
 import type { AuditDetail, AuditEvent, AuditSummary } from "../../api/client";
 import { BudgetAlert } from "../../components/BudgetAlert";
+import { ReportHistory } from "../../components/ReportHistory";
 import { StatusTag } from "../../components/StatusTag";
 import {
   extractBudgetFromEvent,
@@ -213,6 +214,12 @@ export default function TaskDetail() {
           </Card>
         </>
       )}
+
+      {/* 报告历史（W29 卡D）：任意状态均展示——重跑推进中既有历史版本只读可见；
+          列表为空 / 404 / 接口失败均由面板内部降级为「暂无历史版本」空态 */}
+      <Card title="报告历史">
+        <ReportHistory auditId={auditId} />
+      </Card>
     </Flex>
   );
 }

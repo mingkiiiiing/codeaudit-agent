@@ -19,14 +19,26 @@ W24-C（resume 断点续跑，docs/23 卡 C）：
   存在时跳过重建（工作副本与索引库直接复用）；
 - resume_stage_done(store, audit_id, config)：可复用的恢复判定入口——给定任务
   id 与重建配置，返回可安全跳过的已完成阶段集合（供 CLI/集成人接线 resume 重建）。
-  跳过范围本轮只含 ingest/index 两个盘上产物阶段：understand 之后的阶段产物
-  （issues/patches 等）在 ctx 内存中、无盘上形态，跳过会丢数据导致报告不完整，
-  故 resume 时一律重跑（成本低且保证最终报告完整，见 docs/23 §3 已知边界）。
+
+W24-E（resume 扩展，docs/23 §5 候选②）：detect 阶段产物落盘 + detect 可续跑。
+detect 是最贵阶段（规则扫描 + LLM 逐文件审查 + 后处理扫描器），成功完成后把
+全量 issues 与 stats 快照尽力落盘到 <task_root>/state/detect.json（写失败只记
+debug，绝不阻断 detect）；_RESUMABLE_STAGES 扩入 "detect"，resume 时产物存在
+且可解析则直接加载进 ctx 跳过整个 detect，文件缺失/损坏/schema 不符则回落
+全量重跑（诚实降级）。CLI 入口 codeaudit resume <audit_id> 归 cli.py 接线。
+
+W26 卡 B（docs/24 §4 收尾①）：fallback 触发标注接入事件流——run_audit 的
+finally（LLM 客户端收口前）检查 _make_llm 返回的裸客户端：启用 fallback 且
+fallback_used>0 时发一条 warning 事件（stage=init 通道，与"LLM 未配置"/
+"预算熔断"警告同口径），文案含切换次数与备模型名。判定走裸客户端引用
+（天然 unwrap，预算闸门 _BudgetGateLLM 零改动）；未启用或零切换时零事件
+（既有行为零变化）。事件置于 finally 保证异常路径同样可见这一事实。
 """
 
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import time
 from pathlib import Path
@@ -36,7 +48,7 @@ from audit.config import AuditConfig
 from audit.confkit import apply_baseline, apply_diff_filter, changed_files, load_baseline, write_baseline
 from audit.errors import AgentBudgetError
 from audit.llm.base import FakeLLMClient, LLMClient, LLMResponse
-from audit.models import AuditReport, count_by_severity
+from audit.models import AuditReport, AuditStats, Issue, count_by_severity
 from audit.pipeline import EventEmitter, PipelineContext
 from audit.utils import new_audit_id
 
@@ -44,10 +56,13 @@ _LOG = logging.getLogger(__name__)
 
 _SKIP_MSG = "stage skipped (module not integrated)"
 
-# W24-C：resume 可跳过的阶段集合——只含盘上产物阶段（工作副本 / 索引库）。
-# 事件照发、清单照记（understand 之后照常记 stage_done，供观测与后续轮次扩展），
-# 但本轮 resume 判定只放行这两个阶段的跳过。
-_RESUMABLE_STAGES = frozenset({"ingest", "index"})
+# W24-C：resume 可跳过的阶段集合——盘上产物阶段（工作副本 / 索引库）。
+# W24-E 扩入 "detect"：detect 成功完成后把全量 issues + stats 快照落盘
+# （state/detect.json，见 _write_detect_artifact），resume 时直接加载进 ctx
+# 跳过重扫（detect 是最贵阶段：规则扫描 + LLM 逐文件审查 + 后处理扫描器）。
+# 事件照发、清单照记（understand/refactor 等照常记 stage_done，供观测与后续
+# 轮次扩展），resume 判定只放行本集合内的阶段。
+_RESUMABLE_STAGES = frozenset({"ingest", "index", "detect"})
 
 
 async def _maybe_await(result: Any) -> Any:
@@ -113,10 +128,22 @@ def _make_llm(config: AuditConfig) -> tuple[LLMClient, str | None]:
 
     - config.llm_available 且启用 review → 延迟导入 GlmClient；
       T3 未集成时回退 FakeLLM 并给出"模块未集成"警告；
+    - W25 卡 B（审计 P0-7）：配置了 fallback_model（GLM_MODEL_FALLBACK，非空且
+      不等于主模型）时改用 RouterClient 提供备用模型兜底；未配置时维持 GlmClient
+      直连（行为与现状逐字节一致）。RouterClient 模块缺失时按既有单模型直连
+      （fallback 属增强能力，缺模块不应把可用 LLM 降级成纯规则）；
     - 否则 FakeLLMClient 纯规则模式（未配置 api_key 时发"LLM 未配置"警告）。
     """
     if config.llm_available and config.enable_llm_review:
         try:
+            fallback_model = str(getattr(config, "fallback_model", "") or "").strip()
+            if fallback_model and fallback_model != config.model:
+                try:
+                    from audit.llm.router import RouterClient
+                except ImportError:
+                    pass  # 路由模块未集成：回落单模型直连，不因增强能力缺失而降级
+                else:
+                    return RouterClient(config), None
             from audit.llm.glm_client import GlmClient
 
             return GlmClient(config), None
@@ -125,6 +152,38 @@ def _make_llm(config: AuditConfig) -> tuple[LLMClient, str | None]:
     if not config.llm_available:
         return FakeLLMClient(), "LLM 未配置，运行纯规则模式"
     return FakeLLMClient(), "LLM review 未启用，运行纯规则模式"
+
+
+async def _emit_fallback_event(emitter: EventEmitter, client: Any, config: AuditConfig) -> None:
+    """W26 卡 B（docs/24 §4 收尾①）：fallback 实际触发时发 warning 事件标注。
+
+    判定对象是 _make_llm 返回的裸客户端（run_audit 作用域始终持有该引用，天然
+    "unwrap"：无需 _BudgetGateLLM 透传属性，预算闸门零改动；FakeLLM/GlmClient
+    直连等无该属性的客户端经 getattr 缺省不触发）。事件形态与"LLM 未配置"/
+    "预算熔断"警告同口径（type=progress、stage=init、warning=True），附
+    fallback_used / fallback_model 结构化字段；未启用 fallback 或 fallback_used=0
+    时零事件（行为零变化）。事件发送失败只记 debug，不影响收口与审计结果
+    （CancelledError 等 BaseException 照常上抛，协作取消语义不变）。
+    """
+    if not getattr(client, "fallback_enabled", False):
+        return
+    used = int(getattr(client, "fallback_used", 0) or 0)
+    if used <= 0:
+        return
+    model = str(getattr(config, "fallback_model", "") or "").strip()
+    try:
+        await emitter(
+            {
+                "type": "progress",
+                "stage": "init",
+                "message": f"主模型失败已切换备用模型 {used} 次（fallback_model={model}）",
+                "warning": True,
+                "fallback_used": used,
+                "fallback_model": model,
+            }
+        )
+    except Exception:  # noqa: BLE001 —— 标注失败不影响审计收口
+        _LOG.debug("fallback warning 事件发送失败（不影响主流程）", exc_info=True)
 
 
 class _BudgetGateLLM(LLMClient):
@@ -387,28 +446,105 @@ async def _export_baseline(ctx: PipelineContext) -> None:
 
 # ---------------------------------------------------------------- W24-C：resume 断点续跑
 
+# W24-E：detect 断点产物的落盘位置（相对任务根目录 task_root）。与 W24-C 的
+# ingest/index 复用同一来源：task_root = <work_root>/<audit_id>（即 ctx.workspace
+# 的工作副本根，ingest/resume 两条路径都指向它）。字段口径：
+#   {"issues": [Issue.to_dict() ...], "stats": <detect 完成时点的 AuditStats.to_dict()>}
+# 其中 issues 为 detect 阶段写入 ctx 的全部问题（规则 + LLM 审查 + 后处理扫描器，
+# 基线抑制之前的完整清单——基线抑制是 detect 之后的独立 4b 步骤，resume 时照常重放）。
+_DETECT_ARTIFACT_RELPATH = Path("state") / "detect.json"
+
+
+def _detect_artifact_path(task_root: Path) -> Path:
+    """detect 断点产物路径：<task_root>/state/detect.json。"""
+    return task_root / _DETECT_ARTIFACT_RELPATH
+
+
+def _read_detect_artifact(task_root: Path) -> dict[str, Any] | None:
+    """读取并校验 detect 断点产物；缺失/损坏/schema 不符一律返回 None。
+
+    schema 口径：顶层 dict 且 issues 为 dict 列表、stats 为 dict——三者任一不满足
+    视为半残产物，宁可回落全量重跑（诚实降级），绝不带着坏产物跑。
+    """
+    try:
+        data = json.loads(_detect_artifact_path(task_root).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    issues, stats = data.get("issues"), data.get("stats")
+    if not isinstance(issues, list) or not all(isinstance(item, dict) for item in issues):
+        return None
+    if not isinstance(stats, dict):
+        return None
+    return data
+
+
+def _write_detect_artifact(ctx: PipelineContext) -> None:
+    """W24-E：detect 成功完成后把产物快照落盘（尽力而为，绝不阻断 detect 本身）。
+
+    内容 = detect 阶段写入 ctx 的全部 issues（含后处理扫描器）+ 当时的 stats 快照。
+    任何异常（目录不可写 / 序列化失败等）只记 debug——resume 时产物缺失会自然
+    回落全量重跑，断点是优化项而非正确性依赖，不吞错也不放大故障。
+    """
+    try:
+        path = _detect_artifact_path(Path(ctx.workspace.work_root))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {"issues": [issue.to_dict() for issue in ctx.issues], "stats": ctx.stats.to_dict()}
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001 —— 落盘失败不影响 detect 主流程
+        _LOG.debug("detect 断点产物落盘失败（resume 将回落全量重跑）", exc_info=True)
+
+
+async def _resume_detect_from_artifact(ctx: PipelineContext) -> bool:
+    """W24-E：resume 时从盘上加载 detect 产物进 ctx；成功返回 True 跳过整个 detect。
+
+    加载内容：issues 全量还原进 ctx.issues（规则扫描、LLM 逐文件审查与后处理
+    扫描器全部不跑），stats 快照整体还原（后续阶段与报告在其上续记）。
+    文件缺失/损坏/schema 不符 → 发 warning 事件并返回 False，由调用方回落
+    全量重跑 detect（诚实降级，不吞错）。
+    """
+    data = _read_detect_artifact(Path(ctx.workspace.work_root))
+    if data is None:
+        await ctx.emit("init", "resume：detect 断点产物缺失或损坏，回落全量重跑 detect", warning=True)
+        return False
+    issues = [Issue.from_dict(item) for item in data["issues"]]
+    ctx.issues = issues
+    ctx.stats = AuditStats.from_dict(data["stats"])
+    await ctx.emit(
+        "init",
+        f"detect 阶段自断点恢复（跳过 {len(issues)} 条 issue 重扫）",
+        resumed=True,
+        total=len(issues),
+    )
+    return True
+
+
 def resume_stage_done(store: Any, audit_id: str, config: AuditConfig) -> frozenset[str]:
     """恢复判定（可复用入口，供 CLI/server 接线 resume 重建）：
     给定 audit_id 与重建配置 → 本轮可安全跳过的已完成阶段集合。
 
     判定逐条过滤，宁缺勿跳（跳过的前提是产物确实可复用）：
     1. 任务行存在且 stage_done 非空（store.get_stage_done），并与
-       _RESUMABLE_STAGES 求交——只放行盘上产物阶段（ingest/index）；
+       _RESUMABLE_STAGES 求交——只放行盘上产物阶段（ingest/index/detect）；
     2. 同源校验：任务行 source_path 与 config.source_path resolve 后一致。
        MVP 指纹形态说明（决策 docs/23 §2 第 2 条）：resume 是同一任务数分钟内
        的进程重启，路径一致即视为同源；内容级指纹属项目级缓存工程，本轮不做；
     3. ingest：<work_root>/<audit_id>/src 工作副本目录存在；
     4. index：index.db 文件存在，且以工作副本存在为前提（索引是副本的派生物，
-       副本丢了索引复用无意义，须与副本一起重建）。
+       副本丢了索引复用无意义，须与副本一起重建）；
+    5. detect（W24-E）：state/detect.json 存在且可解析（schema 见
+       _read_detect_artifact）——产物缺失/损坏时 detect 剔除出跳过集合，回落重跑。
 
-    understand/detect/refactor/fix/testgen 的产物在 ctx 内存中、无盘上形态，
+    understand/refactor/fix/testgen 的产物在 ctx 内存中、无盘上形态，
     即使 stage_done 已记录也不纳入跳过集合——resume 一律重跑（成本低且保证
     最终报告完整，见模块 docstring 的已知边界）。
 
     store 为鸭子类型：只需 get / get_stage_done 两个方法（TaskStore 满足），
-    编排层不硬依赖 taskstore 包。恢复重建的完整调用姿势（CLI 接线归集成人）：
+    编排层不硬依赖 taskstore 包。恢复重建的完整调用姿势（W24-E 起 CLI 已接线，
+    见 cli.cmd_resume；server 侧接线仍归集成人）：
         done = resume_stage_done(store, audit_id, config)
-        store.set_status(audit_id, "running")   # interrupted → running
+        store.mark_resuming(audit_id)           # interrupted/failed → running
         report = run_audit(config, emitter, audit_id=audit_id, resume_stages=done)
     注意 config 需沿用原任务的 do_fix/do_tests/out_dir 等取值（集成人从任务行
     config_json 重建），否则 resume 结果与首次运行口径不一致。
@@ -434,6 +570,8 @@ def resume_stage_done(store: Any, audit_id: str, config: AuditConfig) -> frozens
         stages.discard("index")  # 副本丢失：索引失去复用前提，全部重跑
     elif not (task_root / "index.db").is_file():
         stages.discard("index")
+    if "detect" in stages and _read_detect_artifact(task_root) is None:
+        stages.discard("detect")  # W24-E：断点产物缺失/损坏，detect 回落全量重跑
     return frozenset(stages)
 
 
@@ -455,8 +593,10 @@ async def run_audit(
       盘上产物才可能被复用；
     - resume_stages：已完成阶段集合（由 resume_stage_done 判定给出）。其中
       ingest/index 且产物在盘上存在时跳过重建：工作副本 src/ 直接复用、索引库
-      仅重开不 build。传入了盘上已不存在的阶段名时按防御逐项回落（副本缺失则
-      连索引一起重跑），宁可重跑不可用坏产物。
+      仅重开不 build；detect（W24-E）且 state/detect.json 可解析时直接加载
+      issues 与 stats 快照跳过整个 detect 阶段。传入了盘上已不存在的阶段名时
+      按防御逐项回落（副本缺失则连索引一起重跑、detect 产物坏则重扫），宁可
+      重跑不可用坏产物。
 
     资源收口（R1-3/R1-4）：无论正常结束还是异常，finally 中统一关闭 LLM 客户端
     （aclose）与索引连接（store.close）；ingest 未成功时 index/understand/detect/
@@ -510,6 +650,10 @@ async def run_audit(
     try:
         return await _run_audit_stages(ctx, started, audit_id, resume)
     finally:
+        # W26 卡 B：fallback 触发标注（docs/24 §4 收尾①）——LLM 客户端收口前发
+        # warning 事件。置于 finally 保证报告/done 失败等异常路径同样可见该事实；
+        # 判定用裸客户端 llm（闸门包裹前的引用），未启用/零切换时零事件。
+        await _emit_fallback_event(emitter, llm, config)
         # R1-4：关闭索引连接（index 阶段异常时其内部已兜底关闭，这里幂等收口）
         index = ctx.index if ctx.index is not None else ctx.workspace.index
         if index is not None:
@@ -651,9 +795,13 @@ async def _run_audit_stages(
         issues = await _maybe_await(run_detection(ctx, **kwargs))
         ctx.issues = list(issues or [])
         await ctx.emit("detect", f"检测完成：{len(ctx.issues)} 个问题", total=len(ctx.issues))
+        _write_detect_artifact(ctx)  # W24-E：断点产物落盘（尽力而为，失败不阻断）
 
     if ingest_ok:
-        await _run_stage(ctx, "detect", _do_detect)
+        if "detect" in resume and await _resume_detect_from_artifact(ctx):
+            pass  # W24-E：自断点恢复——规则扫描 / LLM 逐文件审查 / 后处理扫描器全部跳过
+        else:
+            await _run_stage(ctx, "detect", _do_detect)
     else:
         await _skip_gated_stage(ctx, "detect", "不执行检测")
 

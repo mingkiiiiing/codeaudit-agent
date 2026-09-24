@@ -20,6 +20,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
 from audit.indexer.base import IndexStore
+from audit.indexer.cpp_extract import extract_cpp
+from audit.indexer.go_extract import extract_go
 from audit.indexer.js_extract import extract_js_ts
 from audit.indexer.java_extract import extract_java
 from audit.indexer.parsers import SUPPORTED_LANGUAGES, parse_source
@@ -148,6 +150,11 @@ class SqliteIndexStore(IndexStore):
         self._js_files: set[str] = set()
         self._java_files_by_module: dict[str, str] = {}
         self._java_var_type_cache: dict[str, dict[str, str]] = {}
+        # W26-C：go 包目录 → 该目录下 .go 文件（导入路径后缀匹配解析用）
+        self._go_files_by_pkg: dict[str, list[str]] = {}
+        # W28-C：cpp 命名空间限定名 → 声明该命名空间的文件（跨文件解析用）与 cpp 文件集
+        self._cpp_files_by_ns: dict[str, list[str]] = {}
+        self._cpp_files: set[str] = set()
         # R1-8 修复：预取 language 映射 + 按 caller 缓存 import 别名表，
         # 消除 _resolve_edges 对每行调用边的 2 次 SQL（压测实测 build 省 10.2%）
         self._lang_map: dict[str, str] = {}
@@ -194,6 +201,10 @@ class SqliteIndexStore(IndexStore):
                 fx = extract_python(data, rel)
             elif language == "java":
                 fx = extract_java(data, rel)
+            elif language == "go":
+                fx = extract_go(data, rel)
+            elif language == "cpp":
+                fx = extract_cpp(data, rel)
             else:
                 js_lang = "typescript" if language == "typescript" else "javascript"
                 fx = extract_js_ts(data, rel, language=js_lang)
@@ -529,6 +540,141 @@ class SqliteIndexStore(IndexStore):
     def _module_file_java(self, module: str) -> str | None:
         return self._java_files_by_module.get(module)
 
+    # ---------------------------------------------------------- go 跨文件解析（W26-C）
+
+    def _go_aliases(self, caller_file: str) -> dict[str, str]:
+        """caller 文件的 go import 绑定表：代码内引用名 → 导入路径。
+
+        引用名 = 别名（``myalias \"strings\"`` → myalias）；``_ \"embed\"`` 匿名导入的
+        "_" 不是合法引用名，不入表；无别名时取导入路径末段（Go 惯例：包名 = 路径末段）。
+        """
+        entries: dict[str, str] = {}
+        for row in self._conn.execute("SELECT module, alias FROM imports WHERE file = ?", (caller_file,)):
+            module, alias = row["module"], row["alias"]
+            local = alias if alias and alias != "_" else module.rsplit("/", 1)[-1]
+            if local and local != "_":
+                entries.setdefault(local, module)
+        return entries
+
+    def _go_package_files(self, import_path: str) -> list[str]:
+        """导入路径 → 工作副本内包文件：按路径段后缀匹配包目录（最长目录优先）。
+
+        Go 一目录一包、包可多文件：调用方取列表首个文件作包代表即可；返回值
+        排序保证跨 build 确定。
+        """
+        segs = tuple(p for p in import_path.split("/") if p)
+        if not segs:
+            return []
+        best_dir, best_parts = "", ()
+        for d, files in self._go_files_by_pkg.items():
+            parts = PurePosixPath(d).parts
+            if len(parts) >= len(segs) and tuple(parts[-len(segs) :]) == segs and len(parts) > len(best_parts):
+                best_dir, best_parts = d, parts
+        return sorted(self._go_files_by_pkg.get(best_dir, []))
+
+    def _go_has_symbol(self, file: str, short: str) -> bool:
+        """go 符号命中：普通符号按 .short 后缀；方法限定名 (*Type).short / Type.short 一并覆盖。"""
+        names = self._symbols_by_file.get(file, set())
+        return short in names or any(n.endswith("." + short) or n.endswith(")." + short) for n in names)
+
+    def _resolve_go_call(self, callee: str, caller_file: str) -> _Target | None:
+        """go 调用点跨文件解析（尽力解析口径）：import 包名 → 包目录 → 符号确认。
+
+        - ``pkg.Func(...)``：head 命中 import 绑定 → 导入路径按路径段后缀匹配包目录
+          → rest 有符号则绑定（无则只绑文件）；
+        - 接收者变量调用 ``u.Save(...)`` 不做变量类型推断（go 首轮边界），落未解析边保留；
+        - 简名调用不跨文件猜测（同 java 口径）。
+        """
+        if "." not in callee:
+            return None
+        head, rest = callee.split(".", 1)
+        import_path = self._go_aliases(caller_file).get(head)
+        if import_path is None:
+            return None
+        files = self._go_package_files(import_path)
+        if not files:
+            return None
+        for f in files:
+            if self._go_has_symbol(f, rest):
+                return _Target(f, rest)
+        return _Target(files[0], "")
+
+    # ---------------------------------------------------------- cpp 跨文件解析（W28-C）
+
+    def _cpp_has_symbol(self, file: str, short: str) -> bool:
+        """cpp 符号命中：符号均以命名空间限定名记录，按 ``::short`` 后缀匹配
+        （如 short="UserDao::Find" 命中 "app::dao::UserDao::Find"）；简名精确命中覆盖
+        全局作用域符号（如 main）。"""
+        names = self._symbols_by_file.get(file, set())
+        return short in names or any(n.endswith("::" + short) for n in names)
+
+    def _cpp_ns_files(self, ns_head: str) -> list[str]:
+        """命名空间头 → 声明文件：全名精确匹配优先，其次段后缀匹配（限定最深优先）。
+
+        C++ 无包目录概念（W28-C 口径）：代码内 ``ns::f(...)`` 的 ns 段按命名空间
+        声明匹配——``dao::find_user`` 可命中 ``namespace app::dao``（段后缀），
+        多候选时取限定段最多的声明；文件列表排序保证跨 build 确定。
+        """
+        files = self._cpp_files_by_ns.get(ns_head)
+        if files:
+            return files
+        best, best_depth = "", -1
+        for declared in self._cpp_files_by_ns:
+            if declared.endswith("::" + ns_head) and declared.count("::") > best_depth:
+                best, best_depth = declared, declared.count("::")
+        return self._cpp_files_by_ns.get(best, ())
+
+    def _resolve_cpp_call(self, callee: str, caller_file: str) -> _Target | None:
+        """cpp 调用点跨文件解析（尽力解析口径）：命名空间头（最长前缀）→ 符号确认。
+
+        - ``ns::f(...)`` / ``ns::Class::method(...)``：从最长的 :: 前缀起按命名空间
+          映射匹配，rest 有符号则绑定（无则只绑文件）；
+        - 接收者变量调用 ``obj.m(...)`` 不做变量类型推断（cpp 首轮边界），落未解析
+          边保留；
+        - 简名调用不跨文件猜测（同 java/go 口径）。
+        """
+        parts = callee.split("::")
+        if len(parts) < 2:
+            return None
+        for i in range(len(parts) - 1, 0, -1):
+            files = self._cpp_ns_files("::".join(parts[:i]))
+            if not files:
+                continue
+            rest = "::".join(parts[i:])
+            for f in files:
+                if self._cpp_has_symbol(f, rest):
+                    return _Target(f, rest)
+            return _Target(files[0], "")
+        return None
+
+    def _resolve_cpp_include(self, module: str, caller_file: str) -> str | None:
+        """cpp include 头文件路径 → 工作副本内文件（仅引号头的相对路径口径）。
+
+        ``"x.hpp"``（同目录）与 ``"../util/x.hpp"``（相对 caller 目录）按路径段
+        归一后须命中工作副本内的 cpp 文件才解析；``<string>`` 等系统头剥括号后
+        不含路径段且不在副本内，自然落 None 保留原始模块名。
+        """
+        if "/" not in module and "." not in module:
+            return None  # 纯系统头名（string / vector 等）：无路径语义
+        caller_dir = PurePosixPath(caller_file).parent
+        raw = PurePosixPath(module)
+        parts: list[str] = []
+        if raw.is_absolute():
+            parts = [p for p in raw.parts[1:]]
+        else:
+            parts = [p for p in caller_dir.parts if p not in ("", ".")]
+            for part in raw.parts:
+                if part in ("", "."):
+                    continue
+                if part == "..":
+                    if not parts:
+                        return None  # 越出工作副本根
+                    parts.pop()
+                else:
+                    parts.append(part)
+        cand = "/".join(parts)
+        return cand if cand in self._cpp_files else None
+
     def _resolve_edges(self) -> None:
         """基于全量 calls 表重建 call_edges（增量安全：未变文件行保留）。"""
         # R4-2：_lang_map / _alias_cache 是 build 期预取缓存，跨 build 必须重置，
@@ -540,6 +686,9 @@ class SqliteIndexStore(IndexStore):
         self._js_files: set[str] = set()
         self._java_files_by_module = {}
         self._java_var_type_cache = {}
+        self._go_files_by_pkg = {}
+        self._cpp_files_by_ns = {}
+        self._cpp_files = set()
         for row in self._conn.execute("SELECT path, language FROM files"):
             rel, lang = row["path"], row["language"]
             if lang == "python":
@@ -548,8 +697,17 @@ class SqliteIndexStore(IndexStore):
                 self._js_files.add(rel)
             elif lang == "java":
                 self._java_files_by_module[self._java_module_of(rel)] = rel
-        for row in self._conn.execute("SELECT file, name FROM symbols"):
+            elif lang == "go":
+                parent = PurePosixPath(rel.replace("\\", "/")).parent.as_posix()
+                self._go_files_by_pkg.setdefault(parent, []).append(rel)
+            elif lang == "cpp":
+                self._cpp_files.add(rel)
+        for row in self._conn.execute("SELECT file, name, kind FROM symbols"):
             self._symbols_by_file.setdefault(row["file"], set()).add(row["name"])
+            if row["kind"] == "namespace":
+                self._cpp_files_by_ns.setdefault(row["name"], []).append(row["file"])
+        for files in self._cpp_files_by_ns.values():
+            files.sort()
 
         self._conn.execute("DELETE FROM call_edges")
         rows = self._conn.execute("SELECT file, caller_symbol, callee_name, line FROM calls").fetchall()
@@ -569,6 +727,10 @@ class SqliteIndexStore(IndexStore):
                 target = self._resolve_js_call(callee_name, caller_file)
             elif lang == "java":
                 target = self._resolve_java_call(callee_name, caller_file)
+            elif lang == "go":
+                target = self._resolve_go_call(callee_name, caller_file)
+            elif lang == "cpp":
+                target = self._resolve_cpp_call(callee_name, caller_file)
             if target is not None and target.file == caller_file:
                 continue  # 同文件调用：源码直接可见，不建边
             if target is not None:
@@ -714,6 +876,11 @@ class SqliteIndexStore(IndexStore):
                     resolved = self._module_file(self._resolve_relative_module(module, file))
                 elif lang == "java":
                     resolved = self._module_file_java(module)
+                elif lang == "go":
+                    pkg_files = self._go_package_files(module)
+                    resolved = pkg_files[0] if pkg_files else None
+                elif lang == "cpp":
+                    resolved = self._resolve_cpp_include(module, file)
                 else:
                     resolved = self._resolve_js_spec(module, file)
                 item = resolved if resolved else module
@@ -733,6 +900,11 @@ class SqliteIndexStore(IndexStore):
                 resolved = self._module_file(self._resolve_relative_module(module, src))
             elif lang == "java":
                 resolved = self._module_file_java(module)
+            elif lang == "go":
+                pkg_files = self._go_package_files(module)
+                resolved = pkg_files[0] if pkg_files else None
+            elif lang == "cpp":
+                resolved = self._resolve_cpp_include(module, src)
             else:
                 resolved = self._resolve_js_spec(module, src)
             if resolved == file and src not in seen:

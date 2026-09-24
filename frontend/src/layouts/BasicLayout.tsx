@@ -6,6 +6,7 @@ const { Header, Content } = Layout;
 const MENU_ITEMS = [
   { key: "dashboard", label: "仪表盘" },
   { key: "new", label: "新建审计" },
+  { key: "rename", label: "重命名工具" },
 ];
 
 const GITHUB_URL = "https://github.com/mingkiiiiing/codeaudit-agent";
@@ -14,7 +15,14 @@ const GITHUB_URL = "https://github.com/mingkiiiiing/codeaudit-agent";
 export default function BasicLayout() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const selectedKey = pathname === "/new" ? "new" : pathname === "/" ? "dashboard" : "";
+  const selectedKey =
+    pathname === "/new"
+      ? "new"
+      : pathname === "/rename"
+        ? "rename"
+        : pathname === "/"
+          ? "dashboard"
+          : "";
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -43,7 +51,9 @@ export default function BasicLayout() {
           mode="horizontal"
           selectedKeys={selectedKey ? [selectedKey] : []}
           items={MENU_ITEMS}
-          onClick={({ key }) => navigate(key === "new" ? "/new" : "/")}
+          onClick={({ key }) =>
+            navigate(key === "new" ? "/new" : key === "rename" ? "/rename" : "/")
+          }
           style={{ flex: 1, minWidth: 0, borderBottom: "none" }}
         />
         <a

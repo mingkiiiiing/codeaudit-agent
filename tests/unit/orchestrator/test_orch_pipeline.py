@@ -493,6 +493,85 @@ async def test_run_audit_closes_llm_when_done_emit_raises(tmp_path: Path, monkey
     assert llm.closed is True
 
 
+# ---------------------------------------------------------------- W26 卡 B：fallback 事件标注
+
+
+class _FakeRouterLLM(FakeLLMClient):
+    """带 fallback 判定面的假客户端：模拟 RouterClient 被 _BudgetGateLLM 包裹前的形态。
+
+    编排层判定走 _make_llm 返回的裸客户端引用（getattr fallback_enabled /
+    fallback_used），鸭子类型即可，无需真实 RouterClient 触网。
+    """
+
+    def __init__(self, *, enabled: bool, used: int):
+        super().__init__()
+        self.fallback_enabled = enabled
+        self.fallback_used = used
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def test_fallback_used_emits_warning_event(tmp_path: Path, monkeypatch, fake_emitter):
+    """fallback_used>0：事件流含 warning 事件，文案含切换次数与备模型名。"""
+    from audit.orchestrator import pipeline as orch
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "m.py").write_text("x = 1\n", encoding="utf-8")
+    llm = _FakeRouterLLM(enabled=True, used=2)
+    monkeypatch.setattr(orch, "_make_llm", lambda config: (llm, None))
+    config = AuditConfig(
+        source_path=str(src), work_root=str(tmp_path / "w"), fallback_model="glm-fb"
+    )
+    await run_audit(config, fake_emitter)
+    warns = [
+        e for e in fake_emitter.events
+        if e.get("warning") and "切换备用模型" in str(e.get("message", ""))
+    ]
+    assert len(warns) == 1  # 恰好一条（多次切换合并为一条汇总标注）
+    event = warns[0]
+    assert event["stage"] == "init"  # 与"LLM 未配置"/"预算熔断"警告同通道
+    assert "主模型失败已切换备用模型 2 次" in event["message"]
+    assert "fallback_model=glm-fb" in event["message"]
+    assert event["fallback_used"] == 2
+    assert event["fallback_model"] == "glm-fb"
+    assert llm.closed is True  # 收口顺序：事件先于客户端释放，finally 兜底不变
+
+
+async def test_fallback_zero_used_emits_no_event(tmp_path: Path, monkeypatch, fake_emitter):
+    """启用 fallback 但 fallback_used=0（主模型全程成功）：零事件，行为零变化。"""
+    from audit.orchestrator import pipeline as orch
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "m.py").write_text("x = 1\n", encoding="utf-8")
+    llm = _FakeRouterLLM(enabled=True, used=0)
+    monkeypatch.setattr(orch, "_make_llm", lambda config: (llm, None))
+    config = AuditConfig(
+        source_path=str(src), work_root=str(tmp_path / "w"), fallback_model="glm-fb"
+    )
+    await run_audit(config, fake_emitter)
+    assert not any("切换备用模型" in str(e.get("message", "")) for e in fake_emitter.events)
+    assert llm.closed is True
+
+
+async def test_llm_without_fallback_attrs_emits_no_event(tmp_path: Path, monkeypatch, fake_emitter):
+    """无 fallback 属性的裸客户端（FakeLLM / GlmClient 直连形态）：零事件（全量回归保障）。"""
+    from audit.orchestrator import pipeline as orch
+
+    src = tmp_path / "proj"
+    src.mkdir()
+    (src / "m.py").write_text("x = 1\n", encoding="utf-8")
+    llm = _RecordingLLM()
+    monkeypatch.setattr(orch, "_make_llm", lambda config: (llm, None))
+    config = AuditConfig(source_path=str(src), work_root=str(tmp_path / "w"))
+    await run_audit(config, fake_emitter)
+    assert not any("切换备用模型" in str(e.get("message", "")) for e in fake_emitter.events)
+    assert llm.closed is True
+
+
 async def test_run_audit_closes_sqlite_store(demo_proj_path: Path, tmp_path: Path, fake_emitter):
     """R1-4：审计结束后索引连接已关闭（Windows 下未关闭的 db 文件无法删除）。"""
     config = AuditConfig(

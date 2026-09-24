@@ -8,6 +8,15 @@
 
 Wave 13（CI 在线评估、Docker 沙箱后端、多 worker 压测基线、前端降级展示）、Wave 14（全方位审查清偿：报告安全、沙箱可靠性、服务端运维、文档一致性）、Wave 15（全库四维审计清偿：服务端安全治理、多 worker 存储一致性、依赖与 CI 自举、规则族收敛、重构执行闭环、测试盲区补齐）与 Wave 16（专项验收短板清偿：依赖与配置安全扫描、克隆与死代码检测、重构方案分级、分层架构与命名/PII 规则补缺）。API 契约形状零变化（新增治理能力均为 opt-in，env 缺省 = 既有行为）；W13/W14/W15 方案与收口记录分别见 docs/18、docs/19、docs/20。
 
+### Added（Wave 30 审计 P0 第八轮清偿：污点传播 MVP / rename 类型推断 / SECRET 注释掩码 / 前端 rename 工具，docs/29）
+
+- **W30-A 污点传播 MVP（`PY-TAINT-UNSAFE-SINK`，「数据流级安全」代际缺口头项）**：新规则 `audit/detect/rules/py_taint.py`——python 单语言、函数内、保守固定形态（source=`request.args/form/values/cookies/headers` 取值 / `get_json` / `input()` / `sys.argv`；sink=`.execute/.executemany`（仅查 SQL 首实参，参数化查询不误报）/ `eval/exec` / `os.system/popen` / `subprocess` 家族），函数体内赋值链多级传播，命中报 sink 行 + evidence 传播链；AST-only（tree=None 不产命中，沿 PY-NONE-DEREF 先例），边界（跨函数/别名导入/属性链中间污染等）docstring 如实申报。
+- **W30-B rename 类型推断三放宽（W29-A「宁拒不改」误拒面清偿，安全边界不变）**：①`obj.X`——引用点所在函数体内向上回溯最近一次 `obj = ClassName(...)` 直接类名构造赋值（仅 Name 左值 + 裸类名单层形态，别名/工厂/方法链不做）；②`super().X`——沿所在类基类链解析（零参 super 才认）；③基类链传递闭包——递归解析限扫描集内可见基类，同名类多定义剔除、继承环按不可解析拒绝（visited 防护不挂死）。仍未判定仍歧义整体拒绝；W29 全部既有用例零改动通过。
+- **W30-C SECRET 家族注释行掩码预检（四语言同改，第九轮审计家族级观察项清偿）**：python/java/go/cpp 四语言 SECRET 规则在 raw 行命中赋值形态后，同正则在 masked 行复验——masked 不再匹配 ⇒ 注释/三引号内容中的假声明 ⇒ 跳过；真实赋值行 `NAME = "` 结构在 masked 上保留不受影响，判定闸门（熵/词表）零变化。
+- **W30-D 前端 rename 工具面板（safe-rename 能力变现最后一公里）**：`/rename` 路由 + RenameTool 组件——两段式强制（先 dry-run 预览 diff，后显式确认应用）、表单变更即失效旧预览（防 stale 竞态）、400/401 服务端中文 detail、409 附 all-or-nothing 未落盘说明。
+- **集成收口（P0-13，第十轮审计 F10-R1/F10-R2 清偿）**：W30 开发会话中断于接线前——`registry.py` 已 import `build_py_taint_rules` 但漏 `register_all`，主链路 92≠93 四入口不可达（全量 pytest 首次带红）。收口补齐：registry 接线（92→**93 条**）、5 处计数断言同步、`test_py_taint` 接线断言、rules.md 再生 93 条、**接线完整性守卫测试** `test_registry_wiring.py`（pkgutil 遍历 rules 包全部 `build_*_rules` 工厂，任何「import 了但没注册」在接入期即红；经变异验证真实检出 F10-R1 形态）、README 规则数 82→93 存量漂移顺带收口。
+- 联调与验收：全量 pytest **2518 passed + 2 skipped**（含 W30 四卡 134 用例 + 收口断言/守卫）、ruff 全域 0 错、demo verified、金标一条命令 **P=1.000 / R=0.844 / F1=0.916**（`w30_goldset_20260921.md`，**零回退门连续十一轮**——taint 上线金标零污染实测）、前端 tsc/vitest 83/build 绿、doctor 10OK。P0-1 对数维持阻塞（09-21 探针定性更新：open.bigmodel.cn 网络层不可达 ConnectError，非 429，待网络恢复后按 docs/21 §5 对数）。
+
 ### Added（Wave 23 审计 P0 第二轮清偿，docs/22）
 
 - **W23-A apply-to-source 预览确认回路（P0-2）**：`codeaudit apply <audit_id> [--patch N] [--all-verified] [--yes]` 把审计补丁应用回源码——**默认 dry-run 预览不落盘**，`--yes` 才写入；服务端新增 `POST /api/audits/{id}/patches/{n}/apply`（语义与 CLI 一致，gray_release 路由冻结断言同步）。原文指纹（Patch.target_sha256 生成侧补记）：目标文件被审计后手改过（sha256 不一致）→ 拒绝该 patch；任何拒绝整体不落盘（all-or-nothing）；老报告无指纹可预览不可落盘（诚实降级）。
@@ -22,7 +31,45 @@ Wave 13（CI 在线评估、Docker 沙箱后端、多 worker 压测基线、前�
 - **W24-C resume 断点续跑 + 报告对比（P0-6）**：`audits.stage_done` 列（老库 ALTER 自动迁移）+ 阶段完成即发结构化 `stage_done` 事件（同一事务幂等并入列，事件可见⇔进度可见）；重启 sweep 分流——running 且带进度 → **interrupted**（工作副本/索引保留、count_active 排除、prune 守卫拒绝淘汰），无进度 → failed（既有语义逐字节保留）；pipeline `resume_stages` 恢复参数：ingest 跳过重拷、index 仅重开既有库不重建（重开失败回落全量）；`codeaudit diff <A> <B>` 报告对比三栏（fixed/new/persisted，(file, rule, 行号±3) 匹配，audit_id / report.json 路径双支持）。
 - **W24-B 体验三件（P1-快赢，第三轮起遗留整批清偿）**：①`verify_stats` + `ast_wiring` 进报告「检测质量观测」节（verify 四态表 + AST 解析生效率，有则渲染无则省略，JSON 通道零新字段）；②CLI 实时进度——`cmd_run` 逐阶段输出 `[stage n/7]` 到 stderr（`--check` 门禁 stdout 纯净契约不破，`--quiet` 可关）；③`codeaudit doctor`（零 Key 环境自检：Python/git/语言包/.env/配置/Docker 八类，失败退出 1、仅警告退出 0，键值绝不回显）+ `codeaudit init`（.codeaudit.toml 注释模板骨架，已存在拒绝覆盖）。
 - **apply P2 加固（第四轮审计清偿）**：symlink 目标规划期+写入期双重拒绝（防 os.replace 静默把链接替换为普通文件）；生成侧多补丁同文件指纹链顺序语义显式化（docstring 声明勿并行化）。
+- **W24-E resume 扩展（detect 可续跑 + CLI 接线）**：detect 产物（issues + stats 快照）落盘 `state/detect.json`（尽力写入绝不阻断），`_RESUMABLE_STAGES` 扩 detect——resume 时最贵的规则扫描 + LLM 审查通道可整体跳过（两道降级防线：schema 校验剔除 / 加载失败回落全量重跑）；新增 `codeaudit resume <audit_id>`（taskstore `mark_resuming` 仅 interrupted / failed+进度 复位，config_json 重建剔除脱敏 api_key 由 .env/进程环境补全，再断自动回 interrupted 可再次续跑）。+12 测试项。
 - 联调与验收：三卡新增 105 用例 + 集成人接线四件（engine java AST / cli diff / 规则手册 java 语言表 86 条 / apply P2）；联调发现并修复 5 处集成冲突（同一根因：stage_done 事件补 `message` 键满足事件协议不变式）；全量 pytest **2140 passed**（基线 2036 + 净新增 104）、ruff 全域绿、demo 闭环 verified（10.0s）、金标 **P=1.000 / R=0.844 / F1=0.916 与基线逐位一致**。P0-1/P0-7 维持阻塞于 GLM 账户余额（HTTP 429）。
+
+### Added（Wave 25 审计 P0 第三轮清偿：口径固化 / 模型 fallback / resume 全接线，docs/24）
+
+- **W25-A bench 官方口径固化（P0-10，第五轮审计 F5-R1 清偿）**：`python -m bench.run` 的 `--goldset` 默认值改为仓库根锚定的 `bench/datasets/goldset.jsonl`（官方 240 条，任意 CWD 正确），新增 `--offline` 开关（`api_key=""` 强制离线，同时透传消融 `base_overrides` 防 `--ablation --offline` 混入 LLM 通道）；README 新增「指标复现」节——一条命令直出官方 P=1.000/R=0.8444/F1=0.9157。修复前口径坑：默认仅加载 demo_proj 12 条金标且不强制离线，.env 有 key 时复现出 P=0.123 伪回归（第五轮审计首跑实测踩中）。+4 用例。
+- **W25-B 模型路由与 fallback（P0-7）**：新增 `audit/llm/router.py` `RouterClient`——主模型（`config.model`）LLMError（重试耗尽）后自动切换备用模型重试一次（`GLM_MODEL_FALLBACK` env / `AuditConfig.fallback_model`，**默认空 = 零行为变化**），双败上抛并保留异常链，`fallback_used` 计数与主备统计求和透出；主备独立 GlmClient 实例（缓存键天然隔离、共享连接池）；ConfigError 不触发切换。429 单点实证（第五轮探针）的架构面清偿——对数判据（P0-1）仍等配额窗口。+10 用例。
+- **W25-C resume 全接线（P0-9，第五轮审计 F5-R2 清偿）**：①CLI 自愈——`codeaudit resume` 对 running 滞留任务（SIGKILL 级硬杀）先 `sweep_interrupted(grace_seconds=CODEAUDIT_SWEEP_GRACE_SEC，缺省 30)` 再重读：已扫为 interrupted 则续跑，仍 running（窗口内有活动）则中文报错退出 1；既有「不可续跑」报错与退出码逐字节不变。②服务端新增 `POST /api/audits/{audit_id}/resume`（守卫与 CLI 共用 `_resume_guard_action` 纯函数；404/409 语义；复用 `_launch_audit` 后台执行与事件流；gray_release 路由冻结断言同步）。③真实进程 E2E：滞留 running 任务 → CLI resume 自愈 → 续跑 done（跳过 ingest，问题数与语料金标命中交叉一致）。+13 用例（CLI 3 + server 7 + 冻结断言等）。
+- 联调与验收：三卡并行 + 统一联调——全量 pytest **2176 passed**（基线 2152 + 净新增 24）、ruff 全域绿（含 bench）、demo 闭环 verified（8.4s）、金标终树复跑 **P=1.000 / R=0.844 / F1=0.916**（`--offline` 一条命令口径，240 标签逐位一致）、resume SIGKILL E2E 通过、soak 300s 压测 PASS（无 5xx / 终态率 100% / 结束 total≤50 三项 PASS，RSS 斜率 DEFER=quick 口径诚实标注）。P0-1（成本对数）维持阻塞于 GLM 配额窗口（09-18 单点探针仍 HTTP 429）。
+
+### Added（Wave 26 审计 P0 第四轮清偿：resume 安全一致性 / fallback 收尾 / Go 语言包，docs/25）
+
+- **W26-A resume 安全一致性（P0-11，第六轮审计 F6-R1 清偿）**：server resume 端点补 `_ensure_source_allowed(Path(config.source_path))`——**先校验后 mark_resuming，校验失败不改任务状态**；空 source_path 显式 400（`Path('')` resolve 恒等进程 cwd，交白名单会误导放行）。限流定性：resume 已被全局 POST/DELETE 中间件覆盖（无排除清单），无需改代码，+用例钉住（429 实测断言）。+双发 resume 语义用例（恰一成功一拒绝、run_audit 恰一次）。F5-R3 同卡清偿：understand 对空文本响应降级 debug（离线 FakeLLM 不再打「增强失败」warning；非空内容解析失败仍保留 warning，W15 可见性语义不回退）。+7 用例。
+- **W26-B fallback 收尾（P0-7 边界清偿）**：run_audit finally 收口前按 `fallback_used>0` 发 warning 事件（含切换次数与 fallback_model 结构化字段；unwrap 后 getattr 判定，无属性客户端零事件——行为零变化）；`from_sources` env 层接入 `GLM_MODEL_FALLBACK`（CLI/配置文件路径三层合成补全；.env 白名单未扩，显式决策留待后续）。+7 用例。
+- **W26-C Go 语言包（SUPPORTED_LANGUAGES 4→5）**：tree-sitter-go 接入——`go_extract.py`（package/const/func 含 receiver `Type.Method`/`(*Type).Method` 限定、import 两形态、调用点；func_literal 体内/泛型实例化/内建函数不做，docstring 明示）、`_AST_LANGUAGES` 扩 go、三规则 `GO-SQL-INJECTION`/`GO-HARDCODED-SECRET`/`GO-LONG-FUNCTION`，**规则库 86→89 条**（docs-site/rules.md 再生）；13 文件语料（4 正例 + 9 反例）E2E 实测 6 命中零误报、AST 13/13、resolved_ratio 0.4 达标。+49 用例。
+- 联调与验收：三卡并行 + 统一联调——联调发现并修复 1 处集成冲突（`.go` 后缀 guess_language 既有断言过时 → 更新）；全量 pytest **2239 passed**（基线 2176 + 净新增 63）、ruff 全域绿、demo verified（8.8s）、金标一条命令 **P=1.000 / R=0.844 / F1=0.916**（Go 新规则零金标污染，零回退门连续四轮）、soak 300s 判定见 soak_w10.md。P0-1 维持阻塞（09-19 探针仍 429，连续第四次）。
+
+### Added（Wave 27 审计 P0 第五轮清偿：F7-R1 根治 / 结果版本化 / safe-rename 原语，docs/26）
+
+- **W27-A F7-R1 根治（P0-12，第七轮审计清偿）**：`_load_dotenv` 增加模块级 `_DOTENV_CACHE`——首次成功加载后缓存解析结果，后续调用返回浅拷贝（同进程第二次 `from_env()` 丢 .env 值的实测缺陷 49→0 修复为 49→49；双入口 from_env/from_sources 同治）。「只加载一次」防重复 IO 与「GLM_* 键不写 os.environ」防污染设计均保留；缺文件不置标志可重试语义不变。resume 摘要新增 `LLM 通道：已启用/未启用` 防御性标注；doctor 语言包清单补 go（W26 遗留）。方案 a（cmd_resume 调序）经依赖分析弃做：单 store 循环依赖 + config.work_root 与默认值存在落错库边界，b 落地后前置 from_env 已无害。+4 新用例、5 处 F7 语义演进断言更新（报备）。
+- **W27-B 结果版本化（P2 遗留四轮清偿）**：`report_history` 表（PK(audit_id,seq)）+ `set_report` BEGIN IMMEDIATE 单事务「当前 UPDATE + 历史 INSERT」双写（seq 原子分配照 append_event 形态）；`get_report(seq=)` 可选参数（缺省路径零变化）+ `list_reports` 摘要面；delete/prune 级联（同 ID 重建 seq 归 1）；server 新增 `GET /api/audits/{id}/reports` 与 `GET /api/audits/{id}/reports/{seq}`（gray_release 路由冻结断言同步）。+16 用例（含并发 set_report seq 连续 1..24）。
+- **W27-C safe-rename 确定性原语 MVP（代际缺口之首首次落地）**：`audit/refactor/rename.py` 纯模块（零 LLM）——plan/apply 两段式：token 级 identifier 节点字节区间替换（字符串/注释物理不可越界）、import 模块路径跳过、非法名/多定义点（宁拒不改）/解析失败计划期即拒；apply 写前「内容一致性 + AST 复检」双校验，任一失败 all-or-nothing。**dogfood 实测 20/20 verified**（跨文件引用全更新、幂等、防 `user`/`username` 误替换）。+16 用例。CLI/server 接线归后续轮。
+- 联调与验收：三卡并行 + 统一联调（全量 pytest 期间零并行手动命令，避开 soak 开火窗——W26 教训落实）；**联调发现并修复 1 处集成冲突**（契约用例 `test_config_from_env` 钉住的正是 F7-R1 旧有损语义，方案 b 后失封闭 → 修复为「环境与 .env 双无 → 不可用」的确定性真契约）；全量 pytest **2277 passed**（基线 2239 + 净新增 38）、ruff 全域绿、demo verified（9.0s）、金标一条命令 **P=1.000 / R=0.844 / F1=0.916**（零回退门连续六轮）、rename dogfood 终树复核 20/20。P0-1 维持阻塞（09-19 探针仍 429，连续第六次）。
+
+### Added（Wave 29 审计 P0 第七轮清偿：rename 作用域增强 / soak 排水 / server 语言参数 / 前端报告历史，docs/28）
+
+- **W29-A rename 作用域增强（P0-2，口径「作用域可分则分，分不清则拒」）**：多定义点不再一刀切拒绝——对每个引用点做上下文归属判定：`self.X` 归属所在类同名 method（所在类无定义时沿 bases 一层基类名匹配，继承场景放行）；裸名 X（含 `from m import X` 导入项）归属模块级定义点；`obj.X/cls.X` 等接收者类型不可静态判定的形态记**歧义点**。任一歧义点 → 整体拒绝（维持「宁拒不改」安全边界），errors 含歧义位置明细（file:line + 原因）；全部可归属 → 照常全量替换。单定义点路径行为逐字节零变化。已知边界如实申报：同名参数/局部变量撞名保守误拒、`super().X` 不追、基类只看一层、类型推断不做。+17 用例（dogfood 三场景实测：双类同名 self 调用分别归属、obj.X 拒绝含位置、跨文件继承链放行）。
+- **W29-B soak 排水等待（drain grace，第八轮审计起在案的测量口径根治）**：`bench/stress/run_soak_long.py` 新增 `--drain-sec`（env `CODEAUDIT_SOAK_DRAIN_SEC`，CLI 优先，默认 60，0=关闭）——接纳窗口关闭后对在途任务继续轮询至 drain 截止，截止前转终态计 `drain_rescued`（排水收编）、仍超时才计 `drain_still_running`；终态率公式不变、只升不降，FAIL 判定不放松，既有输出行格式/退出码/`--quick` 行为零变化（报告新增「排水归因」一行）。同卡顺带订正 `audit/detect/rules/cpp.py` 一处与实现矛盾的行内注释（W29 审计发现，零行为变化）。+11 用例。
+- **W29-C /api/rename 补 language 参数（双入口对齐）**：`RenameRequest.language`（缺省 "python" 零变化）透传 `plan_rename`；非法语言走既有 plan 校验 → 400 中文 detail，端点零新增分支。+3 用例；gray_release 冻结断言零变化。
+- **W29-D 前端「报告历史」面板（W27-B 端点消费面最后一公里）**：TaskDetail 新增 ReportHistory 组件——版本列表（seq/时间/健康分/问题数）+ 点击展开懒拉该 seq 版本摘要；空态/404/接口失败统一降级「暂无历史版本」不阻断页面。+6 用例（tsc 零错误、vitest 76 passed、build 绿）。
+- **集成收口件**：`codeaudit doctor` 语言包探测补 cpp（清偿 W28 已知边界，照 go 先例，可选级警告）。
+- 联调与验收：四卡并行（文件所有权互不相交）+ 统一联调——**零集成冲突**；全量 pytest **2382 passed**（基线 2351 + 净新增 31 逐位对账）、ruff 全域绿、demo verified、金标一条命令 **P=1.000 / R=0.844 / F1=0.916**（零回退门连续九轮确认）、soak 300s+drain 60 新口径首验、前端三件套绿。P0-1 维持阻塞（09-19 探针仍 429，连续第九次）。
+
+### Added（Wave 28 审计 P0 第六轮清偿：safe-rename 接线 / diff 历史消费 / C++ 语言包，docs/27）
+
+- **W28-A safe-rename CLI 接线 + diff 历史消费（能力变现）**：新增 `codeaudit rename <source> <old> <new> [--yes] [--diff-only] [--lang]`——**dry-run 默认**（预览 diff + 「预览模式」标注），`--yes` 才落盘；`--diff-only` 为显式别名且与 `--yes` 互斥退出 1（不静默忽略，防误以为已应用）；计划 errors/apply 失败/路径不存在全部中文报错退出 1 不落盘。`codeaudit diff` 扩展 `--from-seq/--to-seq`——audit_id 按历史版本对比（W27-B 数据面变现），缺省 None 原路径零变化，文件路径+seq 报错，超界中文报错。+12 用例。
+- **W28-B rename server 端点（治理链第一版全前置，F6-R1 教训内化）**：`POST /api/rename`（apply 缺省 False）——鉴权随 /api/* 中间件（401 实测）、**SOURCE_ROOTS 白名单第二行即调**（空路径 400 → 白名单 → 存在性，白名单先于存在性不泄露越界路径）、限流随 POST 中间件；plan errors → 400 中文 detail；apply 失败 → **409 Conflict**（资源状态与请求前提冲突语义，all-or-nothing 零落盘）。gray_release 路由冻结断言同步。+9 用例。
+- **W28-C C++ 语言包（SUPPORTED_LANGUAGES 5→6）**：tree-sitter-cpp 0.23.4 接入——`cpp_extract.py`（namespace 嵌套限定拼栈、类外定义 `ns::Class::method`、const/constexpr/#define 宏常量口径、调用点三形态；模板实例化/lambda 体/宏展开不做，docstring 明示）+ parsers/store/utils（.cpp/.cc/.hpp）/engine 接线 + 三规则 `CPP-SQL-INJECTION`/`CPP-HARDCODED-SECRET`/`CPP-LONG-FUNCTION`，**规则库 89→92 条**（docs-site/rules.md 再生）；13 文件语料 E2E 实测 6 命中零误报、AST 13/13、resolved_ratio 0.4286。+53 用例。
+- 联调与验收：三卡并行 + 统一联调——**一次全绿零集成冲突**；全量 pytest **2351 passed**（基线 2277 + 净新增 74）、ruff 全域绿、demo verified（8.7s）、金标一条命令 **P=1.000 / R=0.844 / F1=0.916**（C++ 新规则零金标污染，零回退门连续八轮）、C++ E2E 终树复核 6 命中逐位一致。P0-1 维持阻塞（09-19 探针仍 429，连续第八次）。
 
 ### Added（Wave 22 审计报告短期 P0 清偿，docs/21）
 

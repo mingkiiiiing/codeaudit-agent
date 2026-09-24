@@ -39,7 +39,8 @@ _WHITELIST = (
 
 @pytest.fixture(autouse=True)
 def _isolated_env(monkeypatch):
-    """每用例：清空白名单键 + 复位 _ENV_LOADED 标志，用例间/与既有用例零串扰。
+    """每用例：清空白名单键 + 复位 _ENV_LOADED 标志与 _DOTENV_CACHE 缓存
+    （F7-R1 起两者同源，须一并复位），用例间/与既有用例零串扰。
 
     monkeypatch.delenv 会记录用例前的值并在 teardown 恢复——用例内被
     _load_dotenv 经 setdefault 写入 os.environ 的键不会泄漏出本目录。
@@ -47,6 +48,7 @@ def _isolated_env(monkeypatch):
     for key in _WHITELIST:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setattr(audit_config, "_ENV_LOADED", False)
+    monkeypatch.setattr(audit_config, "_DOTENV_CACHE", None)
 
 
 # ---------------------------------------------------------------- 自动发现与显式路径
@@ -77,10 +79,12 @@ def test_glm_keys_not_injected_into_os_environ(monkeypatch, tmp_path):
     assert AuditConfig.from_env().llm_available
     for key in ("GLM_API_KEY", "GLM_BASE_URL"):
         assert key not in os.environ
-    # from_sources（CLI 口径）只读真实进程环境，不受 .env 影响
+    # from_sources（CLI 口径）不读 os.environ——F7-R1（W27 卡 A）起它经
+    # _DOTENV_CACHE 缓存取到 .env 值（dotenv 回落是 from_sources 自身的合法
+    # 语义层，非 os.environ 污染；GLM_* 键全程未落 os.environ，上方已断言）
     cfg = AuditConfig.from_sources(search_root=tmp_path)
-    assert cfg.api_key == ""
-    assert cfg.base_url == DEFAULT_BASE_URL
+    assert cfg.api_key == "sk-from-dotenv"
+    assert cfg.base_url == "https://dotenv.example/v1"
 
 
 def test_explicit_env_file(monkeypatch, tmp_path):
@@ -227,21 +231,29 @@ def test_missing_explicit_env_file_silent(tmp_path):
 
 
 def test_env_loaded_only_once(monkeypatch, tmp_path):
-    """_ENV_LOADED 标志：改写 .env 后不再重读（防覆盖用户运行中改的 env）。"""
+    """_ENV_LOADED 标志：改写 .env 后不再重读（防覆盖用户运行中改的 env）。
+
+    F7-R1（W27 卡 A）更新：不再重读的后续调用返回首次解析缓存（_DOTENV_CACHE），
+    而非空 dict——取值口径与首次一致，且改写后的文件内容不会出现。
+    """
     env = tmp_path / ".env"
     env.write_text("GLM_MODEL=first-model\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert AuditConfig.from_env().model == "first-model"
-    # 第一次加载已把 GLM_MODEL 注入 os.environ；清掉它以区分"重读"与"读 env"
+    # 文件改写 + 环境键清掉后：既不重读文件（second-model 不出现），也不回落
+    # 默认值，而是返回首次加载缓存（修复前此处为 DEFAULT_MODEL——第二次取值
+    # 口径与首次不一致，即 resume 重建丢 api_key 的根因）
     env.write_text("GLM_MODEL=second-model\n", encoding="utf-8")
     monkeypatch.delenv("GLM_MODEL", raising=False)
-    assert AuditConfig.from_env().model == DEFAULT_MODEL
+    assert AuditConfig.from_env().model == "first-model"
     assert "GLM_MODEL" not in os.environ
     assert audit_config._ENV_LOADED is True
 
 
 def test_explicit_env_file_skipped_after_load(monkeypatch, tmp_path):
-    """同进程只加载一次对显式 env_file 同样生效：已加载后显式路径被跳过。"""
+    """同进程只加载一次对显式 env_file 同样生效：已加载后显式路径不触发重读，
+    后续调用返回首次加载缓存（F7-R1 前此处回落 DEFAULT_MODEL；显式文件内容
+    other-model 两种实现下都不得出现）。"""
     (tmp_path / ".env").write_text("GLM_MODEL=auto-model\n", encoding="utf-8")
     monkeypatch.chdir(tmp_path)
     assert AuditConfig.from_env().model == "auto-model"
@@ -249,7 +261,7 @@ def test_explicit_env_file_skipped_after_load(monkeypatch, tmp_path):
     other.write_text("GLM_MODEL=other-model\n", encoding="utf-8")
     monkeypatch.delenv("GLM_MODEL", raising=False)
     cfg = AuditConfig.from_env(source_path="x", env_file=str(other))
-    assert cfg.model == DEFAULT_MODEL  # 未被重读注入
+    assert cfg.model == "auto-model"  # 首次缓存；other-model 未被注入（未重读）
 
 
 def test_load_dotenv_missing_file_keeps_flag_unset(tmp_path, monkeypatch):
@@ -257,6 +269,7 @@ def test_load_dotenv_missing_file_keeps_flag_unset(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)  # 无 .env
     assert audit_config._load_dotenv(None) == {}
     assert audit_config._ENV_LOADED is False
+    assert audit_config._DOTENV_CACHE is None  # F7-R1：失败路径同样不写缓存
     # 缺文件的那次尝试没有消费掉"只加载一次"额度：补上 .env 后 from_env 仍能发现
     (tmp_path / ".env").write_text("GLM_MODEL=later-model\n", encoding="utf-8")
     assert AuditConfig.from_env().model == "later-model"
@@ -305,3 +318,41 @@ def test_from_sources_without_dotenv_unchanged(monkeypatch, tmp_path):
     cfg = AuditConfig.from_sources(cli_overrides={"source_path": "C:/tmp/proj"})
     assert cfg.api_key == ""
     assert not cfg.llm_available
+
+
+# ---------------------------------------------------------------- F7-R1：同进程重复调用口径一致（W27 卡 A）
+
+
+def test_repeated_from_env_same_api_key(monkeypatch, tmp_path):
+    """F7-R1 修复主断言：同进程两次 from_env 的 api_key 一致。
+
+    审计原复现（第七轮 P1）：修复前首次拿到 key、第二次为空——cli cmd_resume
+    不带 --work-root 时前置 from_env 消耗进程首次加载，_rebuild_config_from_task_json
+    的 from_env 拿到空 api_key，pipeline 走 FakeLLM，resume 静默降级纯规则模式。
+    修复后第二次返回首次解析缓存（_DOTENV_CACHE 浅拷贝）。
+    """
+    (tmp_path / ".env").write_text("GLM_API_KEY=sk-f7r1-key\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    first = AuditConfig.from_env(source_path="x")
+    second = AuditConfig.from_env(source_path="x")
+    assert first.api_key == "sk-f7r1-key"
+    assert second.api_key == "sk-f7r1-key"  # 修复前为 ""
+    assert second.llm_available
+    # 浅拷贝防污染：改写 _load_dotenv 返回值不得影响缓存与后续调用
+    poisoned = audit_config._load_dotenv(None)
+    poisoned["GLM_API_KEY"] = "polluted"
+    assert AuditConfig.from_env().api_key == "sk-f7r1-key"
+
+
+def test_from_sources_after_from_env_same_key(monkeypatch, tmp_path):
+    """F7-R1 双入口回归：先 from_env 后 from_sources 同进程同样拿到 .env 值。
+
+    from_sources 的 dotenv 回落（W16）在 _ENV_LOADED 置位后此前拿到空 dict
+    （key 凭空丢失）；修复后经 _DOTENV_CACHE 与 from_env 口径一致。
+    """
+    (tmp_path / ".env").write_text("GLM_API_KEY=sk-dual-entry\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    assert AuditConfig.from_env().api_key == "sk-dual-entry"
+    cfg = AuditConfig.from_sources(cli_overrides={"source_path": "C:/tmp/proj"})
+    assert cfg.api_key == "sk-dual-entry"
+    assert cfg.llm_available

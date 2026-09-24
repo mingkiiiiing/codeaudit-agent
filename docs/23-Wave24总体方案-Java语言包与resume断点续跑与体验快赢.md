@@ -61,6 +61,7 @@
 
 - Java 为首轮接入：符号提取覆盖类/方法/字段/调用点，泛型/注解处理/lambda 内调用不在本轮口径（语料与测试按此口径写）。
 - resume 覆盖"进程被杀后重启续跑"；单阶段中途断点（fix 第 N 个 patch）不在本轮粒度。
+- 【W24-E 更新】resume 可跳过阶段由 ingest/index 扩至 **detect**（issues+stats 快照落盘 `state/detect.json`，加载失败回落全量重跑）；`codeaudit resume <audit_id>` CLI 已接线（interrupted/failed+进度 可续跑，config 重建后 api_key 由 .env/进程环境补全，脱敏值不回传）。understand 之后阶段仍重跑（无盘上产物形态）。
 - P0-1/P0-7 维持外部阻塞，本轮不含。
 - apply 三件 P2（symlink/snapshot/断言）视联调余力，不承诺。
 
@@ -70,9 +71,10 @@
 - **集成人接线四件**：①engine `_AST_LANGUAGES` java 进 AST 名单（python/java 双语言分派，js/ts 维持行级）；②`codeaudit diff <A> <B>` CLI 子命令（audit_id / report.json 路径双支持）；③`scripts/gen_rule_docs.py` java 语言表 → docs-site/rules.md 重新生成（86 条规则入库）；④apply P2 清偿（symlink 目标规划期+写入期双拒绝、生成侧顺序语义显式化）。
 - **联调发现并修复 5 处集成冲突**（同一根因）：W24-C 新增的 `stage_done` 事件缺 `message` 键，撞上 4 个基线测试的事件遍历断言（`test_baseline_diff` ×4 + `test_budget` ×1 的 `e["message"]` KeyError）——修复选**给 stage_done 事件补 message**（事件协议不变式「每个事件都有 message」，基线测试零改动；CLI 进度按 type 过滤不受影响）。
 - **统一联调**：全量 pytest **2140 passed**（2036 基线 + 净新增 104，5 分 06 秒）、ruff 全域绿、demo 离线闭环 verified（10.0s）、金标 10 项目 240 标签 **P=1.000 / R=0.844 / F1=0.916** 与基线逐位一致（`w24_goldset_20260917.md`）、Java 语料端到端实测：三规则命中 8 处（密钥 ×4 / SQL 注入 ×3 / 长函数 ×1）且 8 个反例文件零误报、AST 解析 13 文件生效率 100%、`cli.py doctor`/`init`/进度 stderr 实测符合预期。
-- 阻塞项维持：P0-1/P0-7 与 W22-B 默认值翻转均卡 GLM 账户余额（HTTP 429），充值后按 docs/21 §5 判据复跑。
+- **W24-E 追加（2026-09-17，用户指令）**：resume 扩展——detect 产物落盘（issues + stats 快照，尽力写入绝不阻断）+ `_RESUMABLE_STAGES` 扩 detect（两道降级防线：判定层 schema 校验剔除、执行层加载失败回落全量重跑）+ `codeaudit resume` CLI 接线（taskstore `mark_resuming` 仅 interrupted/failed 放行复位、config_json 重建剔除脱敏 api_key 由 from_env 补全、终态 done/再断回 interrupted）。新增 12 测试项（集成 2 / taskstore 3 / cli 7），定向 **70 passed**、ruff 绿、demo 回归 verified。
+- 阻塞项定性修正（2026-09-17，用户澄清）：账户为 GLM Coding Plan（套餐制），429 系**套餐限流/配额窗口**而非余额不足——P0-1/P0-7 无充值依赖，配额可用时直接重试 `python -m bench.w22_focus_compare` 对数（docs/21 §5 已加注记）。
 
 ## 5. 下一轮入口
 
 - 按审计↔工作循环：本轮工作收口后，下一轮 = 新开 GLM-5.3 对话贴提示词一（第五轮审计），复审重点：W24 三卡质量（java 符号提取与三规则口径、resume 状态机与 interrupted 语义、doctor/init/进度/检测质量渲染）+ apply P2 清偿复核 + P0-1/4/6/7 状态复核。
-- 工作轮候选（按优先级）：①P0-1/P0-7（外部阻塞解除后第一时间）；②resume 扩展：issues 落盘使 understand 之后阶段可续跑 + `codeaudit resume` CLI 接线（本轮 API 已就绪未接 CLI，见 §3 边界）；③Go 语言包视 Java 验收（本轮 resolved_ratio 0.517 ≥ 0.4 达标，已具备跟随条件）；④架构债：detect↔agents 循环引用收敛、分层白名单配置化、扫描器注册表化。
+- 工作轮候选（按优先级）：①P0-1/P0-7（外部阻塞解除后第一时间）；②~~resume 扩展~~**已由 W24-E 完成**（detect 落盘 + CLI 接线，见 §3/§4）；③Go 语言包视 Java 验收（本轮 resolved_ratio 0.517 ≥ 0.4 达标，已具备跟随条件）；④架构债：detect↔agents 循环引用收敛、分层白名单配置化、扫描器注册表化。

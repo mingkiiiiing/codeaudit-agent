@@ -9,7 +9,10 @@ F7 .env 自动加载（docs/17 §2 W12-A1；早期版本"不自动加载 .env"�
   剥离（单双引号）、空行跳过；解析失败的行静默跳过；
 - 优先级（关键）：真实进程环境变量永远优先于 .env——.env 只补"进程环境尚不存在
   的键"，绝不覆盖用户运行中修改的值；模块级 _ENV_LOADED 标志保证同进程至多实际
-  加载一次；
+  加载一次，F7-R1（W27 卡 A）起首次成功加载的解析结果存模块级 _DOTENV_CACHE，
+  后续调用返回缓存浅拷贝（不再返回空 dict）——同进程重复 from_env / from_sources
+  的取值口径与首次一致（修复 resume 等双 from_env 链路第二次 api_key 变 0 的
+  静默降级）；
 - 写入策略分两层：GLM_* 三键只合并进本次 from_env 取值（不写 os.environ——避免
   污染全局进程环境、误伤 from_sources 等其他环境消费者）；CODEAUDIT_* 三键以
   setdefault 写入 os.environ（server 侧运行期直接读环境，必须经进程环境传递）；
@@ -55,6 +58,14 @@ _RATE_LIMIT_ENV = "CODEAUDIT_RATE_LIMIT"
 
 # F7：同进程只加载一次标志（实际发生加载后才置位；见 _load_dotenv）
 _ENV_LOADED = False
+# F7-R1（W27 卡 A，第七轮审计 P1）：首次成功加载的解析结果缓存。此前 _ENV_LOADED
+# 置位后的后续调用直接返回空 dict——同进程第二次 from_env / from_sources 的
+# api_key 变 0（实测复现：cli cmd_resume 不带 --work-root 时前置 from_env 消耗
+# 进程首次加载，_rebuild_config_from_task_json 的 from_env 拿到空 key，pipeline
+# 走 FakeLLM，resume 静默降级纯规则模式）。修复：置位后的后续调用返回缓存的
+# 浅拷贝（防调用方改写污染缓存）；只缓存成功加载——缺文件/不可读不置标志不缓存，
+# 后续调用仍可重试（既有语义不变）。
+_DOTENV_CACHE: dict[str, str] | None = None
 
 
 def _parse_source_roots(raw: str | None) -> list[str]:
@@ -110,17 +121,26 @@ def _load_dotenv(env_file: str | Path | None) -> dict[str, str]:
       环境，必须经进程环境传递，且绝不覆盖已有值）；GLM_* 键不写 os.environ——仅经
       返回值合并进本次 from_env 取值，避免污染全局进程环境、误伤 from_sources 等
       其他环境消费者（"真实环境变量优先"在 from_env 内逐键保证）；
-    - 模块级 _ENV_LOADED 标志保证同进程至多实际加载一次。线程安全性：GIL 下标志
-      读写近似原子；极端竞态下最坏重复解析一次，setdefault/合并均幂等，无实际危害。
+    - 模块级 _ENV_LOADED 标志保证同进程至多实际加载一次；F7-R1 起（W27 卡 A）
+      首次成功加载的解析结果另存模块级 _DOTENV_CACHE，置位后的后续调用返回该
+      缓存的浅拷贝（不再返回空 dict）——「只加载一次防重复 IO」语义不变，但
+      同进程后续 from_env / from_sources 的取值口径与首次一致（GLM_* 三键不再
+      在第二次调用时凭空丢失）。线程安全性：GIL 下标志读写近似原子；极端竞态
+      下最坏重复解析一次，setdefault/合并均幂等，无实际危害。
     """
-    global _ENV_LOADED
+    global _ENV_LOADED, _DOTENV_CACHE
     if _ENV_LOADED:
-        return {}
+        # 既有语义「不重读」保留：返回首次解析缓存而非重读文件。浅拷贝防调用方
+        # 改写污染缓存。_DOTENV_CACHE 与 _ENV_LOADED 由本函数同步写入（置位必然
+        # 伴随缓存）；`is not None` 兜底外部手动置位的异常态（如测试只复位/置位
+        # 标志），此时按空 dict 处理，不抛错。
+        return dict(_DOTENV_CACHE) if _DOTENV_CACHE is not None else {}
     path = Path(env_file) if env_file is not None else Path.cwd() / ".env"
     try:
         # utf-8-sig：容忍带 BOM 的 .env（首键不被 \ufeff 破坏），无 BOM 时行为一致
         text = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeDecodeError):
+        # 缺文件/不可读：不置标志、不写缓存（后续调用仍可重试），保持既有语义
         return {}
     merged: dict[str, str] = {}
     for line in text.splitlines():
@@ -133,7 +153,9 @@ def _load_dotenv(env_file: str | Path | None) -> dict[str, str]:
         elif key in _DOTENV_GLM_KEYS:
             merged[key] = value
     _ENV_LOADED = True
-    return merged
+    _DOTENV_CACHE = merged
+    # 返回浅拷贝：调用方（from_env / from_sources）即便改写返回值也不污染缓存
+    return dict(merged)
 
 
 @dataclass
@@ -145,6 +167,14 @@ class AuditConfig:
 
     # LLM
     model: str = DEFAULT_MODEL
+    # W25 卡 B（审计 P0-7：LLM 单点无 fallback）：主模型重试耗尽（LLMError）后
+    # 切换的备用模型；空串或与 model 相同 = 关闭 fallback（行为与单模型完全一致）。
+    # 消费点 audit/llm/router.py（RouterClient）；env 层键 GLM_MODEL_FALLBACK
+    # 接入 from_env（下方 env_map）与 from_sources（W26 卡 B 补齐，docs/24 §4
+    # 收尾②，与既有 GLM_* 键同层：env > 配置文件 > CLI 显式参数 > 默认值）。
+    # 注意：该键未扩入 .env 白名单（_DOTENV_GLM_KEYS 不变）——.env 中设置不生效，
+    # from_env / from_sources 现状一致（dotenv 回落分支为预留形态）。
+    fallback_model: str = ""
     base_url: str = DEFAULT_BASE_URL
     api_key: str = ""
     concurrency: int = 8
@@ -243,15 +273,17 @@ class AuditConfig:
         """从进程环境构造配置；首次调用自动加载 .env（F7，语义见模块 docstring）。
 
         取值优先级：显式 overrides（None 跳过）> 真实进程环境变量 > .env（仅补环境
-        尚不存在的键，且不落 os.environ）> 默认值。env_file：显式 .env 路径；None 时
+        缺失键，且不落 os.environ）> 默认值。env_file：显式 .env 路径；None 时
         自动发现 CWD/.env；文件不存在静默跳过；同进程至多实际加载一次
-        （_ENV_LOADED 标志）。
+        （_ENV_LOADED 标志），后续调用返回首次解析缓存（F7-R1，_DOTENV_CACHE），
+        取值口径与首次一致。
         """
         dotenv_values = _load_dotenv(env_file)
         env_map = {
             "api_key": ("GLM_API_KEY", ""),
             "base_url": ("GLM_BASE_URL", DEFAULT_BASE_URL),
             "model": ("GLM_MODEL", DEFAULT_MODEL),
+            "fallback_model": ("GLM_MODEL_FALLBACK", ""),  # W25 卡 B：备用模型（空 = 关闭 fallback）
         }
         values = {}
         for key, (env, default) in env_map.items():
@@ -322,8 +354,9 @@ class AuditConfig:
                 continue
             if f.name in file_values:
                 values[f.name] = file_values[f.name]
-        # 环境变量层（GLM 三键与 from_env 口径一致；W14-A2 增沙箱后端键——
-        # 配置文件值可被环境变量覆盖，CLI 显式参数层再覆盖环境变量）。
+        # 环境变量层（GLM 四键与 from_env 口径一致，W26 卡 B 扩入 fallback_model；
+        # W14-A2 增沙箱后端键——配置文件值可被环境变量覆盖，CLI 显式参数层再覆盖
+        # 环境变量）。
         # W16 修复（README 承诺对齐）：from_sources 同样自动加载 CWD/.env——
         # 此前仅 from_env（server/bench.real_run 路径）加载，CLI 填了 .env 仍被
         # 判定"LLM 未配置"。口径与 from_env 一致：真实进程环境 > .env > 默认值；
@@ -338,6 +371,13 @@ class AuditConfig:
         )
         values["model"] = os.environ.get(
             "GLM_MODEL", dotenv_values.get("GLM_MODEL", values.get("model", DEFAULT_MODEL))
+        )
+        # W26 卡 B（docs/24 §4 收尾②）：备用模型 env 层，键与 from_env 同
+        # （GLM_MODEL_FALLBACK），合成语义与既有 GLM_* 键一致：env > 配置文件 >
+        # CLI 显式参数 > 默认值。该键不在 .env 白名单：dotenv 回落分支为预留形态
+        # （现状不生效，与 from_env 同口径）。
+        values["fallback_model"] = os.environ.get(
+            "GLM_MODEL_FALLBACK", dotenv_values.get("GLM_MODEL_FALLBACK", values.get("fallback_model", ""))
         )
         values["sandbox_backend"] = os.environ.get(
             _SANDBOX_BACKEND_ENV, values.get("sandbox_backend", "subprocess")

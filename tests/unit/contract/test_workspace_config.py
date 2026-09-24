@@ -1,10 +1,11 @@
 """T1 契约层自测：WorkspaceContext 与 AuditConfig。"""
 
+from audit import config as config_module
 from audit.config import AuditConfig
 from audit.workspace import WorkspaceContext, is_ignored
 
 
-def test_config_from_env(monkeypatch):
+def test_config_from_env(monkeypatch, tmp_path):
     monkeypatch.setenv("GLM_API_KEY", "k-test")
     monkeypatch.setenv("GLM_MODEL", "glm-test-model")
     cfg = AuditConfig.from_env(source_path="C:/tmp/proj")
@@ -12,7 +13,14 @@ def test_config_from_env(monkeypatch):
     assert cfg.model == "glm-test-model"
     assert cfg.llm_available
 
+    # W27 卡 A（F7-R1 根治）后语义：.env 值经 _DOTENV_CACHE 跨调用可见，
+    # 「delenv 后必然不可用」不再是契约。本断言改为与 .env 存在性解耦的
+    # 真契约：环境与 .env 双无 → 不可用（清缓存标志 + 切到无 .env 目录，
+    # 避免依赖仓库根是否恰有 .env）。
     monkeypatch.delenv("GLM_API_KEY")
+    monkeypatch.setattr(config_module, "_ENV_LOADED", False)
+    monkeypatch.setattr(config_module, "_DOTENV_CACHE", None)
+    monkeypatch.chdir(tmp_path)
     cfg2 = AuditConfig.from_env()
     assert not cfg2.llm_available
 

@@ -12,6 +12,13 @@
            stage_done TEXT)
     events(audit_id TEXT, seq INTEGER, event_json TEXT,
            PRIMARY KEY (audit_id, seq))
+    report_history(audit_id TEXT, seq INTEGER, created_at TEXT, report_json TEXT,
+                   health_score REAL, issue_count INTEGER,
+                   PRIMARY KEY (audit_id, seq))
+  （report_history 为 W27-B 新增：结果版本化。CREATE TABLE IF NOT EXISTS 随构造
+  建立，老库零破坏、无需列迁移；seq 每任务从 1 递增，单事务原子分配照
+  append_event 形态；单一事实源仍为 audits.report_json，历史表只增不改不删，
+  任务行删除时级联清除——与 events 的级联语义一致，同 ID 重建后 seq 重新从 1 计数）
 - 状态机：queued | running | done | failed | interrupted。前四态与契约 v2 一致；
   interrupted 为 W24-C 新增（docs/23 卡 C 明确放宽 v2 的"无新状态"约束）：
   进程重启 sweep 时，带 stage_done 进度（已跑完至少一个阶段）的 running 任务
@@ -90,6 +97,15 @@ _LOCKED_MARKERS = ("locked", "busy")
 _APPEND_EVENT_SQL = """
 INSERT INTO events (audit_id, seq, event_json)
 SELECT ?, COALESCE((SELECT MAX(seq) FROM events WHERE audit_id = ?), 0) + 1, ?
+"""
+
+# W27-B：报告历史单事务 SQL——seq 经标量子查询取 COALESCE(MAX(seq),0)+1，
+# 与 _APPEND_EVENT_SQL 同形（BEGIN IMMEDIATE 先取库写锁再执行，写锁持有期间
+# 任何其他连接/进程无法插入同任务版本，MAX+1 即全局唯一，消除读 MAX 与
+# INSERT 之间的竞态窗口）
+_APPEND_REPORT_HISTORY_SQL = """
+INSERT INTO report_history (audit_id, seq, created_at, report_json, health_score, issue_count)
+SELECT ?, COALESCE((SELECT MAX(seq) FROM report_history WHERE audit_id = ?), 0) + 1, ?, ?, ?, ?
 """
 
 
@@ -204,6 +220,21 @@ CREATE TABLE IF NOT EXISTS events (
 )
 """
 
+# W27-B（结果版本化）：报告历史表。新库随构造建立；老库无此表时 CREATE TABLE
+# IF NOT EXISTS 同样即时建立（照 stage_done 列迁移的"构造时零破坏补齐"形态，
+# 新表无存量行，不需要 ADD COLUMN 式迁移）。
+_CREATE_REPORT_HISTORY_SQL = """
+CREATE TABLE IF NOT EXISTS report_history (
+    audit_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT '',
+    report_json TEXT NOT NULL,
+    health_score REAL,
+    issue_count INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (audit_id, seq)
+)
+"""
+
 
 class TaskStore:
     """SQLite 任务存储。一个进程一个实例（内部连接线程安全）。"""
@@ -228,6 +259,9 @@ class TaskStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_AUDITS_SQL)
         self._conn.execute(_CREATE_EVENTS_SQL)
+        # W27-B：结果版本化——report_history 随构造建立（IF NOT EXISTS：新库即建，
+        # 老库补建且存量数据零影响；无列迁移诉求，照 stage_done 迁移的构造时形态）
+        self._conn.execute(_CREATE_REPORT_HISTORY_SQL)
         # W15-B4：旧库迁移——audits 无 updated_at 列时补列并回填 created_at
         #（旧行从未被 touch，最后更新时间只能以创建时间近似；新库建表已含该列，跳过）
         existing_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(audits)")}
@@ -336,7 +370,7 @@ class TaskStore:
 
     @_retry_on_locked
     def delete(self, audit_id: str) -> bool:
-        """删除任务行与其全部事件；返回是否存在过。
+        """删除任务行与其全部事件及报告历史（W27-B 起含 report_history 级联）；返回是否存在过。
 
         M-4：终态任务的删除同步回收工作目录与上传 zip；非终态（queued/running）
         是协作式取消语义——行消失即取消信号，此处只删行、绝不删文件（运行中的
@@ -348,6 +382,9 @@ class TaskStore:
             ).fetchone()
             cur = self._conn.execute("DELETE FROM audits WHERE audit_id = ?", (audit_id,))
             self._conn.execute("DELETE FROM events WHERE audit_id = ?", (audit_id,))
+            # W27-B：报告历史随任务行级联清除（与 events 同语义——删行是权威操作，
+            # 同 ID 重建后 seq 重新从 1 计数；「只增不改不删」指 set_report 写路径）
+            self._conn.execute("DELETE FROM report_history WHERE audit_id = ?", (audit_id,))
             self._conn.commit()
         if cur.rowcount > 0 and row is not None and row["status"] in _TERMINAL:
             # 行已删（absent）→ cleanup_workdir 的终态守卫放行；失败仅 warning
@@ -385,27 +422,91 @@ class TaskStore:
 
     @_retry_on_locked
     def set_report(self, audit_id: str, report: AuditReport) -> None:
-        """落终态报告（to_dict 序列化存 report_json）。
+        """落终态报告（to_dict 序列化存 report_json），并同事务追加一条历史版本。
 
         W15-B4：报告落库同属行写路径，一并 touch updated_at。
+        W27-B 结果版本化：BEGIN IMMEDIATE 单事务内完成「UPDATE audits.report_json
+        + INSERT report_history」双写——resume/重跑再次落报告时旧版本不丢，当前
+        报告永远等于历史最大 seq（单一事实源仍为 audits.report_json，历史表只增
+        不改不删）。seq 按 COALESCE(MAX(seq),0)+1 在写锁内原子分配（照 append_event
+        W15-B3 形态）；摘要列（created_at/health_score/issue_count）与 report_json
+        同源同事务落库。任务行不存在时 UPDATE 命中 0 行、历史同样不写（与既有
+        幽灵静默语义同口径，DELETE 竞态下执行线程的收尾写不得报错）。
+        失败（含锁争用）回滚整个事务，由 _retry_on_locked 决定重试或上抛。
         """
         payload = json.dumps(report.to_dict(), ensure_ascii=False)
+        now = _utc_now_iso()
         with self._lock:
-            self._conn.execute(
-                "UPDATE audits SET report_json = ?, updated_at = ? WHERE audit_id = ?",
-                (payload, _utc_now_iso(), audit_id),
-            )
-            self._conn.commit()
+            try:
+                self._conn.execute("BEGIN IMMEDIATE")
+                cur = self._conn.execute(
+                    "UPDATE audits SET report_json = ?, updated_at = ? WHERE audit_id = ?",
+                    (payload, now, audit_id),
+                )
+                if cur.rowcount > 0:  # 任务存在才写历史；UPDATE 0 行 = 幽灵静默
+                    self._conn.execute(
+                        _APPEND_REPORT_HISTORY_SQL,
+                        (
+                            audit_id,
+                            audit_id,
+                            now,
+                            payload,
+                            float(report.health_score),
+                            len(report.issues),
+                        ),
+                    )
+                self._conn.commit()
+            except sqlite3.Error:
+                self._conn.rollback()
+                raise
 
-    def get_report(self, audit_id: str) -> AuditReport | None:
-        """反序列化报告；未落报告或任务不存在返回 None。"""
+    def get_report(
+        self, audit_id: str, seq: int | None = None
+    ) -> AuditReport | dict[str, Any] | None:
+        """读报告。单参形态（seq 缺省）为既有读路径，行为零变化：返回 AuditReport
+        对象，未落报告或任务不存在返回 None。
+
+        W27-B：带 seq 读历史版本——返回该版本完整 report dict（形态与
+        report.to_dict() 一致，即当前报告端点 JSON 的同源形状）；任务不存在 /
+        无历史 / seq 不存在返回 None。当前报告 = 历史最大 seq（单一事实源为
+        audits.report_json，本方法不写库）。
+        """
+        if seq is None:
+            with self._lock:
+                row = self._conn.execute(
+                    "SELECT report_json FROM audits WHERE audit_id = ?", (audit_id,)
+                ).fetchone()
+            if row is None or row["report_json"] is None:
+                return None
+            return AuditReport.from_dict(json.loads(row["report_json"]))
         with self._lock:
             row = self._conn.execute(
-                "SELECT report_json FROM audits WHERE audit_id = ?", (audit_id,)
+                "SELECT report_json FROM report_history WHERE audit_id = ? AND seq = ?",
+                (audit_id, int(seq)),
             ).fetchone()
-        if row is None or row["report_json"] is None:
+        if row is None:
             return None
-        return AuditReport.from_dict(json.loads(row["report_json"]))
+        return json.loads(row["report_json"])
+
+    def list_reports(self, audit_id: str) -> list[dict[str, Any]]:
+        """W27-B：报告历史版本摘要列表（seq 升序）：seq/created_at/health_score/
+        issue_count，不含 report_json 全文；任务不存在或尚无任何版本返回空列表。
+        """
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT seq, created_at, health_score, issue_count FROM report_history"
+                " WHERE audit_id = ? ORDER BY seq ASC",
+                (audit_id,),
+            ).fetchall()
+        return [
+            {
+                "seq": int(r["seq"]),
+                "created_at": r["created_at"],
+                "health_score": r["health_score"],
+                "issue_count": int(r["issue_count"]),
+            }
+            for r in rows
+        ]
 
     # ---------------------------------------------------------------- 事件流
     @_retry_on_locked
@@ -513,6 +614,25 @@ class TaskStore:
                 "SELECT stage_done FROM audits WHERE audit_id = ?", (audit_id,)
             ).fetchone()
         return _parse_stage_done(row["stage_done"]) if row is not None else []
+
+    @_retry_on_locked
+    def mark_resuming(self, audit_id: str) -> bool:
+        """W24-E（resume 扩展）：interrupted / failed → running（续跑前的状态复位）。
+
+        状态机守卫：仅这两种可续跑态放行并返回 True；queued / running / 终态
+        （done）一律拒绝返回 False；任务不存在返回 False。带阶段进度的 failed
+        也放行（CLI 侧已先校验 stage_done 非空，这里复位本身无害——进度列保留，
+        resume_stage_done 会按盘上产物逐阶段把关）。复位同时清空 error（与
+        set_status 对非终态强制 error=None 同口径）并 touch updated_at。
+        """
+        with self._lock:
+            cur = self._conn.execute(
+                "UPDATE audits SET status = 'running', error = NULL, updated_at = ?"
+                " WHERE audit_id = ? AND status IN (?, ?)",
+                (_utc_now_iso(), audit_id, _INTERRUPTED, "failed"),
+            )
+            self._conn.commit()
+        return cur.rowcount > 0
 
     # ---------------------------------------------------------------- 协作式取消（契约 1.2）
     @_retry_on_locked
@@ -695,6 +815,7 @@ class TaskStore:
                     break
                 self._conn.execute("DELETE FROM audits WHERE rowid = ?", (rowid,))
                 self._conn.execute("DELETE FROM events WHERE audit_id = ?", (audit_id,))
+                self._conn.execute("DELETE FROM report_history WHERE audit_id = ?", (audit_id,))
                 evicted_ids.append(audit_id)
                 evicted += 1
             self._conn.commit()

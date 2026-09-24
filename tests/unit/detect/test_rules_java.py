@@ -211,8 +211,9 @@ class TestJavaRuleRegistration:
         assert ids == {"JAVA-SQL-INJECTION", "JAVA-HARDCODED-SECRET", "JAVA-LONG-FUNCTION"}
 
     def test_registry_total_includes_java_three(self):
-        # W24-A：规则库 83 -> 86（口径与 tests/unit/detect/test_rules_ext.py 一致）
-        assert len(DEFAULT_REGISTRY) == 86
+        # W24-A：规则库 83 -> 86；W26-C Go / W28-C C++ 各追加 3 条、W30 卡 A taint
+        # 追加 1 条后为 93（口径与 tests/unit/detect/test_rules_ext.py 一致）
+        assert len(DEFAULT_REGISTRY) == 93
 
     def test_security_rules_metadata(self):
         assert JavaSqlInjectionRule().severity.value == "critical"

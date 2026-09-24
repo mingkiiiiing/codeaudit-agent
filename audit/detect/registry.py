@@ -5,11 +5,14 @@ from __future__ import annotations
 from audit.detect.base import Rule, RuleRegistry
 from audit.detect.rules import (
     build_arch_layer_rules,
+    build_cpp_rules,
+    build_go_rules,
     build_java_rules,
     build_javascript_rules,
     build_js_security_ext_rules,
     build_pii_rules,
     build_py_naming_rules,
+    build_py_taint_rules,
     build_python_rules,
     build_typescript_rules,
 )
@@ -47,6 +50,12 @@ DEFAULT_REGISTRY.register_all(build_py_web_routing_rules())
 DEFAULT_REGISTRY.register_all(build_py_none_deref_rules())
 # W24-A（Java 语言包）：JAVA-SQL-INJECTION / JAVA-HARDCODED-SECRET / JAVA-LONG-FUNCTION
 DEFAULT_REGISTRY.register_all(build_java_rules())
+# W26-C（Go 语言包）：GO-SQL-INJECTION / GO-HARDCODED-SECRET / GO-LONG-FUNCTION
+DEFAULT_REGISTRY.register_all(build_go_rules())
+# W28-C（C++ 语言包）：CPP-SQL-INJECTION / CPP-HARDCODED-SECRET / CPP-LONG-FUNCTION
+DEFAULT_REGISTRY.register_all(build_cpp_rules())
+# W30 卡 A（污点传播）：PY-TAINT-UNSAFE-SINK——函数内污点传播（AST-only，tree=None 不产命中）
+DEFAULT_REGISTRY.register_all(build_py_taint_rules())
 
 
 def get_registry() -> RuleRegistry:

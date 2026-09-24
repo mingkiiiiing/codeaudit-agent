@@ -29,7 +29,7 @@ def test_doctor_runs_without_api_key_and_prints_table(
     rc = cli.main(["doctor"])
     assert rc == 0
     out = capsys.readouterr().out
-    for token in ("环境诊断", "Python 版本", "git", "语言包 python", "语言包 java", ".env", "Docker 沙箱", "结论："):
+    for token in ("环境诊断", "Python 版本", "git", "语言包 python", "语言包 java", "语言包 go", "语言包 cpp", ".env", "Docker 沙箱", "结论："):
         assert token in out, token
 
 
@@ -95,11 +95,11 @@ def test_check_git_missing_warns(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_check_tree_sitter_java_missing_reported_not_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """java 语言包未安装 → 如实报"未安装"（警告级），python/js/ts 仍 OK。"""
+    """java / go / cpp 语言包未安装 → 如实报"未安装"（警告级），python/js/ts 仍 OK。"""
     real_import = __import__
 
     def fake_import(name: str, *args: object, **kwargs: object) -> object:
-        if name == "tree_sitter_java":
+        if name in {"tree_sitter_java", "tree_sitter_go", "tree_sitter_cpp"}:
             raise ImportError(f"No module named {name!r}")
         return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
@@ -108,12 +108,14 @@ def test_check_tree_sitter_java_missing_reported_not_error(
     by_name = {name: (status, detail) for status, name, detail, _s in rows}
     assert by_name["语言包 java"][0] == cli._DOCTOR_WARN
     assert "未安装" in by_name["语言包 java"][1]
+    assert by_name["语言包 go"][0] == cli._DOCTOR_WARN  # go 同为可选语言包（W26 卡 C）
+    assert by_name["语言包 cpp"][0] == cli._DOCTOR_WARN  # cpp 同为可选语言包（W29 集成收口）
     for lang in ("python", "javascript", "typescript"):
         assert by_name[f"语言包 {lang}"][0] == cli._DOCTOR_OK
 
 
 def test_check_tree_sitter_core_missing_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """核心语言包（python）导入失败 → 失败级 + pip install 建议；java 仍按可选记警告。"""
+    """核心语言包（python）导入失败 → 失败级 + pip install 建议；java/go 仍按可选记警告。"""
 
     def fake_import(name: str) -> object:
         raise ImportError(f"No module named {name!r}")
@@ -124,6 +126,7 @@ def test_check_tree_sitter_core_missing_fails(monkeypatch: pytest.MonkeyPatch) -
     assert rows["语言包 javascript"] == cli._DOCTOR_FAIL
     assert rows["语言包 typescript"] == cli._DOCTOR_FAIL
     assert rows["语言包 java"] == cli._DOCTOR_WARN  # java 未装不报错（可选语言包）
+    assert rows["语言包 go"] == cli._DOCTOR_WARN  # go 未装不报错（W26 卡 C，可选语言包）
     assert any("pip install tree_sitter_python" in s for _st, _n, _d, s in cli._check_tree_sitter())
 
 

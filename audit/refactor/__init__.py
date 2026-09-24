@@ -8,6 +8,16 @@
 
 from __future__ import annotations
 
+from audit.refactor.rename import DefSite, FilePatch, RenamePlan, RenameResult, ReplacePoint, apply_rename, plan_rename
 from audit.refactor.stage import run_refactor_stage
 
-__all__ = ["run_refactor_stage"]
+__all__ = [
+    "DefSite",
+    "FilePatch",
+    "RenamePlan",
+    "RenameResult",
+    "ReplacePoint",
+    "apply_rename",
+    "plan_rename",
+    "run_refactor_stage",
+]

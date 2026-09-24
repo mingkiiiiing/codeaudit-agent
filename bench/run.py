@@ -7,7 +7,9 @@
         [--ablation] [--max-projects 3]
 
 --goldset 支持 .jsonl（load_goldset）或 GOLDEN_ISSUES.md 式表格
-（from_markdown_table）；缺省尝试解析 tests/samples/demo_proj/GOLDEN_ISSUES.md。
+（from_markdown_table）；缺省为仓库根锚定的 bench/datasets/goldset.jsonl
+（官方 240 条金标，任意 CWD 运行均正确）。
+--offline 强制离线（置空 api_key，屏蔽 LLM 通道），用于可复现的官方口径评测。
 --ablation 时逐配置执行消融（可表达配置真实跑，占位配置表注"待接入"）并输出
 汇总对比表；write_run_record 按 docs/04 §5 模板落盘 run 记录。
 orchestrator（audit.orchestrator.pipeline.run_audit）未集成时
@@ -46,6 +48,10 @@ from bench.metrics import (
 DEFAULT_LEVEL = "critical+high"
 DEFAULT_GOLDSET_MD = (
     Path(__file__).resolve().parents[1] / "tests" / "samples" / "demo_proj" / "GOLDEN_ISSUES.md"
+)
+# CLI --goldset 缺省：官方 240 条金标（仓库根锚定，任意 CWD 运行均正确）
+DEFAULT_GOLDSET_JSONL = (
+    Path(__file__).resolve().parents[1] / "bench" / "datasets" / "goldset.jsonl"
 )
 
 
@@ -435,8 +441,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--goldset",
         type=Path,
-        default=None,
-        help="金标集路径（.jsonl 或 GOLDEN_ISSUES.md 表格）；缺省用 tests/samples/demo_proj/GOLDEN_ISSUES.md",
+        default=DEFAULT_GOLDSET_JSONL,
+        help="金标集路径（.jsonl 或 GOLDEN_ISSUES.md 表格）；默认为官方 240 条金标 "
+        "bench/datasets/goldset.jsonl（仓库根锚定，任意 CWD 下均正确）",
     )
     parser.add_argument(
         "--projects",
@@ -464,6 +471,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         metavar="N",
         help="对项目列表确定性等距抽样 N 个后执行（成本控制）",
     )
+    parser.add_argument(
+        "--offline",
+        action="store_true",
+        help="强制离线（置空 api_key，屏蔽 LLM 通道），用于零 Key 可复现的官方口径评测",
+    )
     args = parser.parse_args(argv)
 
     if not args.projects:
@@ -489,9 +501,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"[bench] --max-projects={args.max_projects}：抽样 {len(projects)}/{len(args.projects)} 个项目")
 
     try:
-        result = run_bench(projects, goldens, level=args.level)
+        offline_overrides: dict[str, Any] | None = {"api_key": ""} if args.offline else None
+        result = run_bench(projects, goldens, config_overrides=offline_overrides, level=args.level)
         if args.ablation:
-            result["ablation"] = run_ablation(projects, goldens, level=args.level)
+            result["ablation"] = run_ablation(
+                projects, goldens, level=args.level, base_overrides=offline_overrides
+            )
     except RuntimeError as exc:
         print(f"[bench] {exc}", file=sys.stderr)
         print(

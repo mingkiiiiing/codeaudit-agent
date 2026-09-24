@@ -327,6 +327,10 @@ class JavaHardcodedSecretRule(_JavaRule, HardcodedSecretRuleFamily):
     标识符按 _/驼峰分词并做单数归一后精确命中敏感词，值满足随机性校验
     （ASCII、长度足够、Shannon 熵 ≥3.5 或字符集 ≥3 类；password 家族放低为
     熵 ≥3.0 或字符集 ≥2 类）；或值为 sk- 前缀的 API key 形态。
+
+    W30 注释行掩码预检：raw 行命中声明形态而 masked 行不再命中（赋值形态只在
+    于注释/字符串内容，如块注释中间行、文本块中间行的假声明）时跳过不报；
+    masked 行保留引号定界符位置，真实赋值行的 `NAME = "` 形态不受影响。
     """
 
     id = "JAVA-HARDCODED-SECRET"
@@ -339,10 +343,14 @@ class JavaHardcodedSecretRule(_JavaRule, HardcodedSecretRuleFamily):
     )
 
     def check(self, ctx: RuleContext) -> list[RuleHit]:
+        scan = get_scan(ctx.lines, ctx.meta)
         hits: list[RuleHit] = []
         for idx, raw in enumerate(ctx.lines):
             m = self._ASSIGN_RE.match(raw)
             if not m:
+                continue
+            # W30 注释行掩码预检（判定口径零变化）：masked 行不再命中 ⇒ 跳过
+            if self._is_comment_only(raw, scan.masked[idx]):
                 continue
             q_col = m.end() - 1
             # python 同款转义语义（escape_mode="none"：反斜杠不转义跳转）
@@ -373,6 +381,16 @@ class JavaHardcodedSecretRule(_JavaRule, HardcodedSecretRuleFamily):
                     )
                 )
         return hits
+
+    def _is_comment_only(self, raw: str, masked: str) -> bool:
+        """W30 注释行掩码预检：raw 行命中声明形态而 masked 行不再命中时为 True。
+
+        掩码扫描器把字符串内容与注释置为空格但保留引号定界符位置：真实赋值行
+        `NAME = "` 形态在 masked 行依旧成立（预检放行、不误杀）；仅当该形态只
+        存在于注释/字符串内容（块注释中间行、文本块中间行的假声明等）时
+        masked 行才会失配，按注释行跳过不报。
+        """
+        return self._ASSIGN_RE.match(raw) is not None and self._ASSIGN_RE.match(masked) is None
 
 
 # ---------------------------------------------------------------- style 规则

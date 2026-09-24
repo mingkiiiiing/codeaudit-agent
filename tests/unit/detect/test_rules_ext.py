@@ -67,6 +67,15 @@ W23_RULE_COUNT = 1
 # W24-A（Java 语言包）追加：java 3（JAVA-SQL-INJECTION / JAVA-HARDCODED-SECRET /
 # JAVA-LONG-FUNCTION）；规则库 83 -> 86。
 W24_RULE_COUNT = 3
+# W26-C（Go 语言包）追加：go 3（GO-SQL-INJECTION / GO-HARDCODED-SECRET /
+# GO-LONG-FUNCTION）；规则库 86 -> 89。
+W26_RULE_COUNT = 3
+# W28-C（C++ 语言包）追加：cpp 3（CPP-SQL-INJECTION / CPP-HARDCODED-SECRET /
+# CPP-LONG-FUNCTION）；规则库 89 -> 92。
+W28_RULE_COUNT = 3
+# W30 卡 A（污点传播）追加：py_taint 1（PY-TAINT-UNSAFE-SINK）；
+# 规则库 92 -> 93，见 CHANGELOG Wave 30。
+W30_RULE_COUNT = 1
 
 
 def _lines(rule, ctx):
@@ -459,7 +468,7 @@ class TestTsDependsOnAny:
 
 class TestRegistryExt:
     def test_total_count_is_baseline_plus_ext(self):
-        assert len(DEFAULT_REGISTRY) == BASELINE_RULE_COUNT + len(NEW_PY_RULE_IDS) + len(NEW_JS_RULE_IDS) + W16_RULE_COUNT + W19_RULE_COUNT + W20_RULE_COUNT + W21_RULE_COUNT + W23_RULE_COUNT + W24_RULE_COUNT
+        assert len(DEFAULT_REGISTRY) == BASELINE_RULE_COUNT + len(NEW_PY_RULE_IDS) + len(NEW_JS_RULE_IDS) + W16_RULE_COUNT + W19_RULE_COUNT + W20_RULE_COUNT + W21_RULE_COUNT + W23_RULE_COUNT + W24_RULE_COUNT + W26_RULE_COUNT + W28_RULE_COUNT + W30_RULE_COUNT
 
     def test_every_new_rule_registered_exactly_once(self):
         all_ids = [r.id for r in DEFAULT_REGISTRY.all_rules]

@@ -742,3 +742,40 @@ def test_prune_keeps_interrupted_rows(tmp_path: Path):
     assert store.prune(keep=1) == 1  # 只淘汰 done 行
     assert store.get("int1") is not None  # interrupted 保留
     assert store.get_stage_done("int1") == ["ingest"]
+
+
+# ---------------------------------------------------------------- mark_resuming（W24-E resume 扩展）
+def test_mark_resuming_interrupted_and_failed_to_running(tmp_path: Path):
+    """可续跑态复位：interrupted / failed → running，error 同步清空（非终态口径）。"""
+    store = _make_store(tmp_path)
+    _create(store, "m1", status="interrupted", error="服务重启中断（阶段进度已保留，可续跑）")
+    assert store.mark_resuming("m1") is True
+    m1 = store.get("m1")
+    assert m1["status"] == "running"
+    assert m1["error"] is None  # 复位同时清错，与 set_status 非终态强制 error=None 同口径
+
+    _create(store, "m2", status="failed", error="boom", created_at="2026-01-02T00:00:00")
+    assert store.mark_resuming("m2") is True
+    m2 = store.get("m2")
+    assert m2["status"] == "running"
+    assert m2["error"] is None
+
+
+def test_mark_resuming_keeps_stage_done_progress(tmp_path: Path):
+    """复位不动阶段进度：stage_done 原样保留（续跑判定仍以它为依据）。"""
+    store = _make_store(tmp_path)
+    _create(store, "m3", status="interrupted")
+    store.record_stage_done("m3", "ingest")
+    store.record_stage_done("m3", "index")
+    assert store.mark_resuming("m3") is True
+    assert store.get_stage_done("m3") == ["ingest", "index"]
+
+
+def test_mark_resuming_rejects_other_states_and_missing(tmp_path: Path):
+    """非法状态拒绝：queued/running/done 原样保留；任务不存在返回 False。"""
+    store = _make_store(tmp_path)
+    for status in ("queued", "running", "done"):
+        _create(store, f"rej-{status}", status=status)
+        assert store.mark_resuming(f"rej-{status}") is False
+        assert store.get(f"rej-{status}")["status"] == status  # 状态未被改动
+    assert store.mark_resuming("ghost") is False

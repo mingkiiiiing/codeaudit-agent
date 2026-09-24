@@ -17,6 +17,8 @@ __all__ = ["build_architecture", "find_entry_points"]
 # W15 集成修复（审计 A7）：本模块原有多处 except 后静默 continue/return，故障完全
 # 不可见（卡F 测试已固化降级行为）。统一补记账：信息收集类降级记 debug（高频、
 # 单条无碍全局），LLM 增强失败记 warning（用户可感知的能力降级）。
+# F5-R3（第六轮审计）收敛口径：空文本响应（离线 FakeLLM 的必然产物）按 debug
+# 记「跳过增强」，不算故障；warning 保留给非空内容的真实增强失败。
 _LOG = logging.getLogger(__name__)
 
 # 常见入口文件名（根目录或一级子目录优先）
@@ -245,6 +247,13 @@ async def _llm_enhance(ctx: PipelineContext, base: ArchitectureCard) -> Architec
     ]
     try:
         resp = await ctx.llm.chat(messages, json_mode=True)
+        if not str(resp.content or "").strip():
+            # F5-R3（第六轮审计）：离线纯规则模式（FakeLLM 脚本耗尽）必然返回空文本——
+            # 这是常态而非故障，「增强失败」warning 会误导用户以为出错。此处降级为
+            # debug 记账；非空内容的解析失败/网络异常仍走下方 warning（W15 可见性
+            # 语义不回退——真实故障依旧用户可感知）。
+            _LOG.debug("架构理解：LLM 返回空响应（离线/无效响应），已用启发式底座")
+            return base
         data = extract_json(resp.content)
     except Exception as exc:
         # W15：LLM 增强失败降级为启发式底座（既有语义），但必须可见——此前完全静默

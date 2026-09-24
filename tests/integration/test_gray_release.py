@@ -43,6 +43,16 @@ FROZEN_API_ROUTES = {
     "/api/audits/{audit_id}/patches",
     # P0-2（apply-to-source 预览确认回路）：补丁回写源码端点，语义与 CLI apply 一致
     "/api/audits/{audit_id}/patches/{patch_index}/apply",
+    # P0-9（resume 全接线）：断点续跑端点，守卫/自愈语义与 CLI `codeaudit resume` 单源
+    "/api/audits/{audit_id}/resume",
+    # W27-B（结果版本化）：报告历史摘要列表与指定历史版本读取端点（set_report 双写，
+    # 当前报告 = 历史最大 seq，报备更新冻结清单）
+    "/api/audits/{audit_id}/reports",
+    "/api/audits/{audit_id}/reports/{seq}",
+    # W28-B（safe-rename server 入口）：符号重命名 dry-run/apply 端点，plan/apply
+    # 复用 audit.refactor.rename，治理链（鉴权/白名单/限流）与创建端点同口径
+    # （报备更新冻结清单）
+    "/api/rename",
     "/api/audits/{audit_id}/summary",
     "/api/audits/{audit_id}/understand",
     "/api/audits/{audit_id}/refactors",

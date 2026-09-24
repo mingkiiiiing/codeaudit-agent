@@ -1376,6 +1376,10 @@ class HardcodedSecretRule(_PyRule, HardcodedSecretRuleFamily):
     - 或值为 sk- 前缀的 API key 形态（同样要求随机性校验）。
     低熵占位串（"changeme"、"sk-aaaa..."）与中文提示文案不再误报。
 
+    W30 注释行掩码预检：raw 行命中声明形态而 masked 行不再命中（赋值形态只存在于
+    注释/字符串内容，如 docstring/三引号中间行的假声明）时跳过不报；masked 行保留
+    引号定界符位置，真实赋值行的 `NAME = "` 形态在 masked 上依旧成立，不受影响。
+
     W15-D：category/severity/description/mask_snippet 上收至 HardcodedSecretRuleFamily
     （两语言完全一致）；检测强度两语言有意不同（见家族基类决策记录）。
     """
@@ -1385,10 +1389,14 @@ class HardcodedSecretRule(_PyRule, HardcodedSecretRuleFamily):
     _ASSIGN_RE: Pattern[str] = re.compile(r"^\s*(?P<name>[A-Za-z_]\w*)\s*(?::[^=]+)?=\s*(?P<q>['\"])")
 
     def check(self, ctx: RuleContext) -> list[RuleHit]:
+        scan = get_scan(ctx.lines, ctx.meta)
         hits: list[RuleHit] = []
         for idx, raw in enumerate(ctx.lines):
             m = self._ASSIGN_RE.match(raw)
             if not m:
+                continue
+            # W30 注释行掩码预检（判定口径零变化）：masked 行不再命中 ⇒ 跳过
+            if self._is_comment_only(raw, scan.masked[idx]):
                 continue
             q_col = m.end() - 1
             # W15-D：字符串取值收敛至 _scan_common.string_value；
@@ -1441,6 +1449,16 @@ class HardcodedSecretRule(_PyRule, HardcodedSecretRuleFamily):
         if _shannon_entropy(value) >= 3.0:
             return True
         return _charset_diversity(value) >= 2
+
+    def _is_comment_only(self, raw: str, masked: str) -> bool:
+        """W30 注释行掩码预检：raw 行命中声明形态而 masked 行不再命中时为 True。
+
+        掩码扫描器把字符串内容与注释置为空格但保留引号定界符位置：真实赋值行
+        `NAME = "` 形态在 masked 行依旧成立（预检放行、不误杀）；仅当该形态只
+        存在于注释/字符串内容（docstring/三引号中间行的假声明等）时 masked 行
+        才会失配，按注释行跳过不报。
+        """
+        return self._ASSIGN_RE.match(raw) is not None and self._ASSIGN_RE.match(masked) is None
 
 
 class UnsafeDeserializeRule(_PyRule):

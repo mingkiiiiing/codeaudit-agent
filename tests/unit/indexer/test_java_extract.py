@@ -82,7 +82,8 @@ class TestGuessLanguageJava:
     def test_supported_languages_now_include_java(self):
         from audit.indexer.parsers import SUPPORTED_LANGUAGES
 
-        assert SUPPORTED_LANGUAGES == ("python", "javascript", "typescript", "java")
+        # W26-C：Go 语言包并入后为五语言
+        assert SUPPORTED_LANGUAGES == ("python", "javascript", "typescript", "java", "go", "cpp")
 
 
 # ---------------------------------------------------------------- 符号/导入/调用点提取

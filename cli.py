@@ -13,6 +13,10 @@
   python cli.py report <report_json> [--format md|html] [--out PATH]
   python cli.py apply <audit_id> [--patch N] [--all-verified] [--yes]
                       [--workdir DIR] [--work-root DIR]
+  python cli.py rename <source> <old_name> <new_name> [--yes] [--diff-only]
+                       [--lang python]   # safe-rename 符号重命名（W28-A，默认 dry-run 只预览）
+  python cli.py diff <audit_a> <audit_b> [--from-seq N] [--to-seq N] [--work-root DIR]
+  python cli.py resume <audit_id> [--work-root DIR]   # 续跑被中断的任务（W24-E）
   python cli.py doctor                      # 环境自检（零 API Key 可跑）
   python cli.py init [DIR]                  # 生成 .codeaudit.toml 注释模板骨架
   python cli.py serve [--host 127.0.0.1] [--port 8000] [--workers 1] [--allow-insecure]
@@ -25,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import dataclasses
 import ipaddress
 import json
 import os
@@ -465,30 +470,323 @@ def cmd_apply(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- W28-A：safe-rename 接线
+
+def cmd_rename(args: argparse.Namespace) -> int:
+    """rename 子命令（W28-A）：safe-rename 符号重命名，默认 dry-run 只预览不落盘。
+
+    - 调 audit.refactor.plan_rename 生成计划（tree-sitter identifier 节点区间
+      精确替换，字符串/注释/子串天然不越界），本命令只做消费接线；
+    - 默认 dry-run：打印涉及文件/替换点数/逐文件 unified diff，退出码 0，
+      摘要标注「预览模式（未落盘，加 --yes 应用）」；
+    - --yes 才 apply_rename(dry_run=False) 落盘，成功后打印中文摘要
+      （写入文件数/替换点数）；apply 写入失败（res.ok=False，含 all-or-nothing
+      复检拒绝）→ 中文报错退出 1 并列出逐文件原因；
+    - 计划阶段 errors 非空（非法名/多定义点/解析失败/找不到定义等）→ 中文报错
+      退出 1，绝不落盘；
+    - --diff-only：与默认 dry-run 同效的语义别名（显式表达"只要 diff"，方便
+      脚本化），与 --yes 互斥。
+    """
+    from audit.refactor.rename import apply_rename, plan_rename
+
+    if args.diff_only and args.yes:
+        print(
+            "[错误] --diff-only 与 --yes 互斥：--diff-only 只输出 diff，不落盘。",
+            file=sys.stderr,
+        )
+        return 1
+    source = Path(args.source)
+    if not source.exists():
+        print(f"[错误] 源路径不存在：{args.source}（可为单文件或目录）。", file=sys.stderr)
+        return 1
+
+    plan = plan_rename(source, args.old_name, args.new_name, language=args.lang)
+    if not plan.ok:
+        print(
+            f"[错误] 重命名计划生成失败（{args.old_name} → {args.new_name}），未落盘：",
+            file=sys.stderr,
+        )
+        for err in plan.errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+
+    print("========== safe-rename 符号重命名 ==========")
+    print(f"符号：{plan.old_name} → {plan.new_name}（语言：{plan.language}）")
+    print(f"扫描范围：{Path(plan.source_root).resolve()}")
+    defs = "；".join(f"{d.file}:{d.qualified_name}({d.kind}) @ 行 {d.line}" for d in plan.definitions)
+    print(f"定义点：{defs}")
+    print(f"涉及文件 {len(plan.patches)} 个，替换点 {plan.total_replace_points} 个：")
+    for patch in plan.patches:
+        print(f"  - {patch.file}（{len(patch.replace_points)} 个替换点）")
+
+    if not args.yes:
+        mode = "预览模式（未落盘，加 --yes 应用）"
+        print(f"模式：{mode}")
+        for patch in plan.patches:
+            print(f"\n---------- diff：{patch.file} ----------")
+            print(patch.unified_diff, end="")
+        print("\n本次为预览模式（未落盘，加 --yes 应用）。")
+        print("==================================")
+        return 0
+
+    result = apply_rename(plan, dry_run=False)
+    if not result.ok:
+        print("[错误] 重命名应用失败，全部未落盘（all-or-nothing）：", file=sys.stderr)
+        for err in result.errors:
+            print(f"  - {err}", file=sys.stderr)
+        return 1
+    print("模式：已应用（写入源码）")
+    for rel in result.written_files:
+        print(f"  已写入：{rel}")
+    print(
+        f"\n[结果] 重命名完成：写入 {len(result.written_files)} 个文件，"
+        f"共 {plan.total_replace_points} 个替换点（{plan.old_name} → {plan.new_name}）。"
+    )
+    print("==================================")
+    return 0
+
+
 def cmd_diff(args: argparse.Namespace) -> int:
     """diff 子命令（W24-C）：两次审计报告对比，输出 fixed / new / persisted 三栏。
 
     - 两个参数均可为 audit_id（经 audits.db / 报告目录定位）或 report.json 路径；
+    - W28-A：--from-seq / --to-seq（可选）按历史版本号取 audit_id 侧的报告
+      （TaskStore.get_report(audit_id, seq=N)）；缺省不传 = 取当前报告，行为
+      零变化；seq 只对 audit_id 目标有效，report.json 文件路径给了就中文报错
+      退出 1；seq 超界 / 任务无该版本 → 中文报错退出 1；
     - 匹配口径见 audit/report/comparator.py（(file, rule, 行号±3)）；本命令恒退出
       0（对比展示而非 CI 门禁，new>0 的门禁口径留待后续轮次定夺）。
     """
+    from audit.config import AuditConfig
     from audit.fix.applyer import locate_audit
+    from audit.models import AuditReport
     from audit.report.comparator import compare, format_result, load
+    from audit.taskstore import TaskStore
 
-    def _report_of(token: str):
+    from_seq = getattr(args, "from_seq", None)
+    to_seq = getattr(args, "to_seq", None)
+
+    # W28-A：seq 只对 audit_id 目标有意义——report.json 文件路径无版本概念，先做适用性预检
+    for label, token, seq in (
+        ("基线（A）", args.audit_a, from_seq),
+        ("当前（B）", args.audit_b, to_seq),
+    ):
+        if seq is not None and Path(token).is_file():
+            print(
+                f"[错误] {label} {token} 是 report.json 文件路径，不支持 seq 版本选择"
+                "（--from-seq/--to-seq 仅适用于 audit_id）。",
+                file=sys.stderr,
+            )
+            return 1
+
+    def _history_version(audit_id: str, seq: int) -> tuple[AuditReport, str]:
+        """按 seq 读历史版本（W28-A）。任务库定位口径与 cmd_resume / locate_audit
+        一致：CODEAUDIT_DB_PATH 优先，否则 <work-root>/audits.db。"""
+        work_root = Path(args.work_root) if args.work_root else Path(AuditConfig.from_env().work_root)
+        db_path = Path(os.environ.get("CODEAUDIT_DB_PATH") or (work_root / "audits.db"))
+        if not db_path.is_file():
+            raise LookupError(
+                f"任务库不存在：{db_path}，无法按 seq 读取 {audit_id} 的历史版本"
+                "（--from-seq/--to-seq 仅支持经任务库持久化的 audit_id）"
+            )
+        store = TaskStore(db_path, work_root=work_root)
+        try:
+            data = store.get_report(audit_id, seq=seq)
+        finally:
+            store.close()
+        if data is None:
+            raise LookupError(
+                f"未找到审计 {audit_id} 的历史版本 seq={seq}"
+                f"（任务不存在 / 未落报告 / seq 越界；任务库：{db_path}）"
+            )
+        return AuditReport.from_dict(data), f"{db_path}#seq={seq}"
+
+    def _report_of(token: str, seq: int | None):
         path = Path(token)
         if path.is_file():
             return load(path), str(path)
+        if seq is not None:
+            return _history_version(token, seq)
         record = locate_audit(token, args.work_root)
         return record.report, record.location
 
-    report_a, loc_a = _report_of(args.audit_a)
-    report_b, loc_b = _report_of(args.audit_b)
+    try:
+        report_a, loc_a = _report_of(args.audit_a, from_seq)
+        report_b, loc_b = _report_of(args.audit_b, to_seq)
+    except LookupError as exc:
+        print(f"[错误] {exc}", file=sys.stderr)
+        return 1
     print("========== 审计报告对比 ==========")
     print(f"基线（A）：{args.audit_a}（{loc_a}）")
     print(f"当前（B）：{args.audit_b}（{loc_b}）")
     print(format_result(compare(report_a, report_b)))
     return 0
+
+
+# ---------------------------------------------------------------- W24-E：resume 断点续跑
+
+def _rebuild_config_from_task_json(config_json: str) -> AuditConfig:
+    """从任务行 config_json 重建 AuditConfig（W24-E，续跑与原任务口径一致）。
+
+    - 只取 AuditConfig 已知字段，未知字段忽略（跨版本前向兼容）；
+    - api_key 落库前已脱敏为 "<redacted>"（server F6），打码值不可用——从已知
+      字段中剔除，交由 AuditConfig.from_env() 按「进程环境 > .env > 默认值」
+      口径补全（.env 自动加载）；
+    - 空 / 非法 JSON / 非 dict：按空配置处理（默认值 + 环境变量层）——
+      source_path 缺失时由 resume_stage_done 的同源校验兜底（路径不一致不放行
+      跳过任何阶段，宁可全量重跑）。
+    """
+    try:
+        raw = json.loads(config_json) if config_json.strip() else {}
+    except json.JSONDecodeError:
+        raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    known = {f.name for f in dataclasses.fields(AuditConfig)} - {"api_key", "config_warnings"}
+    values = {key: val for key, val in raw.items() if key in known}
+    return AuditConfig.from_env(**values)
+
+
+def _resume_guard_action(status: str, progress: list[str] | tuple[str, ...]) -> str:
+    """resume 可续跑判定纯函数（P0-9）：CLI cmd_resume 与 server resume 端点单源共用。
+
+    入参为任务行 status 与 stage_done 进度列表（无 I/O，两处判定逻辑零复制）。
+    返回动作码：
+    - "resume"：interrupted，或 failed 且带阶段进度（stage_done 非空）——直接续跑；
+    - "sweep"：running 且带阶段进度——疑似 SIGKILL 级硬杀滞留，调用方先按
+      grace 窗口 sweep 自愈（sweep_interrupted 只清 updated_at 早于 now-grace
+      的行，活跃任务持续被 touch 不会误伤），再重读任务定夺；重读后仍为
+      "sweep"（窗口内有活动）即报「仍在运行或刚有活动」；
+    - "reject"：其余状态（queued / done / 无进度的 failed / 无进度的 running）
+      ——W24-E 既有「不可续跑」语义，报错文案与退出码逐字节保持。
+    """
+    if status == "interrupted":
+        return "resume"
+    if not progress:
+        return "reject"
+    if status == "failed":
+        return "resume"
+    if status == "running":
+        return "sweep"
+    return "reject"
+
+
+def _resume_sweep_grace_seconds() -> int:
+    """resume 自愈清扫窗口（秒）：env CODEAUDIT_SWEEP_GRACE_SEC，缺省 30。
+
+    解析语义与 server.app._int_from_env 同口径（缺省/非法/负数均回落默认值）；
+    与 server 启动 sweep 的缺省 0 不同——自愈是用户显式发起的动作，默认给
+    30s 窗口防误伤真在跑的活跃任务。
+    """
+    raw = os.environ.get("CODEAUDIT_SWEEP_GRACE_SEC")
+    if raw is None:
+        return 30
+    try:
+        value = int(raw)
+    except ValueError:
+        return 30
+    return value if value >= 0 else 30
+
+
+def cmd_resume(args: argparse.Namespace) -> int:
+    """resume 子命令（W24-E）：续跑被中断的审计任务（ingest/index/detect 可跳过）。
+
+    - 任务行经 TaskStore 读取（CODEAUDIT_DB_PATH 优先，否则 <work-root>/audits.db，
+      与 apply/diff 的定位口径一致）；
+    - 可续跑态：interrupted，或 failed 且带阶段进度（stage_done 非空）——其余
+      状态中文报错退出 1；任务不存在同样中文报错退出 1；
+    - running 且带阶段进度（SIGKILL 级硬杀滞留态，P0-9/F5-R2）：先按 grace 窗口
+      （env CODEAUDIT_SWEEP_GRACE_SEC，缺省 30s）调 sweep_interrupted 自愈——
+      窗口外无 updated_at 活动才视为真死置 interrupted；重读任务后已变
+      interrupted → 正常续跑；仍 running（窗口内有活动，疑似真有执行体在跑）
+      → 中文报错退出 1；
+    - 复位 interrupted/failed → running（TaskStore.mark_resuming），经
+      resume_stage_done 判定可跳过阶段后 run_audit(resume_stages=done)；
+      进度事件走 stderr，与 cmd_run 完全一致；
+    - 成功：报告落库 + 状态置 done + 中文摘要（跳过阶段 / issue 总数 / 报告路径）；
+    - 中途再断（Ctrl+C / 异常）：状态回到 interrupted——stage_done 机制保留进度，
+      天然支持再次 resume；错误本身照常上抛交由顶层统一提示。
+    """
+    from audit.orchestrator.pipeline import resume_stage_done, run_audit
+    from audit.taskstore import TaskStore
+
+    work_root = Path(args.work_root) if args.work_root else Path(AuditConfig.from_env().work_root)
+    db_path = Path(os.environ.get("CODEAUDIT_DB_PATH") or (work_root / "audits.db"))
+    store = TaskStore(db_path, work_root=work_root)
+    try:
+        task = store.get(args.audit_id)
+        if task is None:
+            print(f"[错误] 任务不存在：{args.audit_id}（任务库：{db_path}）。", file=sys.stderr)
+            return 1
+        status = str(task.get("status") or "")
+        progress = store.get_stage_done(args.audit_id)
+        action = _resume_guard_action(status, progress)
+        if action == "sweep":
+            # SIGKILL 滞留自愈：先按窗口清扫再重读定夺（判定单源见 _resume_guard_action）
+            store.sweep_interrupted(grace_seconds=_resume_sweep_grace_seconds())
+            task = store.get(args.audit_id)
+            status = str((task or {}).get("status") or "")
+            action = _resume_guard_action(status, progress)
+            if action == "sweep":
+                print(
+                    f"[错误] 任务 {args.audit_id} 仍在运行或刚有活动，请稍后重试。",
+                    file=sys.stderr,
+                )
+                return 1
+        if action == "reject":
+            print(
+                f"[错误] 任务 {args.audit_id} 状态为 {status}，不可续跑"
+                "（仅 interrupted，或带阶段进度的 failed 支持 resume）。",
+                file=sys.stderr,
+            )
+            return 1
+        config = _rebuild_config_from_task_json(str(task.get("config_json") or ""))
+        for warning in config.config_warnings:
+            print(f"[配置警告] {warning}", file=sys.stderr)
+        if not store.mark_resuming(args.audit_id):
+            print(
+                f"[错误] 任务 {args.audit_id} 状态复位失败（状态已变化，请查列表后重试）。",
+                file=sys.stderr,
+            )
+            return 1
+        done = resume_stage_done(store, args.audit_id, config)
+
+        events: list[dict[str, object]] = _ProgressEvents()  # 进度实时打印 stderr（与 cmd_run 同款）
+
+        async def _emit(event: dict[str, object]) -> None:
+            events.append(event)
+
+        try:
+            report = asyncio.run(run_audit(config, _emit, audit_id=args.audit_id, resume_stages=done))
+        except BaseException:
+            # 中途再断：回到 interrupted（非终态，工作副本与阶段进度保留，可再续）
+            store.set_status(args.audit_id, "interrupted")
+            raise
+        # server 收尾同形态：报告落库 + 终态 done
+        store.set_report(args.audit_id, report)
+        store.set_status(args.audit_id, "done")
+        if any(event.get("degraded") is True for event in events):
+            print(
+                "[警告] ingest 未成功：本次续跑为降级运行（无可用工作副本，"
+                "index/detect/understand 已跳过，报告不含代码统计）",
+                file=sys.stderr,
+            )
+        paths = _report_paths(config)
+        print("\n========== 续跑完成 ==========")
+        print(f"任务：{args.audit_id}　状态：done")
+        # F7-R1（W27 卡 A）防御性标注：LLM 通道状态显式化——此前 api_key 在重建
+        # 链路丢失时 pipeline 静默走 FakeLLM（纯规则模式），用户无感知。
+        llm_channel = "已启用" if config.api_key else "未启用（未检测到 API Key，本次为纯规则模式）"
+        print(f"LLM 通道：{llm_channel}")
+        print(f"跳过阶段：{'、'.join(sorted(done)) if done else '（无——全量重跑）'}")
+        print(f"问题总数：{len(report.issues)}")
+        print(f"报告目录：{Path(paths['md']).resolve().parent}")
+        for key, label in (("json", "JSON"), ("md", "Markdown"), ("html", "HTML")):
+            print(f"  {label}：{Path(paths[key]).resolve()}")
+        print("==============================")
+        return 0
+    finally:
+        store.close()
 
 
 # ---------------------------------------------------------------- W24-B：doctor 环境自检
@@ -500,12 +798,15 @@ _DOCTOR_OK, _DOCTOR_WARN, _DOCTOR_FAIL = "OK", "警告", "失败"
 _DoctorRow = tuple[str, str, str, str]
 
 # doctor 语言包探测清单：前三个是 pyproject 声明的核心依赖（缺失记"失败"）；
-# java 为 W24-A 新增语言包，缺失只记"警告"（未装如实报未安装，不报错）。
+# java（W24-A）、go（W26 卡 C）与 cpp（W29 集成收口，清偿 W28 已知边界）为
+# 新增可选语言包，缺失只记"警告"（未装如实报未安装，不报错）。
 _DOCTOR_LANGS: tuple[tuple[str, bool], ...] = (
     ("python", True),
     ("javascript", True),
     ("typescript", True),
     ("java", False),
+    ("go", False),
+    ("cpp", False),
 )
 
 
@@ -533,7 +834,7 @@ def _check_git() -> _DoctorRow:
 
 
 def _check_tree_sitter() -> list[_DoctorRow]:
-    """tree-sitter 语言包逐个 import 探测：核心三语言缺失记失败，java 缺失记警告。"""
+    """tree-sitter 语言包逐个 import 探测：核心三语言缺失记失败，java/go 等可选语言包缺失记警告。"""
     rows: list[_DoctorRow] = []
     for lang, core in _DOCTOR_LANGS:
         module_name = f"tree_sitter_{lang}"
@@ -957,17 +1258,67 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_apply.set_defaults(func=cmd_apply)
 
+    p_rename = sub.add_parser(
+        "rename",
+        help="safe-rename 符号重命名（默认 dry-run 预览 diff，--yes 才落盘）",
+    )
+    p_rename.add_argument(
+        "source", help="扫描范围（单 .py 文件或目录；目录递归扫 *.py，跳过忽略/隐藏目录）"
+    )
+    p_rename.add_argument("old_name", help="旧符号名（须为合法 python 标识符）")
+    p_rename.add_argument("new_name", help="新符号名（须为合法 python 标识符）")
+    p_rename.add_argument(
+        "--yes", action="store_true", help="真正写入源码（缺省 dry-run 只预览 diff 不落盘）"
+    )
+    p_rename.add_argument(
+        "--diff-only",
+        action="store_true",
+        help="显式只要 diff（与默认 dry-run 同效的语义别名，便于脚本化；与 --yes 互斥）",
+    )
+    p_rename.add_argument(
+        "--lang",
+        default="python",
+        help="语言（safe-rename MVP 仅支持 python，默认 python）",
+    )
+    p_rename.set_defaults(func=cmd_rename)
+
     p_diff = sub.add_parser(
         "diff", help="对比两次审计报告：fixed（已修复）/ new（新增）/ persisted（仍存在）三栏"
     )
     p_diff.add_argument("audit_a", help="基线审计：audit_id 或 report.json 路径")
     p_diff.add_argument("audit_b", help="当前审计：audit_id 或 report.json 路径")
     p_diff.add_argument(
+        "--from-seq",
+        type=int,
+        default=None,
+        metavar="N",
+        help="基线 A 的历史版本号（audit_id 专用；缺省取当前报告，行为零变化）",
+    )
+    p_diff.add_argument(
+        "--to-seq",
+        type=int,
+        default=None,
+        metavar="N",
+        help="当前 B 的历史版本号（audit_id 专用；缺省取当前报告，行为零变化）",
+    )
+    p_diff.add_argument(
         "--work-root",
         default=None,
         help="审计工作区根（按 audit_id 定位报告用，默认 .codeaudit）",
     )
     p_diff.set_defaults(func=cmd_diff)
+
+    p_resume = sub.add_parser(
+        "resume",
+        help="续跑被中断的审计任务（复用已完成阶段的盘上产物，ingest/index/detect 可跳过）",
+    )
+    p_resume.add_argument("audit_id", help="要续跑的审计任务 ID")
+    p_resume.add_argument(
+        "--work-root",
+        default=None,
+        help="审计工作区根（定位 audits.db / 工作副本 / 报告目录，默认 .codeaudit）",
+    )
+    p_resume.set_defaults(func=cmd_resume)
 
     p_doctor = sub.add_parser(
         "doctor", help="环境自检（零 API Key）：Python/git/语言包/.env/配置文件/Docker"

@@ -65,8 +65,9 @@ from audit.utils import guess_language, make_id
 from audit.workspace import WorkspaceContext
 
 # P0-3 AST 接线语言名单：python（W23 首批，三规则佐证 + PY-NONE-DEREF）、
-# java（W24 跟进，三规则佐证）；js/ts 规则仍为行级启发式，不在名单。
-_AST_LANGUAGES = ("python", "java")
+# java（W24 跟进）、go（W26-C 跟进）、cpp（W28-C 跟进，各三规则佐证）；
+# js/ts 规则仍为行级启发式，不在名单。
+_AST_LANGUAGES = ("python", "java", "go", "cpp")
 
 __all__ = [
     "IssueReviewFn",

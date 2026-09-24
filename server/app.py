@@ -34,6 +34,38 @@ W15-A1（docs/20 §4.1，全部 opt-in，env 缺省 = 治理关闭、既有行�
   名额在 generator finally 释放（正常收流 / 客户端断开 / 异常路径均覆盖）；
 - 存储接线——lifespan 启动 sweep 按 CODEAUDIT_SWEEP_GRACE_SEC 传 grace_seconds
   （卡B 契约参数，运行时签名探测兼容旧签名），yield 后关闭 store（close 幂等）。
+P0-9（resume 全接线）：POST /api/audits/{audit_id}/resume 断点续跑端点——守卫与
+CLI `codeaudit resume` 单源（cli._resume_guard_action 纯函数），running 滞留态按
+grace 窗口 sweep 自愈；config 自任务行 config_json 重建（cli._rebuild_config_
+from_task_json），后台执行复用 _launch_audit（run_audit 透传 resume_stages）。
+F6-R1（W26 第六轮审计清偿）：resume 重建 config 后复验 SOURCE_ROOTS 白名单
+（与创建端点同口径，越界/缺失 400），先校验后 mark_resuming，校验失败不改状态。
+W27-B（结果版本化）查询面：GET /api/audits/{id}/reports 报告历史摘要列表
+（404=任务不存在）、GET /api/audits/{id}/reports/{seq} 指定历史版本完整 JSON
+（404=任务或版本不存在）；双写在 TaskStore.set_report 同事务完成
+（audit/taskstore.py），当前报告 = 历史最大 seq，两端点跟随 /api/* 既有鉴权中间件。
+W28-B（safe-rename server 入口）：POST /api/rename 符号重命名端点——plan/apply
+两段式复用 audit/refactor/rename.py 的 plan_rename/apply_rename（tree-sitter
+identifier 节点区间替换，零 LLM、零子串/正则替换）。请求体 {"source_path",
+"old_name", "new_name", "apply"}：apply=false（缺省）= dry-run 只返回 diff 预览
+不落盘；apply=true 才落盘（对应 CLI --yes 语义，字段名避让布尔语境的 yes/apply
+混用，与补丁端点的 ApplyPatchRequest.yes 相互独立）。治理链全部前置（F6-R1
+教训：第一版即带全治理，不留待审计补课），逐条列出：
+1. 鉴权——跟随 /api/* 既有中间件（CODEAUDIT_API_TOKEN 非空时要求 Bearer /
+   X-API-Token 凭据，失败 401），端点零额外代码（中间件按 /api/ 前缀全覆盖）；
+2. SOURCE_ROOTS 白名单——CODEAUDIT_SOURCE_ROOTS 非空时 source_path 必须
+   resolve 后位于任一根之内，越界 400（复用 _ensure_source_allowed，与创建/
+   resume 端点同口径；白名单判定先于存在性检查，不泄露越界路径在本机的存在性）；
+3. 限流——POST 属写方法，被既有全局中间件滑动窗口覆盖（CODEAUDIT_RATE_LIMIT>0
+   超限 429，W26 卡 A 定性），端点零额外代码；
+4. 业务守卫——source_path 空/不存在 400；plan 阶段 errors 非空（非法名/
+   old==new/多定义点/非 UTF-8 或解析失败）→ 400 中文 detail（plan.errors 原文
+   拼接），计划阶段即拒绝、绝不落盘（apply=true 亦然）；
+5. apply 复检失败（目标内容与计划时不一致/AST 复检失败）→ 409 Conflict +
+   逐文件原因——rename 模块 all-or-nothing 已保证零落盘，409=请求前提与资源
+   当前状态冲突的准确语义（区别于 500 的服务端故障）。
+响应：{"ok", "applied", "files", "replace_points", "diffs", "errors"}，dry-run
+时 applied=false；解析/落盘等阻塞操作经 asyncio.to_thread 执行（apply_patch 先例）。
 """
 
 from __future__ import annotations
@@ -67,10 +99,12 @@ from sse_starlette.sse import EventSourceResponse
 from audit import __version__ as _AUDIT_VERSION
 from audit.config import AuditConfig
 from audit.models import AuditReport, Category, Severity
-from audit.orchestrator.pipeline import run_audit  # noqa: F401 —— 模块级引用，供测试注入替身
+from audit.orchestrator.pipeline import resume_stage_done, run_audit  # noqa: F401 —— 模块级引用，供测试注入替身
+from audit.refactor.rename import apply_rename, plan_rename
 from audit.report.render import render_html, render_markdown
 from audit.taskstore import TaskStore
 from audit.utils import new_audit_id
+from cli import _rebuild_config_from_task_json, _resume_guard_action, _resume_sweep_grace_seconds
 
 # 项目根目录（web/ 静态演示页所在）
 _ROOT = Path(__file__).resolve().parent.parent
@@ -354,6 +388,22 @@ class ApplyPatchRequest(BaseModel):
     yes: bool = Field(False, description="true=写入源码；false（默认）=dry-run 预览不落盘")
 
 
+class RenameRequest(BaseModel):
+    """POST /api/rename 请求体（W28-B safe-rename 符号重命名）。"""
+
+    source_path: str = Field(..., description="待重命名扫描范围（单 .py 文件或目录，目录时递归）")
+    old_name: str = Field(..., description="现名（须为合法 python 标识符且非关键字）")
+    new_name: str = Field(..., description="新名（须为合法 python 标识符且非关键字，且 != old_name）")
+    apply: bool = Field(
+        False,
+        description="true=写入源码；false（默认）=dry-run 预览不落盘（对应 CLI --yes 语义，避让布尔字段名 yes）",
+    )
+    language: str = Field(
+        "python",
+        description="目标语言（缺省 python，与 CLI --lang 同语义）；非 python 值由 plan_rename 校验拒绝为 400",
+    )
+
+
 def _wrapped_emitter(store: TaskStore, audit_id: str):
     """构造任务工作线程内的事件发射器：事件边界检查协作取消 + 事件落库。
 
@@ -379,7 +429,9 @@ def _cleanup_if_ghost(store: TaskStore, audit_id: str) -> None:
         store.cleanup_workdir(audit_id)
 
 
-def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
+def _run_audit_sync(
+    audit_id: str, config: AuditConfig, resume_stages: frozenset[str] | None = None
+) -> None:
     """任务工作线程主体（W11 §1.2）：独立事件循环执行流水线，状态与产物落 store。
 
     run_audit 经 ``import server.app as _self`` 延迟取模块属性（而非闭包捕获模块级
@@ -390,12 +442,23 @@ def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
     F6：入参 config 是创建请求时构造的原始对象（内存中带真实 api_key），
     绝不自 store 的 config_json 反序列化——落库值已脱敏为 "<redacted>"。
     M-4：幽灵收尾（行已删）时同步回收工作目录与上传 zip。
+    P0-9：resume_stages 非 None 时按断点续跑形态调用 run_audit（audit_id=任务 ID +
+    resume_stages=done）——audit_id 决定 task_root（<work_root>/<audit_id>），续跑
+    必须复用原任务目录才能命中工作副本/索引/断点产物；None（普通创建）保持既有
+    调用形状逐字节不变（不传 audit_id，报告内部 ID 与任务 ID 是两个体系）——
+    假流水线替身多只声明 (config, emitter) 两参，续跑替身才需接受关键字。
     """
     import server.app as _self  # 运行期取模块属性，供测试注入替身（monkeypatch 生效）
 
     store = _get_store()
+    emitter = _wrapped_emitter(store, audit_id)
     try:
-        report = asyncio.run(_self.run_audit(config, _wrapped_emitter(store, audit_id)))
+        if resume_stages is None:
+            report = asyncio.run(_self.run_audit(config, emitter))
+        else:
+            report = asyncio.run(
+                _self.run_audit(config, emitter, audit_id=audit_id, resume_stages=resume_stages)
+            )
     except BaseException as exc:  # noqa: BLE001 —— CancelledError 等异常路径也必须落终态
         store.set_status(audit_id, "failed", error=f"{type(exc).__name__}: {exc}")
         _cleanup_if_ghost(store, audit_id)
@@ -406,7 +469,9 @@ def _run_audit_sync(audit_id: str, config: AuditConfig) -> None:
     _cleanup_if_ghost(store, audit_id)
 
 
-async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
+async def _run_audit_task(
+    audit_id: str, config: AuditConfig, resume_stages: frozenset[str] | None = None
+) -> None:
     """后台执行审计任务（外层 task）：闸门排队 → 置 running → 线程执行。
 
     W11 §1.2：审计任务经 asyncio.to_thread 迁到独立线程（线程内独立事件循环，
@@ -415,7 +480,7 @@ async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
     await（超出的任务停留既有 queued 状态）；acquired 标志 + finally 严格配对
     release 防闸门泄漏——外层 task 被 cancel 时（含排队中/执行中被取消）release
     仍须执行。任务状态与产物的落库全部在 _run_audit_sync 内完成（DELETE 竞态由
-    store 的幽灵静默语义兜底）。
+    store 的幽灵静默语义兜底）。P0-9：resume_stages 透传给工作线程（断点续跑）。
     """
     acquired = False
     gate = _get_run_gate()  # acquire/release 必须同一信号量实例（M-5 惰性初始化）
@@ -423,17 +488,37 @@ async def _run_audit_task(audit_id: str, config: AuditConfig) -> None:
         await gate.acquire()
         acquired = True
         _get_store().set_status(audit_id, "running")
-        await asyncio.to_thread(_run_audit_sync, audit_id, config)
+        await asyncio.to_thread(_run_audit_sync, audit_id, config, resume_stages)
     finally:
         if acquired:
             gate.release()
+
+
+def _launch_audit(
+    audit_id: str, config: AuditConfig, resume_stages: frozenset[str] | None = None
+) -> None:
+    """拉起后台任务并登记本 worker 运行句柄（创建与 resume 端点共用，P0-9）。
+
+    resume_stages 仅续跑路径非 None（断点续跑），普通创建为 None 走既有形态。
+    """
+    task = asyncio.create_task(_run_audit_task(audit_id, config, resume_stages))
+    _RUNNING[audit_id] = task
+    _TASKS.add(task)
+
+    def _on_done(done_task: asyncio.Task) -> None:
+        # R1-7：任务结束释放弱引用集与本 worker 运行句柄，防泄漏
+        _TASKS.discard(done_task)
+        if _RUNNING.get(audit_id) is done_task:
+            _RUNNING.pop(audit_id, None)
+
+    task.add_done_callback(_on_done)
 
 
 def _start_audit(audit_id: str, config: AuditConfig) -> None:
     """建任务公共流程（POST /api/audits 与 /api/audits/upload 共用）。
 
     报告目录按任务隔离（R1-30）→ 任务行落 store → 容量淘汰（store.prune）→
-    拉起后台任务并登记本 worker 运行句柄（_RUNNING）。
+    拉起后台任务（_launch_audit）并登记本 worker 运行句柄（_RUNNING）。
     """
     if not config.out_dir:
         config.out_dir = str(Path(config.work_root) / audit_id / "reports")
@@ -455,17 +540,7 @@ def _start_audit(audit_id: str, config: AuditConfig) -> None:
         ),
     )
     store.prune(_AUDITS_MAX)
-    task = asyncio.create_task(_run_audit_task(audit_id, config))
-    _RUNNING[audit_id] = task
-    _TASKS.add(task)
-
-    def _on_done(done_task: asyncio.Task) -> None:
-        # R1-7：任务结束释放弱引用集与本 worker 运行句柄，防泄漏
-        _TASKS.discard(done_task)
-        if _RUNNING.get(audit_id) is done_task:
-            _RUNNING.pop(audit_id, None)
-
-    task.add_done_callback(_on_done)
+    _launch_audit(audit_id, config)
 
 
 def _task_list_item(task: dict[str, Any]) -> dict[str, Any]:
@@ -685,6 +760,78 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
         return Response(status_code=204)
 
+    @app.post("/api/audits/{audit_id}/resume")
+    async def resume_audit(audit_id: str) -> dict[str, Any]:
+        """续跑被中断的审计任务（P0-9，守卫与 CLI `codeaudit resume` 单源同语义）。
+
+        - 可续跑态：interrupted；failed 且带阶段进度（stage_done 非空）；running 且
+          带阶段进度（SIGKILL 级硬杀滞留态）时先按 grace 窗口
+          （CODEAUDIT_SWEEP_GRACE_SEC，缺省 30s）sweep 自愈，重读后已变
+          interrupted 即续跑、仍 running（窗口内有活动，疑似真有执行体在跑）→ 409；
+        - 其余状态不可续跑 → 409（文案与 CLI 的「不可续跑」一致）；任务不存在 → 404；
+        - 守卫判定复用 cli._resume_guard_action 纯函数；config 从任务行 config_json
+          重建（cli._rebuild_config_from_task_json，脱敏 api_key 剔除、按环境补全）；
+        - F6-R1：重建出的 config.source_path 复经 _ensure_source_allowed 白名单校验
+          （空/缺失 400，越界 400），先校验后 mark_resuming——校验失败不改任务状态；
+        - mark_resuming 复位 → resume_stage_done 判定可跳过阶段（宁缺勿跳）→
+          后台执行 run_audit(resume_stages=done)：闸门/线程/事件流机制照抄创建端点
+          （_launch_audit 共用），成功后 set_report + done；
+        - 响应：任务行白名单字段（与任务列表同形态，不泄漏 config_json）。
+        """
+        store = _get_store()
+        entry = store.get(audit_id)
+        if entry is None:
+            raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
+        status = str(entry.get("status") or "")
+        progress = store.get_stage_done(audit_id)
+        action = _resume_guard_action(status, progress)
+        if action == "sweep":
+            # SIGKILL 滞留自愈：先按窗口清扫（只清 updated_at 早于 now-grace 的行）
+            # 再重读定夺；仍 running = 窗口内有 updated_at 活动，不冒险双执行体续跑。
+            store.sweep_interrupted(grace_seconds=_resume_sweep_grace_seconds())
+            entry = store.get(audit_id)
+            status = str((entry or {}).get("status") or "")
+            action = _resume_guard_action(status, progress)
+            if action == "sweep":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"任务 {audit_id} 仍在运行或刚有活动，请稍后重试",
+                )
+        if action == "reject":
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"任务 {audit_id} 状态为 {status}，不可续跑"
+                    "（仅 interrupted，或带阶段进度的 failed 支持 resume）。"
+                ),
+            )
+        config = _rebuild_config_from_task_json(str((entry or {}).get("config_json") or ""))
+        # F6-R1（第六轮审计）：resume 与创建同受 SOURCE_ROOTS 白名单约束——config_json
+        # 落库后可经迁移/篡改与创建时不同，重建出的 config 必须复验，堵住
+        # 「创建端点 400、resume 端点 200」的绕过路径。空 source_path（config_json
+        # 空/损坏时 from_env 缺省 ""）同样直接 400：Path('') resolve 后是进程 cwd，
+        # 交由白名单判定会产生误导性报错甚至放行 cwd；无 source 的任务 run_audit
+        # 也必然无法执行。顺序关键：先校验后 mark_resuming，校验失败不改任务状态。
+        if not str(config.source_path or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"任务 {audit_id} 的任务记录缺少 source_path，无法续跑",
+            )
+        _ensure_source_allowed(Path(config.source_path))
+        if not store.mark_resuming(audit_id):
+            raise HTTPException(
+                status_code=409,
+                detail=f"任务 {audit_id} 状态复位失败（状态已变化，请查列表后重试）。",
+            )
+        done = resume_stage_done(store, audit_id, config)
+        if not config.out_dir:  # 报告目录按任务隔离（R1-30，与 _start_audit 同口径）
+            config.out_dir = str(Path(config.work_root) / audit_id / "reports")
+        _launch_audit(audit_id, config, resume_stages=done)
+        row = store.get(audit_id)
+        if row is None:  # pragma: no cover —— 与 DELETE/prune 的极端竞态，如实 404
+            raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
+        return _task_list_item(row)
+
     @app.get("/api/audits/{audit_id}/events")
     async def audit_events(audit_id: str) -> EventSourceResponse:
         if not _get_store().exists(audit_id):
@@ -732,6 +879,35 @@ def create_app() -> FastAPI:
         if fmt == "html":
             return HTMLResponse(render_html(report))
         raise HTTPException(status_code=400, detail=f"不支持的格式：{format}（可选 md/html/json）")
+
+    @app.get("/api/audits/{audit_id}/reports")
+    async def list_report_versions(audit_id: str) -> dict[str, Any]:
+        """报告历史版本摘要列表（W27-B 结果版本化）：seq/created_at/health_score/
+        issue_count（不含 report_json 全文），seq 升序；当前报告即历史最大 seq。
+        任务不存在 404（任务存在但尚无任何版本返回空列表，非 404）；鉴权跟随
+        /api/* 既有中间件，形态对齐 list_issues / list_patches（total + 列表）。
+        """
+        store = _get_store()
+        if not store.exists(audit_id):
+            raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
+        versions = store.list_reports(audit_id)
+        return {"total": len(versions), "reports": versions}
+
+    @app.get("/api/audits/{audit_id}/reports/{seq}")
+    async def get_report_version(audit_id: str, seq: int) -> JSONResponse:
+        """取指定历史版本（seq 从 1 起）的完整报告 JSON（W27-B）。
+
+        404 = 任务不存在或该版本不存在；seq 非整数由 FastAPI 路径校验回 422
+        （与 patches/{patch_index} 的 int 路径参数既有约定一致）。不要求任务处于
+        done 态：resume/重跑推进中，既有历史版本依然只读可见。
+        """
+        store = _get_store()
+        if not store.exists(audit_id):
+            raise HTTPException(status_code=404, detail=f"任务不存在：{audit_id}")
+        report = store.get_report(audit_id, seq=seq)
+        if report is None:
+            raise HTTPException(status_code=404, detail=f"报告版本不存在：seq={seq}")
+        return JSONResponse(content=report)
 
     @app.get("/api/audits/{audit_id}/issues")
     async def list_issues(
@@ -836,6 +1012,59 @@ def create_app() -> FastAPI:
             raise HTTPException(
                 status_code=500, detail=f"补丁应用失败（未保留任何变更）：{type(exc).__name__}: {exc}"
             ) from exc
+
+    @app.post("/api/rename")
+    async def rename_symbol(req: RenameRequest) -> dict[str, Any]:
+        """safe-rename 符号重命名（W28-B）：dry-run 预览 / 落盘，复用 audit.refactor.rename。
+
+        - 治理链全部前置（F6-R1 教训，第一版即带全治理）：
+          1. 鉴权/限流：跟随 /api/* 既有中间件（token 非空 401、POST 滑动窗口 429），
+             本端点零额外代码（中间件按 /api/ 前缀 + 请求方法全覆盖）；
+          2. SOURCE_ROOTS 白名单：越界 400（与创建/resume 同款 _ensure_source_allowed），
+             判定先于存在性检查——不向调用方泄露越界路径在本机的存在性；
+        - source_path 空 / 不存在 → 400；plan 阶段 errors 非空（非法名 / old==new /
+          多定义点 / 非 UTF-8 或解析失败）→ 400 中文 detail，计划阶段即拒绝绝不落盘
+          （apply=true 亦然，rename 模块 plan.ok=False 时不产出任何补丁）；
+        - language 缺省 "python"（零变化，与 CLI --lang 同语义）透传 plan_rename；
+          非法值（如 "go"）同样进 plan.errors → 400 中文 detail（含「暂不支持」），
+          端点零新增分支（复用既有 plan.ok=False 拒绝路径）；
+        - apply=true 且复检失败（目标内容与计划时不一致 / 替换后 AST 复检失败）→
+          409 Conflict + 逐文件原因：all-or-nothing 已保证零落盘，409 = 请求前提
+          （基于计划时的文件内容）与资源当前状态冲突的准确语义，区别于 500 的
+          服务端故障（选型说明，对应任务卡「500 或 409 二选一」）；
+        - 响应：{"ok", "applied", "files", "replace_points", "diffs", "errors"}；
+          apply=false（缺省）= dry-run 只返回 diff 预览不落盘（applied=false）。
+        """
+        if not req.source_path.strip():
+            raise HTTPException(status_code=400, detail="source_path 不能为空")
+        source = Path(req.source_path)
+        # W28-B：白名单先于存在性检查（与创建端点 create_audit 同口径、同顺序）
+        _ensure_source_allowed(source)
+        if not source.exists():
+            raise HTTPException(status_code=400, detail=f"源路径不存在：{req.source_path}")
+        # tree-sitter 解析与落盘为阻塞操作，照 apply_patch 先例挪线程池（不饿死事件循环）
+        plan = await asyncio.to_thread(
+            plan_rename, str(source), req.old_name, req.new_name, language=req.language
+        )
+        if not plan.ok:
+            raise HTTPException(
+                status_code=400,
+                detail="重命名计划阶段即拒绝（未做任何修改）：" + "；".join(plan.errors),
+            )
+        result = await asyncio.to_thread(apply_rename, plan, dry_run=not req.apply)
+        if not result.ok:
+            raise HTTPException(
+                status_code=409,
+                detail="重命名应用失败（all-or-nothing，未写入任何文件）：" + "；".join(result.errors),
+            )
+        return {
+            "ok": True,
+            "applied": result.applied,
+            "files": [p.file for p in plan.patches],
+            "replace_points": plan.total_replace_points,
+            "diffs": dict(result.diffs),
+            "errors": [],
+        }
 
     @app.get("/api/audits/{audit_id}/summary")
     async def get_summary(audit_id: str) -> dict[str, Any]:

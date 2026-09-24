@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -76,3 +77,26 @@ class TestLLMEnhancement:
         card = await build_architecture(pipeline_ctx)
         assert card.text == "只有摘要。"
         assert "python" in card.tech_stack  # 其余字段回落启发式
+
+    async def test_empty_response_logs_debug_not_warning(self, pipeline_ctx, caplog):
+        """F5-R3：离线纯规则模式（FakeLLM 空脚本耗尽）空响应是常态而非故障——
+        不打「增强失败」warning（此前误导用户以为出错），降级 debug 记账。"""
+        with caplog.at_level(logging.DEBUG, logger="audit.understand.architecture"):
+            card = await build_architecture(pipeline_ctx)
+        assert "python" in card.tech_stack  # 启发式底座照常产出
+        assert pipeline_ctx.llm.calls  # 请求已发出，空脚本耗尽返回空 content
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert warnings == []  # 不再误报「LLM 增强失败」
+        assert any(
+            r.levelno == logging.DEBUG and "空响应" in r.getMessage()
+            for r in caplog.records
+        )
+
+    async def test_non_empty_garbage_still_warns(self, pipeline_ctx, caplog):
+        """非空内容的解析失败是真实增强故障——W15 的 warning 可见性语义保持。"""
+        pipeline_ctx.llm = FakeLLMClient([{"content": "抱歉，我无法输出 JSON……"}])
+        with caplog.at_level(logging.DEBUG, logger="audit.understand.architecture"):
+            card = await build_architecture(pipeline_ctx)
+        assert "python" in card.tech_stack  # 降级为启发式底座
+        warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert any("LLM 增强失败" in r.getMessage() for r in warnings)

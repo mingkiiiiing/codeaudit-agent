@@ -22,7 +22,7 @@ python demo/run_demo.py          # 或 make demo
 
 ## 特性
 
-- **双通道检测**：tree-sitter AST + 正则的静态规则通道负责高召回、零成本；LLM Agent 通道以规则命中为线索，注入符号表 / 调用链上下文并可主动调用 `find_references` 等工具跨文件取证，再经 Verify Agent 复核，负责高精确。覆盖 bug / performance / security / style 四类问题，内置静态规则库 **82 条**（Python 51 / JavaScript 24 / TypeScript 专属 7，含 JS/TS 共享 9），另有全库后处理扫描器：克隆检测（≥6 行滚动哈希）、死代码（私有符号零引用保守口径）、依赖 CVE 匹配（27 条经核实的真实 CVE 种子库，`CODEAUDIT_OSV_ONLINE=1` 可叠加 OSV 在线全量口径）、配置文件明文密钥扫描（.env/yaml/properties 等，自动打码）与冗余依赖检出（DEP-UNUSED）。
+- **双通道检测**：tree-sitter AST + 正则的静态规则通道负责高召回、零成本；LLM Agent 通道以规则命中为线索，注入符号表 / 调用链上下文并可主动调用 `find_references` 等工具跨文件取证，再经 Verify Agent 复核，负责高精确。覆盖 bug / performance / security / style 四类问题，内置静态规则库 **93 条**（Python 53 / JavaScript 24 / TypeScript 专属 16 / Java 3 / Go 3 / C++ 3，含 JS/TS 共享规则；污点传播等 AST-only 规则随语言包演进），另有全库后处理扫描器：克隆检测（≥6 行滚动哈希）、死代码（私有符号零引用保守口径）、依赖 CVE 匹配（27 条经核实的真实 CVE 种子库，`CODEAUDIT_OSV_ONLINE=1` 可叠加 OSV 在线全量口径）、配置文件明文密钥扫描（.env/yaml/properties 等，自动打码）与冗余依赖检出（DEP-UNUSED）。
 - **规则手册自动生成**（0.3.0）：规则注册表即文档——`python scripts/gen_rule_docs.py` 从注册表生成规则手册页（含每条规则的判定说明与统计），随[文档站](https://mingkiiiiing.github.io/codeaudit-agent/rules/)发布，规则与文档不再漂移。
 - **修复闭环**：对 critical / high 问题生成 unified diff，`git apply --check` 后在沙箱中重解析语法、运行项目现有测试，只有验证通过的 Patch 才标记 `verified`，其余回退 `needs-review`，不阻断流程。0.4.0 起 **JavaScript / TypeScript 同样进入修复与单测验证闭环**（`node --check` 语法验证 + `node --test` 单测验证，node 不可用时诚实降级标注）。
 - **单测生成**：对已验证 Patch 涉及的目标函数生成 pytest 用例，沙箱运行，失败带 traceback 重试（≤2 次），仍失败则剔除；生成文件只写入 `<src>/tests/generated/`，可整目录删除。
@@ -270,6 +270,27 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 
 已完成的实测（240 条金标 / 10 个项目集）：**在线双通道真跑**（2026-09-15，GLM-5.3 Flash）Precision(critical+high) **0.884**、Recall **0.900**、F1 0.892，详见 [bench/results/run_20260915_online_w16.md](bench/results/run_20260915_online_w16.md)；离线纯规则基线（2026-09-11）Precision 1.000、Recall 0.844、P50 5.0 s/KLOC，详见 [bench/results/run_20260911_offline.md](bench/results/run_20260911_offline.md)。
 
+### 指标复现
+
+官方金标口径（**240 条标签**，`bench/datasets/goldset.jsonl`，`--goldset` 缺省即指向该文件）下的离线一键复现命令（在仓库根执行）：
+
+```bash
+python -m bench.run --projects \
+  tests/samples/demo_proj \
+  bench/datasets/projects/blogengine \
+  bench/datasets/projects/blogengine_inj \
+  bench/datasets/projects/datatools \
+  bench/datasets/projects/datatools_inj \
+  bench/datasets/projects/demo_proj_inj \
+  bench/datasets/projects/shopcore \
+  bench/datasets/projects/shopcore_inj \
+  bench/datasets/projects/webapi \
+  bench/datasets/projects/webapi_inj \
+  --offline --out bench/results/复现.md
+```
+
+`--offline` 会给 run_bench 透传 `config_overrides={"api_key": ""}`（纯规则通道），避免 `.env` 中的 `GLM_API_KEY` 使 LLM 通道混入本应离线的评测。预期结果（critical+high 层级）：**Precision = 1.000、Recall = 0.8444、F1 = 0.9157**，`goldens_total = 240`；实测记录见 [bench/results/p010_goldset_验收.md](bench/results/p010_goldset_验收.md)。
+
 ## 质量攻坚（W5 / W6）
 
 **Wave 5 质量攻坚**：三路只读审查 + 用本工具审计自身的 Dogfood 自审计共产出 **68 项发现**（代码质量 30 / 测试缺口 22 / 文档一致性 13 / 自审计 6），修复其中 **25 项**核心问题——含 simple 模式 LLM 审查失效的 critical 缺陷、ingest 失败门控、LLM 客户端与索引连接的资源收口、zip 炸弹与测试目标注入防护等（逐条见 [CHANGELOG](CHANGELOG.md)）；新增 **34 个**跨阶段联调用例（`tests/integration/`，全离线 < 5 分钟）；`bench/stress/` 一键产出 2000 文件级合成项目的吞吐、并发与内存压测基线（2000 文件档纯规则审计 0.245 s/KLOC，远优于 30 s/KLOC 目标），数据见 [bench/results/stress_20260912.md](bench/results/stress_20260912.md)。
@@ -286,7 +307,7 @@ diff_ref = "origin/main"                  # PR 增量审计的对比 ref
 |---|---|---|---|
 | 1 | 上传项目代码文件夹 | ✅ | zip / 目录双入口（[tests/integration/test_zip_diff_fallback.py](tests/integration/test_zip_diff_fallback.py)） |
 | 2 | 自动遍历文件、理解整体架构 | ✅ | ingest + index + understand 架构卡片（[docs/02](docs/02-系统架构设计.md)） |
-| 3 | 自动检测 bug、性能问题、规范问题 | ✅ | 82 条静态规则（含圈复杂度数值化/并发竞态/ORM N+1/动态执行/Web 路由安全标疑）+ 全库扫描器（克隆/死代码/依赖 CVE/配置密钥/冗余依赖）+ LLM 双通道（[规则手册](https://mingkiiiiing.github.io/codeaudit-agent/rules/)） |
+| 3 | 自动检测 bug、性能问题、规范问题 | ✅ | 93 条静态规则（含污点传播/圈复杂度数值化/并发竞态/ORM N+1/动态执行/Web 路由安全标疑，覆盖 Python/JS/TS/Java/Go/C++ 六语言）+ 全库扫描器（克隆/死代码/依赖 CVE/配置密钥/冗余依赖）+ LLM 双通道（[规则手册](https://mingkiiiiing.github.io/codeaudit-agent/rules/)） |
 | 4 | 自动生成修复代码 | ✅ | fix 阶段三重验证闭环（[tests/integration/test_fix_tests_loop.py](tests/integration/test_fix_tests_loop.py)） |
 | 5 | 自动生成重构方案 | ✅（0.4.0 补齐） | `audit/refactor` + 报告「重构方案」章节（[docs/12 §7](docs/12-Wave7总体方案-赛题合规与提速.md)） |
 | 6 | 自动生成单元测试用例 | ✅ | testgen 生成 + 沙箱运行 + 失败重试（同上联调用例） |

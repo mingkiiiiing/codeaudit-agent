@@ -2,11 +2,11 @@
 
 > 本页由 `scripts/gen_rule_docs.py` 从规则注册表（audit/detect/registry.py 的 DEFAULT_REGISTRY）自动生成——请勿手改；新增或调整规则后重新运行即可。
 
-当前共 **86** 条内置规则；JS/TS 共享规则（security 类）同时作用于两种语言。
+当前共 **93** 条内置规则；JS/TS 共享规则（security 类）同时作用于两种语言。
 
 ## 规则总表
 
-### Python（52 条）
+### Python（53 条）
 
 #### bug 缺陷（17 条）
 
@@ -61,7 +61,7 @@
 | PY-TODO-FIXME | Python | style | low | 注释中的 TODO/FIXME/HACK 标记：代表已知未完成事项或临时绕过，应在交付前清理或建跟踪项。 |
 | PY-TYPE-COMPARE | Python | style | low | 用 `type(x) ==/is ...` 做类型判断：绕开继承体系（子类实例判为不等），且绕过 `__eq__` 语义；应改用 `isinstance(x, T)`。 |
 
-#### security 安全（14 条）
+#### security 安全（15 条）
 
 | 规则 ID | 语言 | 类别 | 严重度 | 说明 |
 | --- | --- | --- | --- | --- |
@@ -76,6 +76,7 @@
 | PY-PII-LOG | Python | security | medium | 疑似将个人敏感信息（手机号/身份证号等）写入日志且未脱敏：依据个人信息保护相关要求（如《个人信息保护法》的最小必要原则），日志中的个人信息应脱敏或最小化，明文落盘会随日志采集/归档扩散泄露面，且难以事后回收。 |
 | PY-PII-SQL | Python | security | medium | 疑似将个人敏感信息（手机号/身份证号/邮箱等）以明文写入数据库：SQL 写库语句（INSERT INTO/UPDATE/CREATE TABLE）中出现 PII 列名，或执行 SQL 时绑定了 PII 变量。依据个人信息保护相关要求（如《个人信息保护法》的最小必要原则），敏感个人信息的存储应加密/脱敏/最小化，明文入库会随数据库、备份与导出链路长期留存并扩大泄露面。注意：本规则关注数据最小化而非 SQL 注入——参数化绑定（占位符）本身能防注入，但 PII 变量明文绑定入库仍会命中；非敏感字段的参数化查询不报。建议：对敏感字段做字段级加密、单向哈希（需检索时用 HMAC/盲索引），或仅收集与存储业务必需的最小字段。 |
 | PY-SQL-INJECTION | Python | security | critical | SQL 语句以字符串拼接方式引入外部输入：攻击者可注入任意 SQL，导致数据泄露/篡改/删除。 |
+| PY-TAINT-UNSAFE-SINK | Python | security | high | 外部输入（request.* / input / sys.argv）经函数内赋值链传播后流入危险汇点（execute/executemany、eval/exec、os.system/popen、subprocess 家族）：攻击者可借外部输入注入 SQL / 代码 / 命令；请改用参数化查询、固定参数列表或白名单映射，不要把外部输入拼接进执行语句。 |
 | PY-UNSAFE-DESERIALIZE | Python | security | high | 使用 pickle.loads 或未指定安全 Loader 的 yaml.load 反序列化外部数据：可被构造为任意代码执行。 |
 | PY-WEB-NO-RATE-LIMIT | Python | security | low | 文件引入 FastAPI/Flask 路由却未 import 任何限流特征（slowapi/flask_limiter/fastapi_limiter/ratelimit/limits 等）且无 @x.limit( 用法：端点缺少速率限制，可被暴力枚举/爬取/DoS 滥用。低置信标疑——限流可能由网关/反向代理/全局中间件承担，请按部署架构甄别；每文件只报一次。 |
 | PY-WEB-ROUTE-NO-AUTH | Python | security | medium | FastAPI/Flask 路由装饰器的处理函数无任何鉴权特征（装饰器无 dependencies=/Depends(/Security(，同文件无 token/session/auth/permission 校验线索，函数上方无 auth/login/required 守卫装饰器）：端点可能匿名暴露敏感操作。低置信标疑——健康检查/公开页面本就无需鉴权，请按业务语义甄别。 |
@@ -175,6 +176,54 @@
 | JAVA-SQL-INJECTION | Java | security | critical | SQL 语句以字符串拼接方式引入变量：攻击者可注入任意 SQL，导致数据泄露/篡改/删除。 |
 
 ## 规则明细
+
+### CPP-HARDCODED-SECRET
+
+- 语言：
+- 类别：security 安全（security）
+- 严重度：critical
+
+密钥/口令硬编码在源码中：随代码库扩散，任何有读权限的人都能获取凭据。
+
+### CPP-LONG-FUNCTION
+
+- 语言：
+- 类别：style 风格（style）
+- 严重度：medium
+
+函数体超过 80 行：职责过多、难以测试与复用，应拆分为更小的函数。
+
+### CPP-SQL-INJECTION
+
+- 语言：
+- 类别：security 安全（security）
+- 严重度：critical
+
+SQL 语句以字符串拼接/格式化方式引入变量：攻击者可注入任意 SQL，导致数据泄露/篡改/删除。
+
+### GO-HARDCODED-SECRET
+
+- 语言：
+- 类别：security 安全（security）
+- 严重度：critical
+
+密钥/口令硬编码在源码中：随代码库扩散，任何有读权限的人都能获取凭据。
+
+### GO-LONG-FUNCTION
+
+- 语言：
+- 类别：style 风格（style）
+- 严重度：medium
+
+函数体超过 80 行：职责过多、难以测试与复用，应拆分为更小的函数。
+
+### GO-SQL-INJECTION
+
+- 语言：
+- 类别：security 安全（security）
+- 严重度：critical
+
+SQL 语句以字符串拼接/格式化方式引入变量：攻击者可注入任意 SQL，导致数据泄露/篡改/删除。
 
 ### JAVA-HARDCODED-SECRET
 
@@ -1246,6 +1295,30 @@ import subprocess
 subprocess.run(['git', 'push', 'origin', 'main'], check=True)  # 失败即抛 CalledProcessError
 ```
 
+### PY-TAINT-UNSAFE-SINK
+
+- 语言：Python
+- 类别：security 安全（security）
+- 严重度：high
+
+外部输入（request.* / input / sys.argv）经函数内赋值链传播后流入危险汇点（execute/executemany、eval/exec、os.system/popen、subprocess 家族）：攻击者可借外部输入注入 SQL / 代码 / 命令；请改用参数化查询、固定参数列表或白名单映射，不要把外部输入拼接进执行语句。
+
+**反例**
+
+```python
+def show_user(request, cursor):
+    uid = request.args.get("uid")
+    cursor.execute("SELECT * FROM users WHERE id=" + uid)
+```
+
+**正例**
+
+```python
+def show_user(request, cursor):
+    uid = request.args.get("uid")
+    cursor.execute("SELECT * FROM users WHERE id=?", (uid,))
+```
+
 ### PY-TODO-FIXME
 
 - 语言：Python
@@ -1470,7 +1543,7 @@ function transform(raw: string): Record<string, unknown> {
 
 | 维度 | 分布 |
 | --- | --- |
-| 规则总数 | 86 |
-| 按语言 | Python 52 / JavaScript 24 / TypeScript 16 / Java 3（JS/TS 共享规则在两种语言下重复计数） | |
-| 按类别 | bug 26 / performance 11 / style 25 / security 24 |
-| 按严重度 | critical 8 / high 15 / medium 33 / low 30 |
+| 规则总数 | 93 |
+| 按语言 | Python 53 / JavaScript 24 / TypeScript 16 / Java 3（JS/TS 共享规则在两种语言下重复计数） | |
+| 按类别 | bug 26 / performance 11 / style 27 / security 29 |
+| 按严重度 | critical 12 / high 16 / medium 35 / low 30 |

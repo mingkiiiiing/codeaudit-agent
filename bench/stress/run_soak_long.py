@@ -2,7 +2,7 @@
 
 用法::
 
-    python -m bench.stress.run_soak_long [--duration 600] [--quick] [--port 8947] [--out md路径]
+    python -m bench.stress.run_soak_long [--duration 600] [--quick] [--drain-sec 60] [--port 8947] [--out md路径]
 
 与 bench.stress.run_soak.py（W10-A4）的差异（F9 归因需要更密的任务样本与更长窗口）：
   - 负载时长默认 600s（--quick 固定 300s），任务提交周期 6s（run_soak 为 8s）——
@@ -24,6 +24,17 @@ W12 新增口径：
     且该目录不存在 .env，F7 自动加载无从触发），显式注入 CODEAUDIT_DB_PATH 指向
     临时 db，全部临时产物 finally 清理。
 
+W29 新增口径（卡 B：drain 排水等待）：
+  - 接纳窗口关闭后，对仍未终态的被接纳任务追加排水等待：继续轮询至 drain 截止
+    （每任务截止 = max(自身 240s 审计上限, 窗口关闭 + drain_sec)）；drain 内转终态计入
+    drain_rescued（「排水收编」），drain 截止仍未终态计入 drain_still_running 并照旧按
+    timeout 参与终态率拒绝——本机 CPU 负载高时末尾在途任务的「慢」不再被测量口径
+    误判为「坏」（第九轮审计定性：固定窗口关闭立即统计对负载敏感）；
+  - 终态率口径本身不变（仍 = (done+failed)/admitted），仅统计时点后移：drain 截止不早于
+    各任务原上限，故只会改善 rate、不会恶化；退出码语义不变（终态率判定仍要求 rate >= 1.0）；
+  - 参数：--drain-sec（CLI 优先）> 环境变量 CODEAUDIT_SOAK_DRAIN_SEC > 默认 60；
+    0 = 关闭（等价既有行为）。排水归因见报告「排水归因」行（drain_split 纯函数可单测）。
+
 结束判定（全部通过 → 退出码 0；任一失败 → 1）：
   1. 无 5xx；2. 被接纳任务终态率 100%；3. RSS 稳态斜率 < 1 MB/min（三态：PASS/DEFER/FAIL）；
   4. 结束时 /api/health total <= 50；5. 离线金丝雀三重断言通过。
@@ -42,6 +53,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -54,6 +66,7 @@ from bench.stress.run_soak import (
     RSS_SLOPE_LIMIT,
     RSS_TASK_CORR_DEFER,
     RSS_WARMUP_SEC,
+    TERMINAL_GRACE_SEC,
     SoakStats,
     _do,
     _load_rss_probe,
@@ -63,7 +76,6 @@ from bench.stress.run_soak import (
     _sampler_loop,
     _sleep_until,
     _sse_loop,
-    _submit_one,
     _terminal_rate,
     _zip_dir_bytes,
 )
@@ -77,6 +89,8 @@ TASK_PERIOD_SEC = 6.0  # 任务提交周期（run_soak 为 8s；600s 窗 → 100
 READY_TIMEOUT_SEC = 60.0  # 服务就绪等待上限
 POLL_INTERVAL = 0.25
 TERMINAL_STATUSES = ("done", "failed")
+DEFAULT_DRAIN_SEC = 60.0  # 排水等待默认秒数（W29 卡 B；0=关闭，等价既有行为）
+DRAIN_ENV = "CODEAUDIT_SOAK_DRAIN_SEC"  # --drain-sec 的同名环境变量兜底（CLI 优先）
 
 
 class _ServerHandleLong:
@@ -155,11 +169,13 @@ async def _task_loop(
     materials: list[tuple[str, bytes]],
     lifecycles: list["asyncio.Task[None]"],
     inflight: dict[str, None],
+    drain_deadline: float | None = None,
+    drain_events: list[tuple[float, float | None]] | None = None,
 ) -> None:
     """任务负载：每 6s 提交一个审计任务，mini_app 与 files=80 合成项目交替，直至负载期截止。
 
-    提交/生命周期复用 run_soak._submit_one（其内部派生 run_soak._task_lifecycle：
-    轮询至终态 + 保留 5s + DELETE，与 run_soak 完全同口径）。
+    提交/生命周期走本文件 _submit_one_drain（排水版）：与 run_soak._submit_one +
+    _task_lifecycle 同口径（轮询至终态 + 保留 5s + DELETE），drain 关闭时行为完全一致。
     """
     t0 = time.monotonic()
     n = 0
@@ -167,12 +183,140 @@ async def _task_loop(
         if time.monotonic() >= deadline:
             break
         name, payload = materials[n % len(materials)]
-        await _submit_one(client, stats, name, payload, lifecycles, inflight)
+        await _submit_one_drain(client, stats, name, payload, lifecycles, inflight, drain_deadline, drain_events)
         n += 1
         next_t = t0 + n * TASK_PERIOD_SEC
         if next_t >= deadline:
             break
         await _sleep_until(stop, next_t)
+
+
+# ---------------------------------------------------------------- 排水等待（W29 卡 B）
+def _resolve_drain_sec(cli_value: float | None, environ: dict[str, str] | None = None) -> float:
+    """--drain-sec 解析：CLI 优先，缺省时读环境变量 CODEAUDIT_SOAK_DRAIN_SEC，再缺省 60。
+
+    负值按 0（关闭）处理；env 配了非数字时回退默认 60（巡检自动化兜底优先于报错中断）。
+    """
+    env = os.environ if environ is None else environ
+    raw = cli_value if cli_value is not None else env.get(DRAIN_ENV)
+    if raw is None:
+        return DEFAULT_DRAIN_SEC
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_DRAIN_SEC
+    return max(0.0, value)
+
+
+def _drain_split(
+    waiting_deadlines: Sequence[float],
+    drain_sec: float,
+    finish_times: Sequence[float | None],
+    window_close: float,
+) -> tuple[int, int]:
+    """窗口关闭时在途任务的排水归因二分（纯函数，便于单测）。
+
+    入参两列等长（第 i 项描述同一个在途任务）：
+      - waiting_deadlines[i]：该任务既有生命周期截止时刻（monotonic 秒，提交 + 240s 审计上限）；
+      - finish_times[i]：实际转终态时刻；None 表示 drain 截止仍未终态。
+    判定：
+      - drain_sec <= 0：返回 (0, 0)，零排水归因（等价既有行为）；
+      - drain 截止 = max(waiting_deadlines[i], window_close + drain_sec)：截止前转终态 →
+        收编（drain_rescued），否则维持未终态（drain_still_running）。
+    返回 (drain_rescued, drain_still_running)；终态率口径不在本函数内（仍按 SoakStats 聚合）。
+    """
+    if drain_sec <= 0:
+        return 0, 0
+    rescued = still_running = 0
+    drain_at = window_close + drain_sec
+    for cap, fin in zip(waiting_deadlines, finish_times, strict=True):
+        if fin is None or fin > max(cap, drain_at):
+            still_running += 1
+        else:
+            rescued += 1
+    return rescued, still_running
+
+
+async def _task_lifecycle_drain(
+    client: httpx.AsyncClient,
+    stats: SoakStats,
+    audit_id: str,
+    drain_deadline: float | None,
+    drain_events: list[tuple[float, float | None]] | None,
+) -> None:
+    """单个被接纳任务的生命周期（排水版，W29 卡 B）。
+
+    与 run_soak._task_lifecycle 同口径（轮询至终态 + 保留 TERMINAL_GRACE_SEC 后 DELETE，
+    轮询间隔复用 POLL_INTERVAL），唯一差异：240s 审计上限到期仍未终态且 drain_deadline
+    晚于该上限时，继续轮询至 drain 截止——
+      - drain 截止前转终态：照常计 done/failed，并记 (原上限, 终态时刻) 供 drain_rescued 归因；
+      - drain 截止仍未终态：照旧计 timeout（终态率照常拒绝），记 (原上限, None) 供
+        drain_still_running 归因。
+    drain_deadline=None（或不晚于原上限）时不追加等待、不记事件，行为与既有完全一致。
+    """
+    cap_deadline = time.monotonic() + AUDIT_TIMEOUT_SEC
+    deadline = cap_deadline if drain_deadline is None else max(cap_deadline, drain_deadline)
+    status = "timeout"
+    while time.monotonic() < deadline:
+        resp, _ms = await _do(client, stats, "GET", f"/api/audits/{audit_id}")
+        if resp is not None and resp.status_code == 200:
+            st = str(resp.json().get("status", ""))
+            if st in TERMINAL_STATUSES:
+                status = st
+                break
+        await asyncio.sleep(POLL_INTERVAL)
+    finished_at = time.monotonic() if status != "timeout" else None
+    if drain_events is not None and drain_deadline is not None and drain_deadline > cap_deadline:
+        # 仅记录「原上限到期仍未终态」的任务：drain 内转终态为收编，截止仍未终态维持未终态
+        if status == "timeout" or (finished_at is not None and finished_at > cap_deadline):
+            drain_events.append((cap_deadline, finished_at))
+    stats.terminals[status] = stats.terminals.get(status, 0) + 1
+    await asyncio.sleep(TERMINAL_GRACE_SEC)
+    await _do(client, stats, "DELETE", f"/api/audits/{audit_id}")
+
+
+async def _submit_one_drain(
+    client: httpx.AsyncClient,
+    stats: SoakStats,
+    name: str,
+    payload: bytes,
+    lifecycles: list["asyncio.Task[None]"],
+    inflight: dict[str, None],
+    drain_deadline: float | None,
+    drain_events: list[tuple[float, float | None]] | None,
+) -> None:
+    """提交一个上传任务：与 run_soak._submit_one 同口径（200 接纳 / 429 记 denied / 其余记异常），
+    唯以 _task_lifecycle_drain 派生生命周期（排水版）。"""
+    stats.submits += 1
+    resp, _ms = await _do(
+        client,
+        stats,
+        "POST",
+        "/api/audits/upload",
+        files={"file": (f"soak_{name}.zip", payload, "application/zip")},
+        data={"do_fix": "false", "do_tests": "false"},
+    )
+    if resp is None:
+        stats.submit_anomaly.append(f"{name}: 客户端异常")
+        return
+    if resp.status_code == 429:
+        stats.denied_429 += 1  # F5 准入拒绝：合法观测，跳过本轮，不计错误
+        print(f"[soak] task#{stats.submits} {name} -> 429 denied（准入上限，跳过本轮）")
+        return
+    if resp.status_code != 200:
+        stats.submit_anomaly.append(f"{name}: HTTP {resp.status_code}")
+        return
+    audit_id = str(resp.json().get("audit_id", ""))
+    if not audit_id:
+        stats.submit_anomaly.append(f"{name}: 响应缺 audit_id")
+        return
+    stats.admitted += 1
+    stats.created_ids.append(audit_id)
+    inflight[audit_id] = None
+    lifecycles.append(
+        asyncio.create_task(_task_lifecycle_drain(client, stats, audit_id, drain_deadline, drain_events))
+    )
+    print(f"[soak] task#{stats.submits} {name} -> admitted audit_id={audit_id}")
 
 
 # ---------------------------------------------------------------- 离线金丝雀
@@ -251,11 +395,24 @@ async def _offline_canary(client: httpx.AsyncClient, db_path: Path, payload: byt
 
 # ---------------------------------------------------------------- 判定与报告
 def _render_md(env: dict[str, str], stats: SoakStats, verdict: dict[str, Any]) -> str:
-    """渲染 markdown 报告：环境头、摘要、三态判定、RSS 时序、诊断、诚实边界。"""
+    """渲染 markdown 报告：环境头、摘要（含排水归因行，W29）、三态判定、RSS 时序、诊断、诚实边界。
+
+    排水归因行：drain>0 时「排水：{drain_sec}s 内收编 N 任务，仍 M 在途」，drain 关闭或
+    旧形状 verdict（无 drain 键）时「排水：关闭（--drain-sec=0，等价既有口径）」；
+    既有行格式零变化（仅新增行）。
+    """
     wall_load = verdict["wall_load"]
     slope, n_slope, slope_full = verdict["rss_slope"]
     rss_corr = verdict["rss_corr"]
     rate = verdict["terminal_rate"]
+    drain_sec = verdict.get("drain_sec")
+    drain_rescued = int(verdict.get("drain_rescued", 0))
+    drain_still_running = int(verdict.get("drain_still_running", 0))
+    drain_note = (
+        f"排水：{drain_sec:.0f}s 内收编 {drain_rescued} 任务，仍 {drain_still_running} 在途"
+        if drain_sec is not None and drain_sec > 0
+        else "排水：关闭（--drain-sec=0，等价既有口径）"
+    )
     lines = [
         "# 长窗 soak 压测报告（bench/stress/run_soak_long.py，W12-A4 / F9 服务端层归因）",
         "",
@@ -293,6 +450,7 @@ def _render_md(env: dict[str, str], stats: SoakStats, verdict: dict[str, Any]) -
         f"| RSS 稳态斜率（判定，剔除 {RSS_WARMUP_SEC}s 预热） | {'-' if slope is None else f'{slope:.3f}'} MB/min"
         f"（{n_slope} 个稳态样本；全窗口参考 {'-' if slope_full is None else f'{slope_full:.3f}'}） |",
         f"| 结束时 /api/health total | {verdict['final_total']} |",
+        f"| 排水归因 | {drain_note} |",
         "",
         "## 判定",
         "",
@@ -375,8 +533,9 @@ def _render_md(env: dict[str, str], stats: SoakStats, verdict: dict[str, Any]) -
 
 
 # ---------------------------------------------------------------- 主流程
-async def run(port: int, out: Path, duration: float, quick: bool) -> int:
-    """长窗 soak 主流程：消毒 → 自起服务（临时目录隔离）→ 离线金丝雀 → 混合负载 → 排空 → 三态判定。"""
+async def run(port: int, out: Path, duration: float, quick: bool, drain_sec: float = DEFAULT_DRAIN_SEC) -> int:
+    """长窗 soak 主流程：消毒 → 自起服务（临时目录隔离）→ 离线金丝雀 → 混合负载
+    → 排空（含 drain 排水等待，W29 卡 B）→ 三态判定。"""
     # 全程离线：父进程先行消毒（服务子进程由 _ServerHandleLong 再消毒一次）
     for key in ("GLM_API_KEY", "GLM_BASE_URL", "GLM_MODEL"):
         os.environ.pop(key, None)
@@ -406,10 +565,15 @@ async def run(port: int, out: Path, duration: float, quick: bool) -> int:
             deadline = load_t0 + duration
             inflight: dict[str, None] = {}
             lifecycles: list["asyncio.Task[None]"] = []
+            # 排水等待（W29 卡 B）：drain>0 时，窗口关闭后仍未终态的任务继续轮询至 drain 截止
+            drain_deadline = deadline + drain_sec if drain_sec > 0 else None
+            drain_events: list[tuple[float, float | None]] = []
             loops = [
                 asyncio.create_task(_read_loop(client, stats, stop, "/api/health", "health")),
                 asyncio.create_task(_read_loop(client, stats, stop, "/api/audits?limit=5", "list")),
-                asyncio.create_task(_task_loop(client, stats, stop, deadline, materials, lifecycles, inflight)),
+                asyncio.create_task(
+                    _task_loop(client, stats, stop, deadline, materials, lifecycles, inflight, drain_deadline, drain_events)
+                ),
                 asyncio.create_task(_sse_loop(client, stats, stop, deadline, inflight)),
                 asyncio.create_task(_sampler_loop(client, stats, stop, rss_probe, server.proc, load_t0)),
             ]
@@ -420,12 +584,22 @@ async def run(port: int, out: Path, duration: float, quick: bool) -> int:
                     stats.loop_crashes.append(f"{type(coro).__name__}: {coro}")
             wall_load = time.monotonic() - load_t0
 
-            # 排空：等待全部在途任务生命周期结束（各自 240s 上限）
+            # 排空：等待全部在途任务生命周期结束（各自 240s 上限；drain>0 时延长至 drain 截止）
             drain_t0 = time.monotonic()
             for res in await asyncio.gather(*lifecycles, return_exceptions=True):
                 if isinstance(res, BaseException):
                     stats.loop_crashes.append(f"lifecycle {type(res).__name__}: {res}")
             drain_wall = time.monotonic() - drain_t0
+
+            # 排水归因（纯函数二分，W29 卡 B）：收编/仍超时仅作报告归因，终态率口径不变
+            drain_rescued, drain_still_running = _drain_split(
+                [cap for cap, _fin in drain_events],
+                drain_sec,
+                [fin for _cap, fin in drain_events],
+                deadline,
+            )
+            if drain_sec > 0:
+                print(f"[soak-long] 排水：drain={drain_sec:.0f}s 收编 {drain_rescued} 任务，仍 {drain_still_running} 在途")
 
             # 结束时任务表规模快照（清理前取数）
             final_total = -1
@@ -518,6 +692,9 @@ async def run(port: int, out: Path, duration: float, quick: bool) -> int:
         "wall_load": wall_load,
         "wall_total": wall_total,
         "drain_wall": drain_wall,
+        "drain_sec": drain_sec,
+        "drain_rescued": drain_rescued,
+        "drain_still_running": drain_still_running,
         "terminal_rate": rate,
         "rss_slope": (slope, n_slope, slope_full),
         "rss_corr": rss_corr,
@@ -555,9 +732,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--quick", action="store_true", help="长窗冒烟口径：时长固定 300s")
     parser.add_argument("--port", type=int, default=8947, help="自起服务端口（默认 8947）")
     parser.add_argument("--out", default=str(DEFAULT_OUT), help="markdown 报告输出路径")
+    parser.add_argument(
+        "--drain-sec",
+        type=float,
+        default=None,
+        help="接纳窗口关闭后的排水等待秒数（缺省读环境变量 CODEAUDIT_SOAK_DRAIN_SEC，再缺省 60；0=关闭）",
+    )
     args = parser.parse_args(argv)
     duration = 300.0 if args.quick else (args.duration if args.duration > 0 else 600.0)
-    return asyncio.run(run(args.port, Path(args.out), duration, bool(args.quick)))
+    drain_sec = _resolve_drain_sec(args.drain_sec)
+    return asyncio.run(run(args.port, Path(args.out), duration, bool(args.quick), drain_sec))
 
 
 if __name__ == "__main__":

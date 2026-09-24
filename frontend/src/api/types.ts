@@ -105,6 +105,71 @@ export interface CreateAuditResult {
   audit_id: string;
 }
 
+/** GET /api/audits/{id}/reports 列表条目：报告历史版本摘要（W27-B，seq 升序，不含报告全文）。 */
+export interface ReportVersionSummary {
+  /** 版本号（从 1 起；当前报告即历史最大 seq）。 */
+  seq: number;
+  /** 版本生成时间（ISO 字符串）。 */
+  created_at: string;
+  /** 该版本健康分。 */
+  health_score: number;
+  /** 该版本问题总数。 */
+  issue_count: number;
+}
+
+/** GET /api/audits/{id}/reports 响应（total + 版本摘要列表；任务不存在 404）。 */
+export interface ReportHistoryList {
+  total: number;
+  reports: ReportVersionSummary[];
+}
+
+/**
+ * GET /api/audits/{id}/reports/{seq}：指定历史版本完整报告 JSON
+ * （audit.models.AuditReport.to_dict() 同源形状，与当前报告端点 /report?format=json 一致）。
+ * 报告历史面板只消费健康分/严重度计数等关键字段，其余字段以索引签名宽松保留。
+ */
+export interface ReportVersionDetail {
+  audit_id: string;
+  project_name: string;
+  /** 语言 → 占比。 */
+  languages: Record<string, number>;
+  loc: number;
+  health_score: number;
+  /** severity → count（critical/high/medium/low）。 */
+  summary: Record<string, number>;
+  created_at: string;
+  schema_version: string;
+  [key: string]: unknown;
+}
+
+/** POST /api/rename 请求体（W28-B safe-rename 符号重命名，字段与后端 RenameRequest 一致）。 */
+export interface RenameRequest {
+  /** 待重命名扫描范围（单 .py 文件或目录，目录时递归）。 */
+  source_path: string;
+  /** 现名（须为合法 Python 标识符且非关键字）。 */
+  old_name: string;
+  /** 新名（合法 Python 标识符、非关键字，且 != old_name）。 */
+  new_name: string;
+  /** true=写入源码；false/缺省=dry-run 预览不落盘。 */
+  apply?: boolean;
+  /** 目标语言，缺省 "python"（前端不传，由后端取缺省值）。 */
+  language?: string;
+}
+
+/** POST /api/rename 响应（dry-run 与 apply 同形状，applied 区分是否落盘）。 */
+export interface RenameResult {
+  ok: boolean;
+  /** false=dry-run（未落盘）；true=已写入源码。 */
+  applied: boolean;
+  /** 受影响文件路径列表（即计划补丁覆盖的文件）。 */
+  files: string[];
+  /** 全部替换点总数。 */
+  replace_points: number;
+  /** 逐文件 unified diff 文本（键为文件路径）。 */
+  diffs: Record<string, string>;
+  errors: string[];
+}
+
 /** GET /api/health。 */
 export interface HealthInfo {
   status: string;
