@@ -54,7 +54,7 @@ jobs:
 
       - name: Upload SARIF artifact
         if: always()   # 门禁失败（发现 critical）时也要能拿到 SARIF 供排查
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: codeaudit-sarif
           path: ${{ env.AUDIT_OUT }}/report.sarif
